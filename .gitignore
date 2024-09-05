@@ -1,0 +1,77 @@
+# Rust / Cargo
+/target
+**/target
+Cargo.lock.orig
+
+# CMake / native build
+build/
+build-*/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+CTestTestfile.cmake
+*.cmake.local
+
+# Fortran
+*.o
+*.mod
+*.smod
+*.obj
+*.so
+*.dll
+*.dylib
+*.a
+*.lib
+*.exe
+fortran/*/libnuf*.so
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Output / runtime data (cases write here)
+output/
+
+# HDF5 / restart files produced by runs
+*.h5
+*.h5.tmp
+*.h5.lock
+*.hd5
+
+# Local / scratch — never pushed
+.local/
+
+
+local-handoff.md
+worklog.md
+WORK.md
+*_plan.md
+*.plan.md
+audit*.md
+spike*
+kanban*.md
+research/scratch/
+
+# Working goals / project constitution — local reference, not public
+/goals/
+/nuFor_README.md
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Test / coverage
+.coverage
+htmlcov/

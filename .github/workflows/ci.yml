@@ -1,0 +1,41 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Bootstrap skeleton checks. Runs on Linux and Windows; real build/verify
+  # jobs are added as the mixed Rust/Fortran build system lands (PLAN step 2).
+  structure:
+    name: structure-check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gfortran cmake libhdf5-dev
+          rustup component add rustfmt clippy
+      - name: Install toolchain (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install -y mingw cmake hdf5
+          gfortran --version
+          cmake --version
+      - name: Verify Rust toolchain
+        shell: bash
+        run: |
+          cargo --version
+          rustc --version
+      - name: Skeleton structure + LF check
+        shell: bash
+        run: python .github/scripts/skeleton_check.py
