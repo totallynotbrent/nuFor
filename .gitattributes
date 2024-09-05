@@ -1,0 +1,38 @@
+# Normalize all text to LF; never commit CRLF (AGENT_README rule 6).
+* text=auto eol=lf
+
+# Explicitly force LF on common text types.
+*.md text eol=lf
+*.txt text eol=lf
+*.rs text eol=lf
+*.f90 text eol=lf
+*.f text eol=lf
+*.py text eol=lf
+*.toml text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+*.sh text eol=lf
+*.bat text eol=lf
+*.ps1 text eol=lf
+*.cmake text eol=lf
+*.svg text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.js text eol=lf
+
+# Binary files must never be line-end normalized.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.pdf binary
+*.h5 binary
+*.btv binary
+*.vtk binary
+*.vtp binary
+*.vtu binary
+*.zip binary
+*.tar binary
+*.gz binary
