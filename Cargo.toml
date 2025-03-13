@@ -1,0 +1,14 @@
+# Cargo workspace for the Rust application layer (PLAN step 2).
+# The Fortran numerical layer is built by CMake via build.rs, not by Cargo.
+[workspace]
+resolver = "2"
+members = ["crates/nufor-core"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.74"
+license = "GPL-3.0-or-later"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"

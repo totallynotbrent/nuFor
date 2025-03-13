@@ -39,3 +39,25 @@ jobs:
       - name: Skeleton structure + LF check
         shell: bash
         run: python .github/scripts/skeleton_check.py
+
+  # Real mixed build: build.rs drives CMake into the Fortran kernels, then the
+  # FFI integration tests run against the linked library (PLAN step 2).
+  native:
+    name: native build + FFI test (ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gfortran cmake
+          rustup component add rustfmt clippy
+      - name: Lint + format
+        shell: bash
+        run: |
+          cargo fmt --check
+          cargo clippy --workspace --all-targets -- -D warnings
+      - name: Build + FFI integration tests
+        shell: bash
+        run: cargo test --workspace

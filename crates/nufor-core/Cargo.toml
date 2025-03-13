@@ -1,0 +1,14 @@
+[package]
+name = "nufor-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Rust half of the nuFor mixed-language boundary: marshaling, error mapping, core runtime types"
+
+[lib]
+name = "nufor_core"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
