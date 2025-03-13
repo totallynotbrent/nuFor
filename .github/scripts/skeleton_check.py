@@ -50,6 +50,10 @@ def main() -> int:
     for path in root.rglob("*"):
         if not path.is_file() or ".git" in path.parts:
             continue
+        # Build artifacts (Cargo target/, CMake build/) hold binary data with
+        # arbitrary bytes; they are gitignored and never part of the text tree.
+        if "target" in path.parts or "build" in path.parts:
+            continue
         if path.name in ("Cargo.lock",) or path.suffix in BINARY_SUFFIXES:
             continue
         raw = path.read_bytes()

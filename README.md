@@ -12,9 +12,11 @@ evidence, not by a successful compile.
 
 ## Status
 
-Experimental. The repository is at bootstrap: project skeleton, conventions, and
-continuous integration are in place. No solver code exists yet. See
-`plans/PLAN.md` for the ordered step-by-step roadmap and the current step.
+Experimental. The mixed Rust/Fortran build system and the FFI boundary are in
+place (PLAN step 2): a Cargo workspace drives CMake via `build.rs`, the
+Fortran kernel library compiles and links, and FFI integration tests pass.
+The boundary decision is recorded in `docs/research/ffi-boundary.md`. Numerical
+solvers come next. See `plans/PLAN.md` for the ordered roadmap and current step.
 
 ## Repository layout
 
@@ -22,14 +24,16 @@ continuous integration are in place. No solver code exists yet. See
 nuFor/
 ├── README.md            this file
 ├── LICENSE              GPL-3.0-only
+├── Cargo.toml           Rust workspace
+├── CMakeLists.txt       (future top-level native orchestration)
 ├── CONTRIBUTING.md      how to contribute
 ├── CODE_OF_CONDUCT.md   contributor expectations
 ├── SECURITY.md          security reporting policy
 ├── docs/                architecture, numerics, physics, formats, research,
 │                        verification, operations
 ├── plans/               step-by-step roadmap and execution log
-├── crates/              Rust packages (nufor-cli, nufor-runtime, ...)
-├── fortran/             Fortran numerical kernels
+├── crates/              Rust packages (nufor-core, then nufor-cli/runtime/...)
+├── fortran/             Fortran numerical kernels (CMake build)
 ├── python/              analysis, reference, visualization, verification
 ├── cases/               tutorial, verification, benchmark cases
 ├── tests/               unit, integration, regression, cross-platform
@@ -37,9 +41,9 @@ nuFor/
 └── scripts/             helper scripts
 ```
 
-The full engineering constitution (spec), research notebook index, and five-year
-roadmap live in `nuFor_README.md`. It is the authority on architecture,
-numerical standards, and milestone gates.
+The full engineering constitution (spec), research notebook index, and roadmap
+live in `nuFor_README.md`. It is the authority on architecture, numerical
+standards, and milestone gates.
 
 ## Toolchain
 
@@ -56,9 +60,15 @@ Builds target Linux; Windows support is tracked in CI.
 
 ## Building
 
-Nothing compile-able is committed yet. The mixed Rust/Fortran build system lands
-as the next step (`plans/PLAN.md` step 2), after which the README documents real
-build commands.
+`cargo test --workspace` builds and tests the full stack: `build.rs` drives
+CMake to compile the Fortran kernels, links the static archive, and runs FFI
+integration tests. To build the Fortran kernels standalone (see also
+`docs/operations/README.md`):
+
+```
+cmake -S fortran -B build/fortran -DCMAKE_BUILD_TYPE=Release
+cmake --build build/fortran --config Release
+```
 
 ## Roadmap
 
