@@ -4,19 +4,20 @@ A CPU-first computational fluid dynamics research code. nuFor couples modern
 Fortran numerical kernels with a Rust application layer (CLI, web UI, runtime)
 and Python tooling for analysis, reference solutions, and verification.
 
-The project is being developed openly over roughly five years, one verified step
-at a time: foundations and 1D Euler first, then 2D, viscosity, parallel
-performance, and broader validation. This repository is the executable record of
-that program. Every numerical claim is meant to be backed by verification
-evidence, not by a successful compile.
+The project is developed one verified step at a time: foundations and the 1D
+Euler solver first, then 2D, viscosity, parallel performance, and broader
+validation. This repository is the executable record of that program. Every
+numerical claim is meant to be backed by verification evidence, not by a
+successful compile.
 
 ## Status
 
-Experimental. The mixed Rust/Fortran build system and the FFI boundary are in
-place (PLAN step 2): a Cargo workspace drives CMake via `build.rs`, the
-Fortran kernel library compiles and links, and FFI integration tests pass.
-The boundary decision is recorded in `docs/research/ffi-boundary.md`. Numerical
-solvers come next. See `plans/PLAN.md` for the ordered roadmap and current step.
+Experimental. Foundations are in place through PLAN step 3: the mixed
+Rust/Fortran build (Cargo drives CMake via `build.rs`, FFI integration tests
+pass) and the `case.toml` case-file schema with strict validation
+(`crates/nufor-config`, schema documented in `docs/formats/case-toml.md`).
+Numerical solvers come next. See `plans/PLAN.md` for the ordered roadmap and
+current step.
 
 ## Repository layout
 
@@ -72,11 +73,9 @@ cmake --build build/fortran --config Release
 
 ## Roadmap
 
-- Year 1: foundations, 1D Euler, verification, basic architecture, first web/CLI shell.
-- Year 2: 2D Euler, better reconstruction/fluxes, performance foundation, 2D viscous beginnings.
-- Year 3: 3D, unstructured mesh research, turbulence foundations, stronger visualization.
-- Year 4: RANS/thermo/propulsion workflows, MPI research, mature data formats, benchmarks.
-- Year 5: integration, broad validation, documentation, release quality, publication readiness.
+- Current phase: foundations, 1D Euler, verification, basic architecture, first web/CLI shell.
+- Next phase: 2D Euler, better reconstruction/fluxes, performance foundation, 2D viscous beginnings.
+- Later phases: 3D, unstructured-mesh research, turbulence foundations, stronger visualization, then RANS/thermo/propulsion workflows, MPI research, mature data formats, benchmarks, and finally integration, broad validation, documentation, and release quality.
 
 ## License
 
