@@ -1,0 +1,319 @@
+//! Semantic validation of a parsed case (spec 40: termination criteria,
+//! physical ranges). Parse-level type errors are handled by serde; this pass
+//! checks the values.
+
+use super::schema::{CaseConfig, InitialCondition};
+
+impl CaseConfig {
+    /// Return every violated rule; empty means the case is valid.
+    pub fn validate(&self) -> Vec<String> {
+        let mut problems = Vec::new();
+
+        if self.metadata.name.trim().is_empty() {
+            problems.push("metadata.name must not be empty".to_owned());
+        }
+        if self.metadata.case_revision < 1 {
+            problems.push(format!(
+                "metadata.case_revision must be >= 1 (got {})",
+                self.metadata.case_revision
+            ));
+        }
+
+        if self.physics.gamma <= 1.0 {
+            problems.push(format!(
+                "physics.gamma must be > 1 (got {})",
+                self.physics.gamma
+            ));
+        }
+        if self.physics.gas_constant <= 0.0 {
+            problems.push(format!(
+                "physics.gas_constant must be > 0 (got {})",
+                self.physics.gas_constant
+            ));
+        }
+        if let Some(reference) = &self.physics.reference {
+            check_positive(reference.rho, "physics.reference.rho", &mut problems);
+            check_positive(reference.p, "physics.reference.p", &mut problems);
+            check_positive(reference.l, "physics.reference.l", &mut problems);
+        }
+
+        if self.mesh.nx < 2 {
+            problems.push(format!("mesh.nx must be >= 2 (got {})", self.mesh.nx));
+        }
+        if self.mesh.x1 <= self.mesh.x0 {
+            problems.push(format!(
+                "mesh.x1 must be > mesh.x0 (got [{}, {}])",
+                self.mesh.x0, self.mesh.x1
+            ));
+        }
+
+        match &self.initial_condition {
+            InitialCondition::Uniform { rho, p, .. } => {
+                check_positive(*rho, "initial_condition.rho", &mut problems);
+                check_positive(*p, "initial_condition.p", &mut problems);
+            }
+            InitialCondition::TwoState { left, right } => {
+                check_positive(left.rho, "initial_condition.left.rho", &mut problems);
+                check_positive(left.p, "initial_condition.left.p", &mut problems);
+                check_positive(right.rho, "initial_condition.right.rho", &mut problems);
+                check_positive(right.p, "initial_condition.right.p", &mut problems);
+            }
+        }
+
+        let cfl = self.numerics.cfl;
+        if cfl <= 0.0 || cfl > 1.0 {
+            problems.push(format!("numerics.cfl must be in (0, 1] (got {cfl})"));
+        }
+
+        if self.time.final_time < 0.0 {
+            problems.push(format!(
+                "time.final_time must be >= 0 (got {})",
+                self.time.final_time
+            ));
+        }
+        if let Some(target) = self.time.residual_target {
+            if target <= 0.0 {
+                problems.push(format!("time.residual_target must be > 0 (got {target})"));
+            }
+        }
+        let has_termination = self.time.final_time > 0.0
+            || self.time.max_steps > 0
+            || self.time.residual_target.is_some();
+        if !has_termination {
+            problems.push(
+                "time needs a termination criterion: final_time > 0, max_steps > 0, or residual_target"
+                    .to_owned(),
+            );
+        }
+
+        if self.output.interval_steps < 1 {
+            problems.push(format!(
+                "output.interval_steps must be >= 1 (got {})",
+                self.output.interval_steps
+            ));
+        }
+        if self.output.formats.is_empty() {
+            problems.push("output.formats must list at least one format".to_owned());
+        }
+        if self.output.fields.is_empty() {
+            problems.push("output.fields must list at least one field".to_owned());
+        }
+        for field in &self.output.fields {
+            if field.trim().is_empty() {
+                problems.push("output.fields entries must not be empty".to_owned());
+            }
+        }
+
+        problems
+    }
+}
+
+fn check_positive(value: f64, context: &str, problems: &mut Vec<String>) {
+    if value <= 0.0 {
+        problems.push(format!("{context} must be > 0 (got {value})"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::parse_case_toml;
+    use super::CaseConfig;
+
+    fn valid_case() -> &'static str {
+        r#"
+schema_version = 1
+
+[metadata]
+name = "sod-shock-tube"
+case_revision = 1
+
+[physics]
+equations = "euler_1d"
+gamma = 1.4
+gas_constant = 287.0
+
+[mesh]
+nx = 100
+x0 = 0.0
+x1 = 1.0
+
+[initial_condition]
+type = "two_state"
+left = { rho = 1.0, u = 0.0, p = 1.0 }
+right = { rho = 0.125, u = 0.0, p = 0.1 }
+
+[boundaries]
+left = "wall"
+right = "wall"
+
+[numerics]
+flux = "hll"
+reconstruction = "first_order"
+cfl = 0.5
+
+[time]
+final_time = 0.2
+max_steps = 10000
+
+[output]
+interval_steps = 100
+formats = ["csv", "vtk"]
+fields = ["rho", "u", "p"]
+"#
+    }
+
+    fn problems_for(toml: &str) -> Vec<String> {
+        parse_case_toml(toml)
+            .err()
+            .map(|err| match err {
+                super::super::ConfigError::Invalid { problems } => problems,
+                other => vec![other.to_string()],
+            })
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn valid_case_passes() {
+        let config = parse_case_toml(valid_case()).expect("valid case should parse");
+        assert!(CaseConfig::validate(&config).is_empty());
+    }
+
+    #[test]
+    fn termination_by_residual_alone_is_enough() {
+        let toml = valid_case().replace("[time]\nfinal_time = 0.2\n", "[time]\n");
+        assert!(problems_for(&toml).is_empty(), "max_steps across the check");
+    }
+
+    #[test]
+    fn rejects_missing_termination() {
+        let toml =
+            valid_case().replace("[time]\nfinal_time = 0.2\nmax_steps = 10000\n", "[time]\n");
+        let problems = problems_for(&toml);
+        assert!(
+            problems.iter().any(|p| p.contains("termination criterion")),
+            "expected a termination error, got {problems:?}"
+        );
+    }
+
+    #[test]
+    fn rejects_bad_density() {
+        let toml = valid_case().replace("right = { rho = 0.125", "right = { rho = -0.125");
+        let problems = problems_for(&toml);
+        assert!(problems.iter().any(|p| p.contains("right.rho")));
+    }
+
+    #[test]
+    fn rejects_zero_pressure() {
+        let toml = valid_case().replace(
+            "left = { rho = 1.0, u = 0.0, p = 1.0 }",
+            "left = { rho = 1.0, u = 0.0, p = 0.0 }",
+        );
+        let problems = problems_for(&toml);
+        assert!(problems.iter().any(|p| p.contains("left.p")));
+    }
+
+    #[test]
+    fn rejects_gamma_not_above_one() {
+        for gamma in ["1.0", "0.9"] {
+            let toml = valid_case().replace("gamma = 1.4", &format!("gamma = {gamma}"));
+            let problems = problems_for(&toml);
+            assert!(
+                problems.iter().any(|p| p.contains("gamma")),
+                "gamma = {gamma} should fail, got {problems:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_gas_constant_nonpositive() {
+        let toml = valid_case().replace("gas_constant = 287.0", "gas_constant = 0.0");
+        let problems = problems_for(&toml);
+        assert!(problems.iter().any(|p| p.contains("gas_constant")));
+    }
+
+    #[test]
+    fn rejects_mesh_with_fewer_than_two_cells() {
+        let toml = valid_case().replace("nx = 100", "nx = 1");
+        let problems = problems_for(&toml);
+        assert!(problems.iter().any(|p| p.contains("nx")));
+    }
+
+    #[test]
+    fn rejects_inverted_or_flat_domain() {
+        for (x0, x1) in [("1.0", "1.0"), ("1.0", "0.5")] {
+            let toml = valid_case()
+                .replace("x0 = 0.0", &format!("x0 = {x0}"))
+                .replace("x1 = 1.0", &format!("x1 = {x1}"));
+            let problems = problems_for(&toml);
+            assert!(
+                problems.iter().any(|p| p.contains("mesh.x1")),
+                "domain [{x0}, {x1}] should fail, got {problems:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_cfl_out_of_range() {
+        for cfl in ["0.0", "-0.1", "1.5"] {
+            let toml = valid_case().replace("cfl = 0.5", &format!("cfl = {cfl}"));
+            let problems = problems_for(&toml);
+            assert!(
+                problems.iter().any(|p| p.contains("cfl")),
+                "cfl = {cfl} should fail, got {problems:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_negative_final_time() {
+        let toml = valid_case().replace("final_time = 0.2", "final_time = -1.0");
+        let problems = problems_for(&toml);
+        assert!(problems.iter().any(|p| p.contains("final_time")));
+    }
+
+    #[test]
+    fn rejects_negative_residual_target() {
+        let toml = valid_case().replace(
+            "max_steps = 10000\n",
+            "max_steps = 10000\nresidual_target = -1.0\n",
+        );
+        let problems = problems_for(&toml);
+        assert!(problems.iter().any(|p| p.contains("residual_target")));
+    }
+
+    #[test]
+    fn rejects_zero_output_interval() {
+        let toml = valid_case().replace("interval_steps = 100", "interval_steps = 0");
+        let problems = problems_for(&toml);
+        assert!(problems.iter().any(|p| p.contains("interval_steps")));
+    }
+
+    #[test]
+    fn rejects_empty_formats_or_fields() {
+        let empty_formats = valid_case().replace("formats = [\"csv\", \"vtk\"]", "formats = []");
+        assert!(problems_for(&empty_formats)
+            .iter()
+            .any(|p| p.contains("formats")));
+        let empty_fields = valid_case().replace("fields = [\"rho\", \"u\", \"p\"]", "fields = []");
+        assert!(problems_for(&empty_fields)
+            .iter()
+            .any(|p| p.contains("fields")));
+    }
+
+    #[test]
+    fn rejects_blank_name() {
+        let toml = valid_case().replace("name = \"sod-shock-tube\"", "name = \"  \"");
+        let problems = problems_for(&toml);
+        assert!(problems.iter().any(|p| p.contains("name")));
+    }
+
+    #[test]
+    fn defaults_apply_when_omitted() {
+        let toml = valid_case()
+            .replace("unit_system = \"si\"\n", "")
+            .replace("case_revision = 1\n", "");
+        let config = parse_case_toml(&toml).expect("defaults should fill omitted fields");
+        assert_eq!(config.metadata.case_revision, 1);
+        assert_eq!(config.physics.unit_system, super::super::UnitSystem::Si);
+    }
+}

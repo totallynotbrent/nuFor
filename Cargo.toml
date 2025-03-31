@@ -2,7 +2,7 @@
 # The Fortran numerical layer is built by CMake via build.rs, not by Cargo.
 [workspace]
 resolver = "2"
-members = ["crates/nufor-core"]
+members = ["crates/nufor-core", "crates/nufor-config"]
 
 [workspace.package]
 version = "0.1.0"

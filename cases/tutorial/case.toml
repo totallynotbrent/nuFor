@@ -1,0 +1,45 @@
+# Reproducibility root for a 1D shock-tube run. Schema documented in
+# docs/formats/case-toml.md; validation lives in crates/nufor-config.
+schema_version = 1
+
+[metadata]
+name = "sod-shock-tube"
+description = "Classic Sod shock tube on a coarse tutorial mesh"
+case_revision = 1
+
+[physics]
+equations = "euler_1d"
+gamma = 1.4
+gas_constant = 287.0
+unit_system = "si"
+reference = { rho = 1.0, p = 1.0, u = 0.0, l = 1.0 }
+
+[mesh]
+nx = 100
+x0 = 0.0
+x1 = 1.0
+source = "uniform"
+
+[initial_condition]
+type = "two_state"
+left = { rho = 1.0, u = 0.0, p = 1.0 }
+right = { rho = 0.125, u = 0.0, p = 0.1 }
+
+[boundaries]
+left = "wall"
+right = "wall"
+
+[numerics]
+flux = "hll"
+reconstruction = "first_order"
+cfl = 0.5
+
+[time]
+final_time = 0.2
+max_steps = 10000
+residual_target = 1.0e-10
+
+[output]
+interval_steps = 100
+formats = ["csv", "vtk"]
+fields = ["rho", "u", "p"]
