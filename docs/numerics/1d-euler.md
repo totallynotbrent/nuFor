@@ -14,12 +14,15 @@ focus of the project.
 
 ## What it needs
 
-- Conservative and primitive state and the conversion between them.
+- Conservative and primitive state and the conversion between them —
+  landed: see [[state-grid|1D state and uniform grid]].
+- Uniform 1D grid geometry — landed: see [[state-grid|1D state and uniform
+  grid]].
 - Ideal-gas equation of state with pressure recovery and explicit
   physical-validity checks.
-- Uniform 1D grid geometry, face-flux storage, first-order reconstruction,
-  one baseline approximate flux (HLL, then HLLC), CFL time-step control, and
-  explicit time advancement.
+- Face-flux storage, first-order reconstruction, one baseline approximate
+  flux (HLL, then HLLC), CFL time-step control, and explicit time
+  advancement.
 - Boundaries, residual computation, iteration logging, and restart writing.
 
 ## Verification ladder
@@ -32,6 +35,7 @@ run or a screenshot is not verification.
 
 ## Related
 
+- [[state-grid|Numerics — 1D state and uniform grid]]
 - [[architecture|Architecture]]
 - [[case-toml|Formats — case.toml (case definition)]]
 - [[ffi-boundary|Research — FFI boundary]]
