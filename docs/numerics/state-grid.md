@@ -27,9 +27,9 @@ graph LR
 - **Primitive** vector `W = (rho, u, e_t)`: density, velocity, and total
   specific energy `e_t`. Initial conditions and boundary data are usually
   written in primitives.
-- Conversion is deliberately **EOS-free**: `e_t` stays total. The split into
-  internal energy plus `u^2/2` and the pressure recovery belong to the
-  [[1d-euler|EOS step]] that follows.
+- Conversion is **EOS-free**: `e_t` stays total. The split into
+  internal energy plus `u^2/2` and the pressure recovery land in the
+  [[eos|ideal-gas equation of state]] step.
 - Both directions reject non-positive density (`rho <= 0`) with a structured
   numerical-failure code rather than producing a garbage state.
 

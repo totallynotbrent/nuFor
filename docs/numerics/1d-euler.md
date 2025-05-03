@@ -19,7 +19,8 @@ focus of the project.
 - Uniform 1D grid geometry — landed: see [[state-grid|1D state and uniform
   grid]].
 - Ideal-gas equation of state with pressure recovery and explicit
-  physical-validity checks.
+  physical-validity checks — landed: see [[eos|Ideal-gas equation of
+  state]].
 - Face-flux storage, first-order reconstruction, one baseline approximate
   flux (HLL, then HLLC), CFL time-step control, and explicit time
   advancement.
