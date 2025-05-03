@@ -81,18 +81,55 @@ mod ffi {
             et: *mut f64,
             err: *mut c_int,
         );
+        pub fn nfor_eos_pressure(
+            gamma: f64,
+            n: c_int,
+            rho: *const f64,
+            et: *const f64,
+            u: *const f64,
+            p: *mut f64,
+            err: *mut c_int,
+        );
+        pub fn nfor_eos_sound_speed(
+            gamma: f64,
+            n: c_int,
+            rho: *const f64,
+            p: *const f64,
+            a: *mut f64,
+            err: *mut c_int,
+        );
+        pub fn nfor_eos_mach(
+            n: c_int,
+            u: *const f64,
+            a: *const f64,
+            mach: *mut f64,
+            err: *mut c_int,
+        );
+        pub fn nfor_eos_temperature(
+            r: f64,
+            n: c_int,
+            rho: *const f64,
+            p: *const f64,
+            t: *mut f64,
+            err: *mut c_int,
+        );
     }
+}
+
+/// Two slices must agree on a positive length representable in `c_int`.
+fn checked_len2(a: &[f64], b: &[f64]) -> Result<usize, Error> {
+    if a.is_empty() || a.len() != b.len() || a.len() > c_int::MAX as usize {
+        return Err(Error::InvalidArgs);
+    }
+    Ok(a.len())
 }
 
 /// Three slices must agree on a positive length representable in `c_int`.
 fn checked_len(a: &[f64], b: &[f64], c: &[f64]) -> Result<usize, Error> {
-    if a.is_empty() || a.len() != b.len() || a.len() != c.len() {
+    if a.len() != c.len() {
         return Err(Error::InvalidArgs);
     }
-    if a.len() > c_int::MAX as usize {
-        return Err(Error::InvalidArgs);
-    }
-    Ok(a.len())
+    checked_len2(a, b)
 }
 
 /// Version string reported by the Fortran kernel library.
@@ -227,4 +264,107 @@ pub fn cons_to_prim(rho: &[f64], m: &[f64], e: &[f64]) -> Result<(Vec<f64>, Vec<
     }
     from_code(err)?;
     Ok((u, et))
+}
+
+/// Ideal-gas pressure from primitives (spec 25): `p = (gamma - 1) * rho * e_int`
+/// with `e_int = e_t - u^2/2`, computed in the Fortran kernel.
+///
+/// `gamma` must exceed 1. Non-positive density or internal energy is an
+/// inadmissible Euler state, so the kernel reports a numerical failure.
+pub fn eos_pressure(gamma: f64, rho: &[f64], et: &[f64], u: &[f64]) -> Result<Vec<f64>, Error> {
+    let n = checked_len(rho, et, u)?;
+    if !gamma.is_finite() || gamma <= 1.0 {
+        return Err(Error::InvalidArgs);
+    }
+    let mut p = vec![0.0; n];
+    let mut err: c_int = 0;
+    // SAFETY: equal-length non-empty slices sized by `checked_len`; the kernel
+    // touches indices [0, n) of each and rejects the first invalid state.
+    unsafe {
+        ffi::nfor_eos_pressure(
+            gamma,
+            n as c_int,
+            rho.as_ptr(),
+            et.as_ptr(),
+            u.as_ptr(),
+            p.as_mut_ptr(),
+            &mut err,
+        );
+    }
+    from_code(err)?;
+    Ok(p)
+}
+
+/// Ideal-gas sound speed (spec 25): `a = sqrt(gamma * p / rho)`.
+///
+/// `gamma` must exceed 1 and the state must have positive density and
+/// pressure so the speed of sound stays real and positive.
+pub fn eos_sound_speed(gamma: f64, rho: &[f64], p: &[f64]) -> Result<Vec<f64>, Error> {
+    let n = checked_len2(rho, p)?;
+    if !gamma.is_finite() || gamma <= 1.0 {
+        return Err(Error::InvalidArgs);
+    }
+    let mut a = vec![0.0; n];
+    let mut err: c_int = 0;
+    // SAFETY: as in `eos_pressure`; buffers below are exactly `n` entries.
+    unsafe {
+        ffi::nfor_eos_sound_speed(
+            gamma,
+            n as c_int,
+            rho.as_ptr(),
+            p.as_ptr(),
+            a.as_mut_ptr(),
+            &mut err,
+        );
+    }
+    from_code(err)?;
+    Ok(a)
+}
+
+/// Mach number from flow velocity and sound speed (spec 25): `M = |u| / a`.
+///
+/// The kernel rejects a non-positive sound speed, which would make the Mach
+/// number meaningless.
+pub fn eos_mach(u: &[f64], a: &[f64]) -> Result<Vec<f64>, Error> {
+    let n = checked_len2(u, a)?;
+    let mut mach = vec![0.0; n];
+    let mut err: c_int = 0;
+    // SAFETY: as in `eos_pressure`; buffers below are exactly `n` entries.
+    unsafe {
+        ffi::nfor_eos_mach(
+            n as c_int,
+            u.as_ptr(),
+            a.as_ptr(),
+            mach.as_mut_ptr(),
+            &mut err,
+        );
+    }
+    from_code(err)?;
+    Ok(mach)
+}
+
+/// Ideal-gas temperature from the thermal law `p = rho * R * T` (spec 25).
+///
+/// `r` is the specific gas constant from the case config in J/(kg K) and must
+/// be positive; density and pressure must be positive too.
+pub fn eos_temperature(r: f64, rho: &[f64], p: &[f64]) -> Result<Vec<f64>, Error> {
+    let n = checked_len2(rho, p)?;
+    if !r.is_finite() || r <= 0.0 {
+        return Err(Error::InvalidArgs);
+    }
+    let mut t = vec![0.0; n];
+    let mut err: c_int = 0;
+    // SAFETY: as in `eos_pressure`; buffers below are exactly `n` entries.
+    unsafe {
+        ffi::nfor_eos_temperature(
+            r,
+            n as c_int,
+            rho.as_ptr(),
+            p.as_ptr(),
+            t.as_mut_ptr(),
+            &mut err,
+        );
+    }
+    from_code(err)?;
+    Ok(t)
 }

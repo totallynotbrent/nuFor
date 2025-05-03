@@ -4,6 +4,7 @@
 
 module nuforkernels
   use, intrinsic :: iso_c_binding
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
   private
   public :: nfor_version
@@ -11,6 +12,10 @@ module nuforkernels
   public :: nfor_grid1d_init
   public :: nfor_prim_to_cons
   public :: nfor_cons_to_prim
+  public :: nfor_eos_pressure
+  public :: nfor_eos_sound_speed
+  public :: nfor_eos_mach
+  public :: nfor_eos_temperature
 
   ! Structured error codes shared with the Rust wrapper (src/lib.rs codes).
   integer(c_int), parameter :: NFOR_OK    = 0  ! success
@@ -136,5 +141,107 @@ contains
     end do
     err = NFOR_OK
   end subroutine nfor_cons_to_prim
+
+  ! Ideal-gas pressure from primitives (spec 25): p = (gamma - 1)*rho*e_int
+  ! with e_int = e_t - u^2/2. Non-positive density or internal energy is not
+  ! an admissible Euler state (spec 94, 138), so it fails with NFOR_EDATA.
+  subroutine nfor_eos_pressure(gamma, n, rho, et, u, p, err) bind(c, name="nfor_eos_pressure")
+    real(c_double), value, intent(in) :: gamma
+    integer(c_int), value, intent(in) :: n
+    real(c_double), intent(in)        :: rho(*)
+    real(c_double), intent(in)        :: et(*)
+    real(c_double), intent(in)        :: u(*)
+    real(c_double), intent(out)       :: p(*)
+    integer(c_int), intent(out)       :: err
+    real(c_double) :: e_int
+    integer :: i
+    if (n <= 0 .or. .not. ieee_is_finite(gamma) .or. gamma <= 1.0d0) then
+       err = NFOR_EARGS
+       return
+    end if
+    do i = 1, n
+       e_int = et(i) - 0.5d0 * u(i) * u(i)
+       if (.not. ieee_is_finite(rho(i)) .or. .not. ieee_is_finite(e_int) .or. &
+           rho(i) <= 0.0d0 .or. e_int <= 0.0d0) then
+          err = NFOR_EDATA
+          return
+       end if
+       p(i) = (gamma - 1.0d0) * rho(i) * e_int
+    end do
+    err = NFOR_OK
+  end subroutine nfor_eos_pressure
+
+  ! Ideal-gas sound speed (spec 25): a = sqrt(gamma*p/rho). Requires positive
+  ! density and pressure so the speed of sound stays real and positive.
+  subroutine nfor_eos_sound_speed(gamma, n, rho, p, a, err) bind(c, name="nfor_eos_sound_speed")
+    real(c_double), value, intent(in) :: gamma
+    integer(c_int), value, intent(in) :: n
+    real(c_double), intent(in)        :: rho(*)
+    real(c_double), intent(in)        :: p(*)
+    real(c_double), intent(out)       :: a(*)
+    integer(c_int), intent(out)       :: err
+    integer :: i
+    if (n <= 0 .or. .not. ieee_is_finite(gamma) .or. gamma <= 1.0d0) then
+       err = NFOR_EARGS
+       return
+    end if
+    do i = 1, n
+       if (.not. ieee_is_finite(rho(i)) .or. .not. ieee_is_finite(p(i)) .or. &
+           rho(i) <= 0.0d0 .or. p(i) <= 0.0d0) then
+          err = NFOR_EDATA
+          return
+       end if
+       a(i) = sqrt(gamma * p(i) / rho(i))
+    end do
+    err = NFOR_OK
+  end subroutine nfor_eos_sound_speed
+
+  ! Mach number from flow velocity and sound speed (spec 25): M = |u| / a.
+  subroutine nfor_eos_mach(n, u, a, mach, err) bind(c, name="nfor_eos_mach")
+    integer(c_int), value, intent(in) :: n
+    real(c_double), intent(in)        :: u(*)
+    real(c_double), intent(in)        :: a(*)
+    real(c_double), intent(out)       :: mach(*)
+    integer(c_int), intent(out)       :: err
+    integer :: i
+    if (n <= 0) then
+       err = NFOR_EARGS
+       return
+    end if
+    do i = 1, n
+       if (.not. ieee_is_finite(u(i)) .or. .not. ieee_is_finite(a(i)) .or. a(i) <= 0.0d0) then
+          err = NFOR_EDATA
+          return
+       end if
+       mach(i) = abs(u(i)) / a(i)
+    end do
+    err = NFOR_OK
+  end subroutine nfor_eos_mach
+
+  ! Ideal-gas temperature from the thermal law p = rho*R*T (spec 25); R is the
+  ! specific gas constant from the case config in J/(kg K). All arguments must
+  ! be positive, otherwise the recovered temperature is not physical.
+  subroutine nfor_eos_temperature(r, n, rho, p, t, err) bind(c, name="nfor_eos_temperature")
+    real(c_double), value, intent(in) :: r
+    integer(c_int), value, intent(in) :: n
+    real(c_double), intent(in)        :: rho(*)
+    real(c_double), intent(in)        :: p(*)
+    real(c_double), intent(out)       :: t(*)
+    integer(c_int), intent(out)       :: err
+    integer :: i
+    if (n <= 0 .or. .not. ieee_is_finite(r) .or. r <= 0.0d0) then
+       err = NFOR_EARGS
+       return
+    end if
+    do i = 1, n
+       if (.not. ieee_is_finite(rho(i)) .or. .not. ieee_is_finite(p(i)) .or. &
+           rho(i) <= 0.0d0 .or. p(i) <= 0.0d0) then
+          err = NFOR_EDATA
+          return
+       end if
+       t(i) = p(i) / (rho(i) * r)
+    end do
+    err = NFOR_OK
+  end subroutine nfor_eos_temperature
 
 end module nuforkernels
