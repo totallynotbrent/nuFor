@@ -16,6 +16,7 @@ module nuforkernels
   public :: nfor_eos_sound_speed
   public :: nfor_eos_mach
   public :: nfor_eos_temperature
+  public :: nfor_hll_flux
 
   ! Structured error codes shared with the Rust wrapper (src/lib.rs codes).
   integer(c_int), parameter :: NFOR_OK    = 0  ! success
@@ -243,5 +244,80 @@ contains
     end do
     err = NFOR_OK
   end subroutine nfor_eos_temperature
+
+  ! HLL numerical flux of the 1D Euler equations for n face Riemann problems
+  ! at once (spec 52, research note flux-hll). Left states (rho_l, m_l, e_l)
+  ! and right states (rho_r, m_r, e_r) are conserved variables with
+  ! m = rho*u and e the total energy per volume; gamma is the ideal-gas ratio.
+  ! Wave speeds are the Davis estimates s_l = min(u_l - a_l, u_r - a_r),
+  ! s_r = max(u_l + a_l, u_r + a_r), which bound the characteristic speeds
+  ! without a Roe average. The middle state stays convex for admissible data
+  ! since s_r - s_l > 0 whenever both densities and pressures are positive.
+  subroutine nfor_hll_flux(gamma, n, rho_l, m_l, e_l, rho_r, m_r, e_r, f_rho, f_m, f_e, err) bind(c, name="nfor_hll_flux")
+    real(c_double), value, intent(in) :: gamma
+    integer(c_int), value, intent(in) :: n
+    real(c_double), intent(in)        :: rho_l(*)
+    real(c_double), intent(in)        :: m_l(*)
+    real(c_double), intent(in)        :: e_l(*)
+    real(c_double), intent(in)        :: rho_r(*)
+    real(c_double), intent(in)        :: m_r(*)
+    real(c_double), intent(in)        :: e_r(*)
+    real(c_double), intent(out)       :: f_rho(*)
+    real(c_double), intent(out)       :: f_m(*)
+    real(c_double), intent(out)       :: f_e(*)
+    integer(c_int), intent(out)       :: err
+    real(c_double) :: u_l, p_l, a_l, u_r, p_r, a_r, s_l, s_r
+    real(c_double) :: fl_rho, fl_m, fl_e, fr_rho, fr_m, fr_e
+    real(c_double) :: e_int, denom
+    integer :: i
+    if (n <= 0 .or. .not. ieee_is_finite(gamma) .or. gamma <= 1.0d0) then
+       err = NFOR_EARGS
+       return
+    end if
+    do i = 1, n
+       ! Recover primitives and sound speeds on both states (spec 25, 94).
+       e_int = e_l(i) / rho_l(i) - 0.5d0 * (m_l(i) / rho_l(i))**2
+       if (.not. ieee_is_finite(rho_l(i)) .or. .not. ieee_is_finite(m_l(i)) .or. &
+           .not. ieee_is_finite(e_l(i)) .or. rho_l(i) <= 0.0d0 .or. e_int <= 0.0d0) then
+          err = NFOR_EDATA
+          return
+       end if
+       e_int = e_r(i) / rho_r(i) - 0.5d0 * (m_r(i) / rho_r(i))**2
+       if (.not. ieee_is_finite(rho_r(i)) .or. .not. ieee_is_finite(m_r(i)) .or. &
+           .not. ieee_is_finite(e_r(i)) .or. rho_r(i) <= 0.0d0 .or. e_int <= 0.0d0) then
+          err = NFOR_EDATA
+          return
+       end if
+       u_l = m_l(i) / rho_l(i)
+       p_l = (gamma - 1.0d0) * (e_l(i) - 0.5d0 * rho_l(i) * u_l * u_l)
+       a_l = sqrt(gamma * p_l / rho_l(i))
+       u_r = m_r(i) / rho_r(i)
+       p_r = (gamma - 1.0d0) * (e_r(i) - 0.5d0 * rho_r(i) * u_r * u_r)
+       a_r = sqrt(gamma * p_r / rho_r(i))
+       s_l = min(u_l - a_l, u_r - a_r)
+       s_r = max(u_l + a_l, u_r + a_r)
+       fl_rho = rho_l(i) * u_l
+       fl_m = rho_l(i) * u_l * u_l + p_l
+       fl_e = u_l * (e_l(i) + p_l)
+       fr_rho = rho_r(i) * u_r
+       fr_m = rho_r(i) * u_r * u_r + p_r
+       fr_e = u_r * (e_r(i) + p_r)
+       if (s_l >= 0.0d0) then
+          f_rho(i) = fl_rho
+          f_m(i) = fl_m
+          f_e(i) = fl_e
+       else if (s_r <= 0.0d0) then
+          f_rho(i) = fr_rho
+          f_m(i) = fr_m
+          f_e(i) = fr_e
+       else
+          denom = 1.0d0 / (s_r - s_l)
+          f_rho(i) = denom * (s_r * fl_rho - s_l * fr_rho + s_l * s_r * (rho_r(i) - rho_l(i)))
+          f_m(i) = denom * (s_r * fl_m - s_l * fr_m + s_l * s_r * (m_r(i) - m_l(i)))
+          f_e(i) = denom * (s_r * fl_e - s_l * fr_e + s_l * s_r * (e_r(i) - e_l(i)))
+       end if
+    end do
+    err = NFOR_OK
+  end subroutine nfor_hll_flux
 
 end module nuforkernels

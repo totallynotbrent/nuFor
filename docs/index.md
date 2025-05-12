@@ -15,14 +15,16 @@ stack. This site documents the architecture, numerics, and internal formats.
 - [[1d-euler|Numerics — 1D Euler milestone]] — current solver focus
 - [[state-grid|Numerics — 1D state and uniform grid]] — state layout and mesh
 - [[eos|Numerics — Ideal-gas equation of state]] — thermodynamics and pressure
+- [[numerics/flux-hll|Numerics — HLL flux]] — the baseline approximate solver
 - [[case-toml|Formats — case.toml]] — the reproducibility root of a run
 - [[ffi-boundary|Research — FFI boundary]] — how Rust calls Fortran
 - [[toml-config|Research — config crate choice]] — why TOML + `toml`
+- [[research/flux-hll|Research — HLL vs HLLC]] — baseline flux decision
 
 ## Status
 
 Foundations are in place: mixed Rust/Fortran build, case schema and
-validation, the FFI boundary, the 1D state and uniform grid geometry, and
-the ideal-gas equation of state are landed and tested. The next milestones
-build the baseline flux, CFL control, and the 1D Euler solver; see the
+validation, the FFI boundary, the 1D state and uniform grid geometry, the
+ideal-gas equation of state, and the HLL baseline flux are landed and tested.
+The next milestones add CFL control and the 1D Euler solver itself; see the
 roadmap in [[1d-euler|Numerics]] and the broader plan in the repository.
