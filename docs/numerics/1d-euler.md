@@ -22,8 +22,9 @@ focus of the project.
   physical-validity checks — landed: see [[eos|Ideal-gas equation of
   state]].
 - Face-flux storage, first-order reconstruction, one baseline approximate
-  flux (HLL, then HLLC), CFL time-step control, and explicit time
-  advancement.
+  flux — landed: see [[numerics/flux-hll|HLL flux]] and its
+  [[research/flux-hll|research note]]. CFL time-step control and explicit
+  time advancement come next.
 - Boundaries, residual computation, iteration logging, and restart writing.
 
 ## Verification ladder

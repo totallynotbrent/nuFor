@@ -113,6 +113,20 @@ mod ffi {
             t: *mut f64,
             err: *mut c_int,
         );
+        pub fn nfor_hll_flux(
+            gamma: f64,
+            n: c_int,
+            rho_l: *const f64,
+            m_l: *const f64,
+            e_l: *const f64,
+            rho_r: *const f64,
+            m_r: *const f64,
+            e_r: *const f64,
+            f_rho: *mut f64,
+            f_m: *mut f64,
+            f_e: *mut f64,
+            err: *mut c_int,
+        );
     }
 }
 
@@ -130,6 +144,21 @@ fn checked_len(a: &[f64], b: &[f64], c: &[f64]) -> Result<usize, Error> {
         return Err(Error::InvalidArgs);
     }
     checked_len2(a, b)
+}
+
+/// Six state slices must agree on a positive length representable in `c_int`.
+fn checked_len6(
+    a: &[f64],
+    b: &[f64],
+    c: &[f64],
+    d: &[f64],
+    e: &[f64],
+    f: &[f64],
+) -> Result<usize, Error> {
+    if a.len() != d.len() || a.len() != e.len() || a.len() != f.len() {
+        return Err(Error::InvalidArgs);
+    }
+    checked_len(a, b, c)
 }
 
 /// Version string reported by the Fortran kernel library.
@@ -367,4 +396,68 @@ pub fn eos_temperature(r: f64, rho: &[f64], p: &[f64]) -> Result<Vec<f64>, Error
     }
     from_code(err)?;
     Ok(t)
+}
+
+/// HLL numerical flux (spec 52, 90) of the 1D Euler equations for `n` face
+/// Riemann problems taken at once.
+///
+/// Left states `rho_l, m_l, e_l` and right states `rho_r, m_r, e_r` are
+/// conserved variables (`m = rho * u`, `e` total energy per volume); the
+/// kernel recovers primitives, pressure, and sound speed through the
+/// ideal-gas EOS and returns the three HLL flux components. Wave speeds are
+/// the Davis estimates, so no Roe average is needed (see
+/// `docs/numerics/flux-hll.md`). `gamma` must exceed 1 and every state must
+/// be admissible (positive density and internal energy), or the kernel
+/// reports a structured failure.
+pub fn hll_flux(
+    gamma: f64,
+    rho_l: &[f64],
+    m_l: &[f64],
+    e_l: &[f64],
+    rho_r: &[f64],
+    m_r: &[f64],
+    e_r: &[f64],
+) -> Result<HllFlux, Error> {
+    let n = checked_len6(rho_l, m_l, e_l, rho_r, m_r, e_r)?;
+    if !gamma.is_finite() || gamma <= 1.0 {
+        return Err(Error::InvalidArgs);
+    }
+    let mut flux = HllFlux {
+        rho: vec![0.0; n],
+        m: vec![0.0; n],
+        e: vec![0.0; n],
+    };
+    let mut err: c_int = 0;
+    // SAFETY: equal-length non-empty slices sized by `checked_len6`; every
+    // buffer has exactly `n` entries and the kernel stops at the first bad
+    // state before writing to any output slice.
+    unsafe {
+        ffi::nfor_hll_flux(
+            gamma,
+            n as c_int,
+            rho_l.as_ptr(),
+            m_l.as_ptr(),
+            e_l.as_ptr(),
+            rho_r.as_ptr(),
+            m_r.as_ptr(),
+            e_r.as_ptr(),
+            flux.rho.as_mut_ptr(),
+            flux.m.as_mut_ptr(),
+            flux.e.as_mut_ptr(),
+            &mut err,
+        );
+    }
+    from_code(err)?;
+    Ok(flux)
+}
+
+/// HLL flux components at `n` faces: mass, momentum, and total-energy flux.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HllFlux {
+    /// Mass flux `rho * u` per face.
+    pub rho: Vec<f64>,
+    /// Momentum flux `rho * u^2 + p` per face.
+    pub m: Vec<f64>,
+    /// Total-energy flux `u * (E + p)` per face.
+    pub e: Vec<f64>,
 }
