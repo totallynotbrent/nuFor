@@ -127,6 +127,18 @@ mod ffi {
             f_e: *mut f64,
             err: *mut c_int,
         );
+        pub fn nfor_cfl_dt(
+            gamma: f64,
+            cfl: f64,
+            dx: f64,
+            n: c_int,
+            rho: *const f64,
+            m: *const f64,
+            e: *const f64,
+            s_max: *mut f64,
+            dt: *mut f64,
+            err: *mut c_int,
+        );
     }
 }
 
@@ -460,4 +472,67 @@ pub struct HllFlux {
     pub m: Vec<f64>,
     /// Total-energy flux `u * (E + p)` per face.
     pub e: Vec<f64>,
+}
+
+/// Global explicit time step from the CFL condition (spec 51).
+///
+/// `s_max` is the largest characteristic speed `|u| + a` over the cells and
+/// `dt` the step `cfl * dx / s_max`. Every HLL face wave speed is one of
+/// those cell speeds, so this bound covers the numerical flux (see
+/// `docs/numerics/time-step.md`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CflStep {
+    /// Largest characteristic speed `|u| + a` over the cells.
+    pub max_speed: f64,
+    /// Global explicit time step `cfl * dx / s_max`.
+    pub dt: f64,
+}
+
+/// Stable explicit time step for a uniform grid of width `dx` (spec 51, 15).
+///
+/// `cfl` is the Courant number from the case config, restricted to `(0, 1]`
+/// — first-order forward-Euler advancement is stable there (CFL 1928).
+/// States are conserved variables; `gamma` must exceed 1 and every cell must
+/// be an admissible Euler state, or the kernel reports a structured failure.
+pub fn cfl_dt(
+    gamma: f64,
+    cfl: f64,
+    dx: f64,
+    rho: &[f64],
+    m: &[f64],
+    e: &[f64],
+) -> Result<CflStep, Error> {
+    let n = checked_len(rho, m, e)?;
+    if !gamma.is_finite() || gamma <= 1.0 {
+        return Err(Error::InvalidArgs);
+    }
+    if !cfl.is_finite() || cfl <= 0.0 || cfl > 1.0 {
+        return Err(Error::InvalidArgs);
+    }
+    if !dx.is_finite() || dx <= 0.0 {
+        return Err(Error::InvalidArgs);
+    }
+    let mut step = CflStep {
+        max_speed: 0.0,
+        dt: 0.0,
+    };
+    let mut err: c_int = 0;
+    // SAFETY: equal-length non-empty slices sized by `checked_len`; the kernel
+    // touches indices [0, n) of each and stops at the first invalid state.
+    unsafe {
+        ffi::nfor_cfl_dt(
+            gamma,
+            cfl,
+            dx,
+            n as c_int,
+            rho.as_ptr(),
+            m.as_ptr(),
+            e.as_ptr(),
+            &mut step.max_speed,
+            &mut step.dt,
+            &mut err,
+        );
+    }
+    from_code(err)?;
+    Ok(step)
 }
