@@ -23,8 +23,9 @@ focus of the project.
   state]].
 - Face-flux storage, first-order reconstruction, one baseline approximate
   flux — landed: see [[numerics/flux-hll|HLL flux]] and its
-  [[research/flux-hll|research note]]. CFL time-step control and explicit
-  time advancement come next.
+  [[research/flux-hll|research note]]. CFL time-step control is landed too:
+  see [[numerics/time-step|CFL time-step control]]. Explicit time
+  advancement and the solver integration come next.
 - Boundaries, residual computation, iteration logging, and restart writing.
 
 ## Verification ladder

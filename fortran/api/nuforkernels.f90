@@ -17,6 +17,7 @@ module nuforkernels
   public :: nfor_eos_mach
   public :: nfor_eos_temperature
   public :: nfor_hll_flux
+  public :: nfor_cfl_dt
 
   ! Structured error codes shared with the Rust wrapper (src/lib.rs codes).
   integer(c_int), parameter :: NFOR_OK    = 0  ! success
@@ -319,5 +320,52 @@ contains
     end do
     err = NFOR_OK
   end subroutine nfor_hll_flux
+
+  ! Global explicit time step from the CFL condition (spec 51): dt = cfl*dx/s_max
+  ! with s_max = max(|u| + a) over the cells, the largest characteristic speed
+  ! of the 1D Euler system. Every face wave speed of the HLL estimates is a
+  ! characteristic speed of one of its two cells, so this bound covers them.
+  ! Forward Euler with a first-order update is stable for cfl <= 1 (CFL 1928;
+  ! research note cfl-time-step). Conserved states in, s_max and dt out.
+  subroutine nfor_cfl_dt(gamma, cfl, dx, n, rho, m, e, s_max, dt, err) bind(c, name="nfor_cfl_dt")
+    real(c_double), value, intent(in) :: gamma
+    real(c_double), value, intent(in) :: cfl
+    real(c_double), value, intent(in) :: dx
+    integer(c_int), value, intent(in) :: n
+    real(c_double), intent(in)        :: rho(*)
+    real(c_double), intent(in)        :: m(*)
+    real(c_double), intent(in)        :: e(*)
+    real(c_double), intent(out)       :: s_max
+    real(c_double), intent(out)       :: dt
+    integer(c_int), intent(out)       :: err
+    real(c_double) :: u, e_int, p, a, speed
+    integer :: i
+    if (n <= 0 .or. .not. ieee_is_finite(gamma) .or. gamma <= 1.0d0 .or. &
+        .not. ieee_is_finite(cfl) .or. cfl <= 0.0d0 .or. cfl > 1.0d0 .or. &
+        .not. ieee_is_finite(dx) .or. dx <= 0.0d0) then
+       err = NFOR_EARGS
+       return
+    end if
+    s_max = 0.0d0
+    do i = 1, n
+       if (.not. ieee_is_finite(rho(i)) .or. .not. ieee_is_finite(m(i)) .or. &
+           .not. ieee_is_finite(e(i)) .or. rho(i) <= 0.0d0) then
+          err = NFOR_EDATA
+          return
+       end if
+       u = m(i) / rho(i)
+       e_int = e(i) / rho(i) - 0.5d0 * u * u
+       if (e_int <= 0.0d0) then
+          err = NFOR_EDATA
+          return
+       end if
+       p = (gamma - 1.0d0) * rho(i) * e_int
+       a = sqrt(gamma * p / rho(i))
+       speed = abs(u) + a
+       if (speed > s_max) s_max = speed
+    end do
+    dt = cfl * dx / s_max
+    err = NFOR_OK
+  end subroutine nfor_cfl_dt
 
 end module nuforkernels
