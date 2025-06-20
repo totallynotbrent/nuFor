@@ -1,12 +1,10 @@
-//! Integration coverage for the case.toml schema against the real example
-//! file and the file-loading path.
+//! integration coverage for the case.toml schema against the real example file.
 
 use nufor_config::{ConfigError, FluxScheme, InitialCondition, SCHEMA_VERSION};
 use std::path::PathBuf;
 
 fn example_case() -> PathBuf {
-    // CARGO_MANIFEST_DIR is crates/nufor-config; the example lives at the
-    // workspace root under cases/.
+    // CARGO_MANIFEST_DIR is crates/nufor-config; the example lives under cases/.
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../cases/tutorial/case.toml")
 }
 

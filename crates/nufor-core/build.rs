@@ -1,6 +1,4 @@
-//! Build script: drive CMake to compile the Fortran kernel library (spec 57).
-//! Kept on the stdlib rather than the `cmake` crate so the whole native build
-//! stays reproducible with no third-party build dependencies.
+//! build script drives CMake to compile the fortran kernel library (spec 57).
 
 use std::env;
 use std::path::PathBuf;

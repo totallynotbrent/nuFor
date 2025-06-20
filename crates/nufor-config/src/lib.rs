@@ -1,14 +1,4 @@
-//! Case-file configuration: the `case.toml` schema and its validation (PLAN
-//! step 3, spec 40). The case file is the reproducibility root; it records
-//! physics, mesh source, numerical methods, solver controls, output settings,
-//! and metadata.
-//!
-//! Parsing goes through the `toml` crate with strict serde types
-//! (`deny_unknown_fields`), so a case that does not match the schema fails
-//! fast instead of silently running with a misspelled setting. Semantic rules
-//! (ranges, termination criteria, physical positivity) run in
-//! [`CaseConfig::validate`] after deserialization; see
-//! `docs/formats/case-toml.md` for the human-readable schema reference.
+//! typed case.toml schema and validation; strict serde types reject unknown keys.
 
 pub mod schema;
 
@@ -24,21 +14,19 @@ use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 
-/// Schema version this crate understands. `case.toml` must declare exactly
-/// this value in `schema_version`, so future incompatible layouts can be
-/// detected instead of mis-parsed.
+/// schema version the crate understands (case.toml must declare exactly this).
 pub const SCHEMA_VERSION: u32 = 1;
 
-/// Why a case file was rejected.
+/// why a case file was rejected.
 #[derive(Debug)]
 pub enum ConfigError {
-    /// The file could not be read.
+    /// the file could not be read.
     Io { path: PathBuf, source: io::Error },
-    /// The file is not valid TOML or does not match the schema shape.
+    /// the file is not valid TOML or does not match the schema.
     Parse { message: String },
-    /// `schema_version` is present but not [`SCHEMA_VERSION`].
+    /// schema_version is present but not the supported version.
     UnsupportedVersion { found: u32, supported: u32 },
-    /// The file parsed but failed one or more semantic validation rules.
+    /// the file parsed but failed semantic validation rules.
     Invalid { problems: Vec<String> },
 }
 
@@ -71,7 +59,7 @@ impl std::error::Error for ConfigError {
     }
 }
 
-/// Parse and validate a `case.toml` document from a string.
+/// parse and validate a case.toml document from a string.
 pub fn parse_case_toml(input: &str) -> Result<CaseConfig, ConfigError> {
     let parsed: CaseConfig = toml::from_str(input).map_err(|err| ConfigError::Parse {
         message: err.to_string(),
@@ -90,7 +78,7 @@ pub fn parse_case_toml(input: &str) -> Result<CaseConfig, ConfigError> {
     }
 }
 
-/// Read, parse, and validate a `case.toml` file.
+/// read, parse, and validate a case.toml file.
 pub fn load_case_config(path: impl AsRef<Path>) -> Result<CaseConfig, ConfigError> {
     let text = std::fs::read_to_string(&path).map_err(|source| ConfigError::Io {
         path: path.as_ref().to_path_buf(),

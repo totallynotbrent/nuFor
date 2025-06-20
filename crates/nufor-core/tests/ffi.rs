@@ -1,11 +1,10 @@
-//! FFI integration tests (spec 39): the Rust wrapper against the real Fortran
-//! kernel library, linked by build.rs through CMake.
+//! ffi integration tests: the rust wrapper against the real fortran kernel library.
 
 use nufor_core::{saxpy, version, Error};
 
 #[test]
 fn version_is_semver_string() {
-    // Parity with the version string baked into nuforkernels.f90.
+    // parity with the version string baked into nuforkernels.f90.
     assert_eq!(version(), "0.1.0");
 }
 

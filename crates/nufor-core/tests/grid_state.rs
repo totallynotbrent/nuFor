@@ -1,5 +1,4 @@
-//! Step-4 FFI tests: uniform 1D grid geometry and the conserved/primitive
-//! state conversion against the real Fortran kernels (spec 18).
+//! integration tests for uniform 1D grid geometry and the conserved/primitive conversion.
 
 use nufor_core::{cons_to_prim, grid1d, prim_to_cons, Error};
 
@@ -39,7 +38,7 @@ fn grid_rejects_degenerate_input() {
 
 #[test]
 fn prim_to_cons_matches_the_definitions() {
-    // Powers of two keep every value exact in binary.
+    // powers of two keep every value exact in binary.
     let rho = [4.0, 2.0, 8.0];
     let u = [2.0, -3.0, 0.5];
     let et = [5.0, 7.0, 10.0];
@@ -61,8 +60,7 @@ fn cons_to_prim_inverts_prim_to_cons() {
 
 #[test]
 fn round_trip_recovers_primitives_within_machine_epsilon() {
-    // The exact identity only holds for values representable in binary; use a
-    // tolerance here because u = m/rho then rho*u is not bit-exact in general.
+    // the identity only holds for binary-representable values; u = m/rho then rho*u is not bit-exact.
     let rho = [1.4, 0.9, 3.3];
     let u = [0.7, -1.1, 2.9];
     let et = [11.3, 4.7, 15.1];
