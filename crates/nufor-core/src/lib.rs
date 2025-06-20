@@ -1,14 +1,9 @@
-//! Rust half of the mixed-language boundary (PLAN step 2).
-//!
-//! All numerics live in the Fortran kernel library; this crate only marshals
-//! arguments, checks the boundary, and maps error codes. ABI rules follow the
-//! FFI policy in `docs/research/ffi-boundary.md` (spec 39): bind(C), contiguous
-//! arrays with explicit lengths, no Fortran derived types, structured errors.
+//! rust boundary over the fortran numerical library: marshals arguments, checks the boundary, and maps error codes.
 
 use std::ffi::c_char;
 use std::os::raw::c_int;
 
-/// Error codes produced by the Fortran kernels (must match `nuforkernels.f90`).
+/// error codes from the fortran kernels; must match nuforkernels.f90.
 mod codes {
     use crate::c_int;
 
@@ -17,12 +12,12 @@ mod codes {
     pub const E_DATA: c_int = 2;
 }
 
-/// Structured boundary error.
+/// structured boundary error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
-    /// Invalid argument (count below one, arrays not equal length).
+    /// invalid argument (count below one or arrays not equal length).
     InvalidArgs,
-    /// The kernel reported a numerical failure for valid inputs.
+    /// the kernel reported a numerical failure on valid inputs.
     KernelFailure,
 }
 
@@ -46,7 +41,7 @@ fn from_code(code: c_int) -> Result<(), Error> {
     }
 }
 
-// Raw C ABI into the statically linked Fortran library (bind(C) names).
+// raw C ABI into the statically linked fortran library (bind(C) names).
 mod ffi {
     use super::*;
 
@@ -142,7 +137,7 @@ mod ffi {
     }
 }
 
-/// Two slices must agree on a positive length representable in `c_int`.
+/// two slices must agree on a positive length.
 fn checked_len2(a: &[f64], b: &[f64]) -> Result<usize, Error> {
     if a.is_empty() || a.len() != b.len() || a.len() > c_int::MAX as usize {
         return Err(Error::InvalidArgs);
@@ -150,7 +145,7 @@ fn checked_len2(a: &[f64], b: &[f64]) -> Result<usize, Error> {
     Ok(a.len())
 }
 
-/// Three slices must agree on a positive length representable in `c_int`.
+/// three slices must agree on a positive length.
 fn checked_len(a: &[f64], b: &[f64], c: &[f64]) -> Result<usize, Error> {
     if a.len() != c.len() {
         return Err(Error::InvalidArgs);
@@ -158,7 +153,7 @@ fn checked_len(a: &[f64], b: &[f64], c: &[f64]) -> Result<usize, Error> {
     checked_len2(a, b)
 }
 
-/// Six state slices must agree on a positive length representable in `c_int`.
+/// six state slices must agree on a positive length.
 fn checked_len6(
     a: &[f64],
     b: &[f64],
@@ -173,12 +168,11 @@ fn checked_len6(
     checked_len(a, b, c)
 }
 
-/// Version string reported by the Fortran kernel library.
+/// version string reported by the fortran kernel library.
 pub fn version() -> String {
     let mut buf = [0 as c_char; 64];
     let mut err: c_int = 0;
-    // SAFETY: `buf` is a writable 64-byte buffer and its length is passed
-    // explicitly; the kernel writes at most that many bytes plus a NUL terminator.
+    // SAFETY: buf is a writable 64-byte buffer; the kernel writes at most its length.
     unsafe {
         ffi::nfor_version(buf.as_mut_ptr(), buf.len() as c_int, &mut err);
     }
@@ -191,10 +185,7 @@ pub fn version() -> String {
     String::from_utf8_lossy(&bytes).into_owned()
 }
 
-/// `y = alpha * x + y` elementwise (BLAS-like saxp) over equal-length slices.
-///
-/// Contiguous slices map directly to the C array convention; the Fortran kernel
-/// owns the arithmetic and reports a structured error code on bad input.
+/// y = alpha*x + y elementwise (BLAS-like saxpy) over equal-length slices.
 pub fn saxpy(alpha: f64, x: &[f64], y: &mut [f64]) -> Result<(), Error> {
     if x.len() != y.len() {
         return Err(Error::InvalidArgs);
@@ -206,8 +197,7 @@ pub fn saxpy(alpha: f64, x: &[f64], y: &mut [f64]) -> Result<(), Error> {
         return Ok(());
     }
     let mut err: c_int = 0;
-    // SAFETY: both slices are non-empty, equal length, and each points to a
-    // valid contiguous f64 array; the kernel only touches indices [0, len).
+    // SAFETY: both slices are non-empty, equal-length, contiguous f64 arrays.
     unsafe {
         ffi::nfor_saxpy(
             x.len() as c_int,
@@ -220,19 +210,18 @@ pub fn saxpy(alpha: f64, x: &[f64], y: &mut [f64]) -> Result<(), Error> {
     from_code(err)
 }
 
-/// Uniform 1D control-volume geometry (spec 18), built in the Fortran kernel.
+/// uniform 1D control-volume geometry built in the fortran kernel.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Grid1d {
-    /// Cell-center coordinates, one per control volume.
+    /// cell-center coordinates, one per control volume.
     pub centers: Vec<f64>,
-    /// Interface coordinates, one more than cells; the domain closes exactly.
+    /// interface coordinates, one more than cells; the domain closes exactly.
     pub faces: Vec<f64>,
-    /// Uniform cell width `(x_max - x_min) / n`.
+    /// uniform cell width (x_max - x_min)/n.
     pub dx: f64,
 }
 
-/// Builds a uniform 1D grid of `n` cells over `[xmin, xmax]` in the Fortran
-/// kernel layer. `n` must be at least 2 and `xmax` must exceed `xmin`.
+/// builds a uniform 1D grid of n cells over [xmin, xmax]; n >= 2 and xmax > xmin.
 pub fn grid1d(n: usize, xmin: f64, xmax: f64) -> Result<Grid1d, Error> {
     if n < 2 || n > c_int::MAX as usize || !(xmin.is_finite() && xmax.is_finite()) || xmax <= xmin {
         return Err(Error::InvalidArgs);
@@ -241,8 +230,7 @@ pub fn grid1d(n: usize, xmin: f64, xmax: f64) -> Result<Grid1d, Error> {
     let mut faces = vec![0.0; n + 1];
     let mut dx: f64 = 0.0;
     let mut err: c_int = 0;
-    // SAFETY: both buffers have the exact lengths the kernel fills
-    // (`centers` n entries, `faces` n+1); it writes nothing beyond them.
+    // SAFETY: both buffers are exactly as long as the kernel fills them.
     unsafe {
         ffi::nfor_grid1d_init(
             n as c_int,
@@ -258,17 +246,13 @@ pub fn grid1d(n: usize, xmin: f64, xmax: f64) -> Result<Grid1d, Error> {
     Ok(Grid1d { centers, faces, dx })
 }
 
-/// Conservative state from primitives: `m = rho * u`, `E = rho * e_t`.
-///
-/// `e_t` is the total specific energy; pressure recovery is the EOS step's
-/// job. Density must be positive or the kernel reports a numerical failure.
+/// conserved state from primitives: m = rho*u, E = rho*e_t; density must be positive.
 pub fn prim_to_cons(rho: &[f64], u: &[f64], et: &[f64]) -> Result<(Vec<f64>, Vec<f64>), Error> {
     let n = checked_len(rho, u, et)?;
     let mut m = vec![0.0; n];
     let mut e = vec![0.0; n];
     let mut err: c_int = 0;
-    // SAFETY: equal-length non-empty slices sized by `checked_len`; the kernel
-    // touches indices [0, n) of each and stops at the first bad density.
+    // SAFETY: equal-length non-empty slices; the kernel indexes [0,n) of each.
     unsafe {
         ffi::nfor_prim_to_cons(
             n as c_int,
@@ -284,14 +268,13 @@ pub fn prim_to_cons(rho: &[f64], u: &[f64], et: &[f64]) -> Result<(Vec<f64>, Vec
     Ok((m, e))
 }
 
-/// Primitives from conservative state, the inverse of [`prim_to_cons`]:
-/// `u = m / rho`, `e_t = E / rho`. Density must be positive.
+/// primitives from conservative state, the inverse of prim_to_cons; density must be positive.
 pub fn cons_to_prim(rho: &[f64], m: &[f64], e: &[f64]) -> Result<(Vec<f64>, Vec<f64>), Error> {
     let n = checked_len(rho, m, e)?;
     let mut u = vec![0.0; n];
     let mut et = vec![0.0; n];
     let mut err: c_int = 0;
-    // SAFETY: as in `prim_to_cons`; buffers below are exactly `n` entries.
+    // SAFETY: as in prim_to_cons; buffers below are exactly n entries.
     unsafe {
         ffi::nfor_cons_to_prim(
             n as c_int,
@@ -307,11 +290,7 @@ pub fn cons_to_prim(rho: &[f64], m: &[f64], e: &[f64]) -> Result<(Vec<f64>, Vec<
     Ok((u, et))
 }
 
-/// Ideal-gas pressure from primitives (spec 25): `p = (gamma - 1) * rho * e_int`
-/// with `e_int = e_t - u^2/2`, computed in the Fortran kernel.
-///
-/// `gamma` must exceed 1. Non-positive density or internal energy is an
-/// inadmissible Euler state, so the kernel reports a numerical failure.
+/// ideal-gas pressure p = (gamma-1)*rho*e_int, computed in the fortran kernel.
 pub fn eos_pressure(gamma: f64, rho: &[f64], et: &[f64], u: &[f64]) -> Result<Vec<f64>, Error> {
     let n = checked_len(rho, et, u)?;
     if !gamma.is_finite() || gamma <= 1.0 {
@@ -319,8 +298,7 @@ pub fn eos_pressure(gamma: f64, rho: &[f64], et: &[f64], u: &[f64]) -> Result<Ve
     }
     let mut p = vec![0.0; n];
     let mut err: c_int = 0;
-    // SAFETY: equal-length non-empty slices sized by `checked_len`; the kernel
-    // touches indices [0, n) of each and rejects the first invalid state.
+    // SAFETY: equal-length non-empty slices; the kernel indexes [0,n) of each.
     unsafe {
         ffi::nfor_eos_pressure(
             gamma,
@@ -336,10 +314,7 @@ pub fn eos_pressure(gamma: f64, rho: &[f64], et: &[f64], u: &[f64]) -> Result<Ve
     Ok(p)
 }
 
-/// Ideal-gas sound speed (spec 25): `a = sqrt(gamma * p / rho)`.
-///
-/// `gamma` must exceed 1 and the state must have positive density and
-/// pressure so the speed of sound stays real and positive.
+/// ideal-gas sound speed a = sqrt(gamma*p/rho); needs positive density and pressure.
 pub fn eos_sound_speed(gamma: f64, rho: &[f64], p: &[f64]) -> Result<Vec<f64>, Error> {
     let n = checked_len2(rho, p)?;
     if !gamma.is_finite() || gamma <= 1.0 {
@@ -362,10 +337,7 @@ pub fn eos_sound_speed(gamma: f64, rho: &[f64], p: &[f64]) -> Result<Vec<f64>, E
     Ok(a)
 }
 
-/// Mach number from flow velocity and sound speed (spec 25): `M = |u| / a`.
-///
-/// The kernel rejects a non-positive sound speed, which would make the Mach
-/// number meaningless.
+/// mach number M = |u|/a; the kernel rejects a non-positive sound speed.
 pub fn eos_mach(u: &[f64], a: &[f64]) -> Result<Vec<f64>, Error> {
     let n = checked_len2(u, a)?;
     let mut mach = vec![0.0; n];
@@ -384,10 +356,7 @@ pub fn eos_mach(u: &[f64], a: &[f64]) -> Result<Vec<f64>, Error> {
     Ok(mach)
 }
 
-/// Ideal-gas temperature from the thermal law `p = rho * R * T` (spec 25).
-///
-/// `r` is the specific gas constant from the case config in J/(kg K) and must
-/// be positive; density and pressure must be positive too.
+/// ideal-gas temperature from p = rho*R*T; r, density, and pressure must be positive.
 pub fn eos_temperature(r: f64, rho: &[f64], p: &[f64]) -> Result<Vec<f64>, Error> {
     let n = checked_len2(rho, p)?;
     if !r.is_finite() || r <= 0.0 {
@@ -410,17 +379,7 @@ pub fn eos_temperature(r: f64, rho: &[f64], p: &[f64]) -> Result<Vec<f64>, Error
     Ok(t)
 }
 
-/// HLL numerical flux (spec 52, 90) of the 1D Euler equations for `n` face
-/// Riemann problems taken at once.
-///
-/// Left states `rho_l, m_l, e_l` and right states `rho_r, m_r, e_r` are
-/// conserved variables (`m = rho * u`, `e` total energy per volume); the
-/// kernel recovers primitives, pressure, and sound speed through the
-/// ideal-gas EOS and returns the three HLL flux components. Wave speeds are
-/// the Davis estimates, so no Roe average is needed (see
-/// `docs/numerics/flux-hll.md`). `gamma` must exceed 1 and every state must
-/// be admissible (positive density and internal energy), or the kernel
-/// reports a structured failure.
+/// HLL flux for n 1D euler faces using davis wave-speed estimates, no Roe average.
 pub fn hll_flux(
     gamma: f64,
     rho_l: &[f64],
@@ -440,9 +399,7 @@ pub fn hll_flux(
         e: vec![0.0; n],
     };
     let mut err: c_int = 0;
-    // SAFETY: equal-length non-empty slices sized by `checked_len6`; every
-    // buffer has exactly `n` entries and the kernel stops at the first bad
-    // state before writing to any output slice.
+    // SAFETY: all six slices are equal-length with n entries; the kernel stops at the first bad state.
     unsafe {
         ffi::nfor_hll_flux(
             gamma,
@@ -463,37 +420,27 @@ pub fn hll_flux(
     Ok(flux)
 }
 
-/// HLL flux components at `n` faces: mass, momentum, and total-energy flux.
+/// HLL flux components at n faces: mass, momentum, and total-energy flux.
 #[derive(Debug, Clone, PartialEq)]
 pub struct HllFlux {
-    /// Mass flux `rho * u` per face.
+    /// mass flux rho*u per face.
     pub rho: Vec<f64>,
-    /// Momentum flux `rho * u^2 + p` per face.
+    /// momentum flux rho*u^2 + p per face.
     pub m: Vec<f64>,
-    /// Total-energy flux `u * (E + p)` per face.
+    /// total-energy flux u*(E + p) per face.
     pub e: Vec<f64>,
 }
 
-/// Global explicit time step from the CFL condition (spec 51).
-///
-/// `s_max` is the largest characteristic speed `|u| + a` over the cells and
-/// `dt` the step `cfl * dx / s_max`. Every HLL face wave speed is one of
-/// those cell speeds, so this bound covers the numerical flux (see
-/// `docs/numerics/time-step.md`).
+/// largest characteristic speed and the cfl step it yields.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CflStep {
-    /// Largest characteristic speed `|u| + a` over the cells.
+    /// largest characteristic speed |u| + a over the cells.
     pub max_speed: f64,
-    /// Global explicit time step `cfl * dx / s_max`.
+    /// global explicit time step cfl*dx/s_max.
     pub dt: f64,
 }
 
-/// Stable explicit time step for a uniform grid of width `dx` (spec 51, 15).
-///
-/// `cfl` is the Courant number from the case config, restricted to `(0, 1]`
-/// — first-order forward-Euler advancement is stable there (CFL 1928).
-/// States are conserved variables; `gamma` must exceed 1 and every cell must
-/// be an admissible Euler state, or the kernel reports a structured failure.
+/// stable explicit time step for a uniform grid of width dx from the CFL condition.
 pub fn cfl_dt(
     gamma: f64,
     cfl: f64,

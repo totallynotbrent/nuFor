@@ -1,12 +1,8 @@
-//! Step-6 FFI tests: HLL numerical flux for the 1D Euler equations (spec 52,
-//! 90) with Davis wave-speed estimates. Expected values are either exact
-//! physical fluxes (supersonic / identical-state cases) or the published HLL
-//! formula applied to the input states (subsonic cases).
+//! integration tests for the HLL flux with davis wave-speed estimates, pinned to the published formula.
 
 use nufor_core::{hll_flux, Error, HllFlux};
 
-// Reference HLL flux for a face, reimplemented from the published formula so
-// the kernel is pinned to the source rather than to a magic constant.
+// reference HLL flux for a face, reimplemented from the published formula.
 fn reference_hll(
     gamma: f64,
     rl: f64,
@@ -74,9 +70,7 @@ fn supersonic_flow_uses_the_right_physical_flux() {
 
 #[test]
 fn hll_recovers_the_sod_face_flux() {
-    // Sod face at t = 0: left (rho=1, u=0, p=1), right (rho=0.125, u=0,
-    // p=0.1), gamma = 1.4. The momentum flux lands on 0.55 exactly because
-    // the Davis speeds are symmetric about zero.
+    // sod face at t=0: left (rho=1,u=0,p=1), right (rho=0.125,u=0,p=0.1); the momentum flux is 0.55 exactly.
     let flux = hll_flux(1.4, &[1.0], &[0.0], &[2.5], &[0.125], &[0.0], &[0.25]).unwrap();
     assert_flux(
         &flux,
@@ -88,7 +82,7 @@ fn hll_recovers_the_sod_face_flux() {
 
 #[test]
 fn subsonic_faces_match_the_reference_formula() {
-    // A few generic subsonic faces and a low-density state.
+    // a few generic subsonic faces and a low-density state.
     let cases = [
         (1.4, 1.0, 1.0, 3.0, 0.5, -0.25, 3.28125),
         (1.4, 2.0, -2.0, 1.875, 1.2, 0.48, 2.35),
@@ -103,8 +97,7 @@ fn subsonic_faces_match_the_reference_formula() {
 
 #[test]
 fn many_faces_are_processed_in_one_call() {
-    // Face 1 is Sod (subsonic middle state), face 2 is left-supersonic, and
-    // face 3 is right-supersonic; each output slot must hold its own flux.
+    // face 1 is Sod, face 2 left-supersonic, face 3 right-supersonic; each slot holds its own flux.
     let flux = hll_flux(
         1.4,
         &[1.0, 1.0, 0.5],

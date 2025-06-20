@@ -62,12 +62,11 @@ research/scratch/
 
 # Working goals / plan / project constitution — local reference, not public
 /goals/
+/plans/
 /nuFor_README.md
 
-# Quartz docs site — dependencies and build output stay out
-docs-site/node_modules/
-docs-site/public/
-docs-site/**/.quartz-cache/
+# Quartz docs site — parked until the 2026-era reintroduction (not part of the repo yet)
+/docs-site/
 
 # Editors / OS
 .vscode/

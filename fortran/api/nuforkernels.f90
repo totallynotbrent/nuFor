@@ -1,6 +1,4 @@
-! C-interoperable kernel surface of the Fortran numerical layer (spec 39).
-! Every exported routine is bind(C) with contiguous arrays and explicit
-! lengths; no derived types cross the boundary; errors are structured codes.
+! c-interoperable kernel surface of the fortran numerical layer (spec 39).
 
 module nuforkernels
   use, intrinsic :: iso_c_binding
@@ -19,13 +17,13 @@ module nuforkernels
   public :: nfor_hll_flux
   public :: nfor_cfl_dt
 
-  ! Structured error codes shared with the Rust wrapper (src/lib.rs codes).
+  ! structured error codes shared with the rust wrapper.
   integer(c_int), parameter :: NFOR_OK    = 0  ! success
   integer(c_int), parameter :: NFOR_EARGS = 1  ! invalid argument (count <= 0)
   integer(c_int), parameter :: NFOR_EDATA = 2  ! numerical failure in kernel
 contains
 
-  ! Returns the kernel library version as a NUL-terminated C string.
+  ! returns the kernel library version as a nul-terminated string.
   subroutine nfor_version(ver, ver_len, err) bind(c, name="nfor_version")
     character(kind=c_char, len=1), intent(out) :: ver(*)
     integer(c_int), value, intent(in)          :: ver_len
@@ -44,7 +42,7 @@ contains
     err = NFOR_OK
   end subroutine nfor_version
 
-  ! y = alpha * x + y elementwise over `count` contiguous real(c_double).
+  ! y = alpha*x + y elementwise over count contiguous doubles.
   subroutine nfor_saxpy(count, alpha, x, y, err) bind(c, name="nfor_saxpy")
     integer(c_int), value, intent(in)  :: count
     real(c_double), value, intent(in)  :: alpha
@@ -62,9 +60,7 @@ contains
     err = NFOR_OK
   end subroutine nfor_saxpy
 
-  ! Uniform 1D control-volume geometry (spec 18): `n` cells over [xmin, xmax].
-  ! centers(i) = xmin + (i - 1/2)*dx; face j sits at xmin + (j - 1)*dx with
-  ! faces(1) = xmin and faces(n + 1) = xmax closing the domain exactly.
+  ! uniform 1D control-volume geometry: n cells over [xmin, xmax], faces close the domain.
   subroutine nfor_grid1d_init(n, xmin, xmax, centers, faces, dx, err) bind(c, name="nfor_grid1d_init")
     integer(c_int), value, intent(in) :: n
     real(c_double), value, intent(in) :: xmin
@@ -91,9 +87,7 @@ contains
     err = NFOR_OK
   end subroutine nfor_grid1d_init
 
-  ! Primitives (rho, u, e_t) -> conserved (rho, m, E): m = rho*u, E = rho*e_t.
-  ! e_t is the total specific energy; the ideal-gas internal/kinetic split and
-  ! pressure recovery belong to the EOS step. Density must be positive.
+  ! primitives (rho,u,e_t) to conserved (rho,m,E); density must be positive.
   subroutine nfor_prim_to_cons(n, rho, u, et, m, E, err) bind(c, name="nfor_prim_to_cons")
     integer(c_int), value, intent(in) :: n
     real(c_double), intent(in)        :: rho(*)
@@ -118,8 +112,7 @@ contains
     err = NFOR_OK
   end subroutine nfor_prim_to_cons
 
-  ! Conserved (rho, m, E) -> primitives (rho, u, e_t): u = m/rho, e_t = E/rho.
-  ! Inverse of nfor_prim_to_cons; density must be positive.
+  ! conserved (rho,m,E) to primitives (rho,u,e_t), the inverse of the above.
   subroutine nfor_cons_to_prim(n, rho, m, E, u, et, err) bind(c, name="nfor_cons_to_prim")
     integer(c_int), value, intent(in) :: n
     real(c_double), intent(in)        :: rho(*)
@@ -144,9 +137,7 @@ contains
     err = NFOR_OK
   end subroutine nfor_cons_to_prim
 
-  ! Ideal-gas pressure from primitives (spec 25): p = (gamma - 1)*rho*e_int
-  ! with e_int = e_t - u^2/2. Non-positive density or internal energy is not
-  ! an admissible Euler state (spec 94, 138), so it fails with NFOR_EDATA.
+  ! ideal-gas pressure p = (gamma-1)*rho*e_int; non-positive density/internal energy invalid.
   subroutine nfor_eos_pressure(gamma, n, rho, et, u, p, err) bind(c, name="nfor_eos_pressure")
     real(c_double), value, intent(in) :: gamma
     integer(c_int), value, intent(in) :: n
@@ -173,8 +164,7 @@ contains
     err = NFOR_OK
   end subroutine nfor_eos_pressure
 
-  ! Ideal-gas sound speed (spec 25): a = sqrt(gamma*p/rho). Requires positive
-  ! density and pressure so the speed of sound stays real and positive.
+  ! ideal-gas sound speed a = sqrt(gamma*p/rho); needs positive density and pressure.
   subroutine nfor_eos_sound_speed(gamma, n, rho, p, a, err) bind(c, name="nfor_eos_sound_speed")
     real(c_double), value, intent(in) :: gamma
     integer(c_int), value, intent(in) :: n
@@ -198,7 +188,7 @@ contains
     err = NFOR_OK
   end subroutine nfor_eos_sound_speed
 
-  ! Mach number from flow velocity and sound speed (spec 25): M = |u| / a.
+  ! mach number M = |u|/a from flow velocity and sound speed.
   subroutine nfor_eos_mach(n, u, a, mach, err) bind(c, name="nfor_eos_mach")
     integer(c_int), value, intent(in) :: n
     real(c_double), intent(in)        :: u(*)
@@ -220,9 +210,7 @@ contains
     err = NFOR_OK
   end subroutine nfor_eos_mach
 
-  ! Ideal-gas temperature from the thermal law p = rho*R*T (spec 25); R is the
-  ! specific gas constant from the case config in J/(kg K). All arguments must
-  ! be positive, otherwise the recovered temperature is not physical.
+  ! ideal-gas temperature from p = rho*R*T; all arguments must be positive.
   subroutine nfor_eos_temperature(r, n, rho, p, t, err) bind(c, name="nfor_eos_temperature")
     real(c_double), value, intent(in) :: r
     integer(c_int), value, intent(in) :: n
@@ -246,14 +234,7 @@ contains
     err = NFOR_OK
   end subroutine nfor_eos_temperature
 
-  ! HLL numerical flux of the 1D Euler equations for n face Riemann problems
-  ! at once (spec 52, research note flux-hll). Left states (rho_l, m_l, e_l)
-  ! and right states (rho_r, m_r, e_r) are conserved variables with
-  ! m = rho*u and e the total energy per volume; gamma is the ideal-gas ratio.
-  ! Wave speeds are the Davis estimates s_l = min(u_l - a_l, u_r - a_r),
-  ! s_r = max(u_l + a_l, u_r + a_r), which bound the characteristic speeds
-  ! without a Roe average. The middle state stays convex for admissible data
-  ! since s_r - s_l > 0 whenever both densities and pressures are positive.
+  ! HLL flux for n 1D euler faces using davis wave-speed estimates s_l, s_r.
   subroutine nfor_hll_flux(gamma, n, rho_l, m_l, e_l, rho_r, m_r, e_r, f_rho, f_m, f_e, err) bind(c, name="nfor_hll_flux")
     real(c_double), value, intent(in) :: gamma
     integer(c_int), value, intent(in) :: n
@@ -276,7 +257,7 @@ contains
        return
     end if
     do i = 1, n
-       ! Recover primitives and sound speeds on both states (spec 25, 94).
+       ! recover primitives and sound speeds on both states.
        e_int = e_l(i) / rho_l(i) - 0.5d0 * (m_l(i) / rho_l(i))**2
        if (.not. ieee_is_finite(rho_l(i)) .or. .not. ieee_is_finite(m_l(i)) .or. &
            .not. ieee_is_finite(e_l(i)) .or. rho_l(i) <= 0.0d0 .or. e_int <= 0.0d0) then
@@ -321,12 +302,7 @@ contains
     err = NFOR_OK
   end subroutine nfor_hll_flux
 
-  ! Global explicit time step from the CFL condition (spec 51): dt = cfl*dx/s_max
-  ! with s_max = max(|u| + a) over the cells, the largest characteristic speed
-  ! of the 1D Euler system. Every face wave speed of the HLL estimates is a
-  ! characteristic speed of one of its two cells, so this bound covers them.
-  ! Forward Euler with a first-order update is stable for cfl <= 1 (CFL 1928;
-  ! research note cfl-time-step). Conserved states in, s_max and dt out.
+  ! explicit time step from the CFL condition dt = cfl*dx/s_max; conserved states in, s_max and dt out.
   subroutine nfor_cfl_dt(gamma, cfl, dx, n, rho, m, e, s_max, dt, err) bind(c, name="nfor_cfl_dt")
     real(c_double), value, intent(in) :: gamma
     real(c_double), value, intent(in) :: cfl

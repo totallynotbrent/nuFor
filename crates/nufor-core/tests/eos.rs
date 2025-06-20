@@ -1,5 +1,4 @@
-//! Step-5 FFI tests: ideal-gas equation of state (pressure, sound speed,
-//! Mach, temperature) and its physical-validity checks (spec 25, 94, 138).
+//! integration tests for the ideal-gas equation of state and its physical-validity checks.
 
 use nufor_core::{
     cons_to_prim, eos_mach, eos_pressure, eos_sound_speed, eos_temperature, prim_to_cons, Error,
@@ -18,7 +17,7 @@ fn pressure_matches_the_definition() {
 
 #[test]
 fn pressure_recovers_the_sod_left_state() {
-    // Sod left state rho=1, u=0, p=1 with gamma=1.4 has e_t = p/(rho*(gamma-1)).
+    // sod left state rho=1, u=0, p=1 with gamma=1.4 has e_t = p/(rho*(gamma-1)).
     let p = eos_pressure(1.4, &[1.0], &[2.5], &[0.0]).unwrap();
     assert!((p[0] - 1.0).abs() < 1e-12);
 }
@@ -183,7 +182,7 @@ fn eos_functions_reject_mismatched_or_empty_slices() {
 
 #[test]
 fn eos_chain_closes_the_state_loop() {
-    // Primitive Sod left state -> conserved -> primitives -> pressure/sound.
+    // primitive sod left state -> conserved -> primitives -> pressure/sound.
     let (m, e) = prim_to_cons(&[1.0], &[0.0], &[2.5]).unwrap();
     let (u, et) = cons_to_prim(&[1.0], &m, &e).unwrap();
     let p = eos_pressure(1.4, &[1.0], &et, &u).unwrap();

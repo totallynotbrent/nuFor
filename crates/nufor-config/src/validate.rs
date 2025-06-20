@@ -1,11 +1,9 @@
-//! Semantic validation of a parsed case (spec 40: termination criteria,
-//! physical ranges). Parse-level type errors are handled by serde; this pass
-//! checks the values.
+//! semantic validation of a parsed case: termination criteria and physical ranges.
 
 use super::schema::{CaseConfig, InitialCondition};
 
 impl CaseConfig {
-    /// Return every violated rule; empty means the case is valid.
+    /// return every violated rule; empty means the case is valid.
     pub fn validate(&self) -> Vec<String> {
         let mut problems = Vec::new();
 

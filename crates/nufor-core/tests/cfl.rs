@@ -1,11 +1,8 @@
-//! Step-7 FFI tests: CFL time-step control (spec 51, 15). Expected values are
-//! exactly representable in binary (gamma = 2, p = 8-states) or recomputed
-//! from the published formula: dt = cfl * dx / max(|u| + a).
+//! integration tests for CFL time-step control, pinned to the published formula.
 
 use nufor_core::{cfl_dt, Error};
 
-// Reference max characteristic speed, reimplemented from the definition so
-// the kernel is pinned to the formula rather than to a magic constant.
+// reference max characteristic speed reimplemented from the definition.
 fn reference_speed(gamma: f64, rho: f64, m: f64, e: f64) -> f64 {
     let u = m / rho;
     let p = (gamma - 1.0) * (e - 0.5 * rho * u * u);
@@ -41,8 +38,7 @@ fn supersonic_state_matches_the_reference_formula() {
 
 #[test]
 fn the_fastest_cell_sets_the_global_step() {
-    // Two cells: a quiet one (s = 4) and a fast one (s = 5 + sqrt(1.4));
-    // the global step must follow the fast cell.
+    // two cells: a quiet one and a fast one; the global step follows the fast cell.
     let fast_speed = reference_speed(1.4, 1.0, 5.0, 15.0);
     let step = cfl_dt(1.4, 0.5, 1.0, &[1.0, 1.0], &[0.0, 5.0], &[2.5, 15.0]).unwrap();
     assert!((step.max_speed - fast_speed).abs() < 1e-12);
@@ -51,8 +47,7 @@ fn the_fastest_cell_sets_the_global_step() {
 
 #[test]
 fn dt_scales_with_cfl_and_dx() {
-    // Halving the Courant number halves dt; doubling the cell width doubles
-    // it, with the same max speed.
+    // halving the Courant number halves dt; doubling the cell width doubles it.
     let base = cfl_dt(2.0, 0.5, 1.0, &[1.0], &[0.0], &[8.0]).unwrap();
     let smaller = cfl_dt(2.0, 0.25, 1.0, &[1.0], &[0.0], &[8.0]).unwrap();
     let wider = cfl_dt(2.0, 0.5, 2.0, &[1.0], &[0.0], &[8.0]).unwrap();
@@ -89,7 +84,7 @@ fn cfl_dt_rejects_out_of_range_parameters() {
 
 #[test]
 fn cfl_dt_rejects_nonphysical_states() {
-    // Non-positive density on either cell.
+    // non-positive density on either cell.
     assert_eq!(
         cfl_dt(1.4, 0.5, 1.0, &[0.0], &[0.0], &[2.5]),
         Err(Error::KernelFailure)
