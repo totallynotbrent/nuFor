@@ -79,3 +79,6 @@ Thumbs.db
 # Test / coverage
 .coverage
 htmlcov/
+
+# stray local caches
+.cache/
