@@ -9,6 +9,7 @@ use std::os::raw::c_int;
 mod cfl;
 mod eos;
 mod error;
+mod exact;
 mod ffi;
 mod flux;
 mod grid;
@@ -19,6 +20,7 @@ mod util;
 pub use cfl::{cfl_dt, CflStep};
 pub use eos::{eos_mach, eos_pressure, eos_sound_speed, eos_temperature};
 pub use error::Error;
+pub use exact::{riemann, ExactSolution, PrimState};
 pub use flux::{hll_flux, HllFlux};
 pub use grid::{grid1d, Grid1d};
 pub use solver::{
