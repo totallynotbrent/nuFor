@@ -46,7 +46,7 @@ fn run_sod_to_t(n: usize, t: f64) -> (ConservedState, Vec<f64>) {
         left: Boundary::Transmissive,
         right: Boundary::Transmissive,
         // a generous step budget so every mesh actually advances to time t.
-        max_steps: (8.0 * t / grid.dx).ceil() as usize + 10,
+        max_steps: (20.0 * t / grid.dx).ceil() as usize + 200,
         t_end: t,
         tol: 0.0,
     };
