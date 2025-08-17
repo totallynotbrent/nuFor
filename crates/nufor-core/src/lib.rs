@@ -13,6 +13,7 @@ mod exact;
 mod ffi;
 mod flux;
 mod grid;
+mod output;
 mod solver;
 mod state;
 mod util;
@@ -23,6 +24,7 @@ pub use error::Error;
 pub use exact::{riemann, ExactSolution, PrimState};
 pub use flux::{hll_flux, HllFlux};
 pub use grid::{grid1d, Grid1d};
+pub use output::{write_csv, write_vtk, OutputState};
 pub use solver::{
     advance, euler_solve, Boundary, ConservedState, EulerConfig, EulerLog, EulerResult,
 };
