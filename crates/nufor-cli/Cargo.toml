@@ -1,0 +1,17 @@
+[package]
+name = "nufor-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "command-line driver for nuFor: build, run, restart, and export a 1D Euler case"
+
+[[bin]]
+name = "nufor"
+path = "src/main.rs"
+
+[dependencies]
+nufor-core = { path = "../nufor-core" }
+
+[lints]
+workspace = true
