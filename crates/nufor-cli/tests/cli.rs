@@ -59,11 +59,3 @@ fn run_writes_a_restart_and_inspect_reads_it() {
     assert!(stdout(&o).contains("cells: 100"));
     std::fs::remove_dir_all(&d).unwrap();
 }
-
-#[test]
-fn serve_points_at_the_web_ui_milestone() {
-    let d = tmpdir("s");
-    let o = run(&["serve"], &d);
-    assert!(stdout(&o).contains("next milestone"));
-    std::fs::remove_dir_all(&d).unwrap();
-}
