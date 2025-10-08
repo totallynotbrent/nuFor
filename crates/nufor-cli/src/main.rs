@@ -1,7 +1,7 @@
-//! command-line driver for nuFor: build, run, restart, and export a 1D Euler case.
+//! command-line driver for nuFor: build, run, restart, serve, and export a 1D Euler case.
 //!
-//! the web UI milestone is deliberately not here; `serve` is a stub that points
-//! at it so the cli says clearly what is still on the roadmap.
+//! `serve` hosts a minimal web ui skeleton: one page plus the snapshot as json,
+//! ready for a real front end to be designed against the same data api.
 
 use std::path::Path;
 use std::time::Instant;
@@ -10,6 +10,8 @@ use nufor_core::{
     euler_solve, grid1d, prim_to_cons, read_restart, write_csv, write_h5, write_restart, write_vtk,
     Boundary, ConservedState, Error, EulerConfig, OutputState,
 };
+
+mod serve;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const GAMMA: f64 = 1.4;
@@ -29,7 +31,7 @@ fn main() {
         "export" => export(&args),
         "history" => history(&args),
         "benchmark" => benchmark(&args),
-        "serve" => serve(),
+        "serve" => serve(&args),
         "help" | "-h" | "--help" => {
             usage(prog);
             0
@@ -54,7 +56,7 @@ fn usage(prog: &str) {
          \x20 export    in.rst out.vtk|h5  write a vtk or hdf5 snapshot\n\
          \x20 history   N [file.csv]       run sod to t=0.2 and write a csv snapshot\n\
          \x20 benchmark N steps            time a fixed run\n\
-         \x20 serve                       web UI (next milestone; not built)\n\
+         \x20 serve    [port]              serve the web ui skeleton (default 8060)\n\
          \x20 version                     print the version"
     );
 }
@@ -341,7 +343,16 @@ fn benchmark(args: &[String]) -> i32 {
     0
 }
 
-fn serve() -> i32 {
-    println!("the web UI is the next milestone; it is not built yet.");
-    0
+fn serve(args: &[String]) -> i32 {
+    let port = args
+        .get(2)
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or(serve::DEFAULT_PORT);
+    match serve::run(port) {
+        Ok(_) => 0,
+        Err(e) => {
+            eprintln!("serve error: {e}");
+            1
+        }
+    }
 }
