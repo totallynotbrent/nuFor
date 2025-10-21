@@ -82,3 +82,6 @@ htmlcov/
 
 # stray local caches
 .cache/
+
+# generated benchmark output
+bench.csv
