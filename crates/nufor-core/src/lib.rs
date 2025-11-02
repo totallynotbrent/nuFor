@@ -30,7 +30,8 @@ pub use h5::{read_h5, write_h5};
 pub use output::{write_csv, write_vtk, OutputState};
 pub use restart::{read_restart, write_restart, RestartData};
 pub use solver::{
-    advance, euler_solve, Boundary, ConservedState, EulerConfig, EulerLog, EulerResult,
+    advance, check_physical, euler_solve, Boundary, ConservedState, EulerConfig, EulerLog,
+    EulerResult, PhysicalCheck, TerminationReason,
 };
 pub use state::{cons_to_prim, prim_to_cons};
 
