@@ -19,6 +19,19 @@ pub enum Boundary {
     Reflective,
 }
 
+/// why a solver run stopped, reported so a caller can diagnose without reading the log.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminationReason {
+    /// the residual dropped to or below the requested tolerance.
+    Converged,
+    /// the accumulated simulated time reached t_end.
+    TimeEnd,
+    /// the step budget ran out before any other stop rule fired.
+    MaxSteps,
+    /// a non-physical state (non-finite density or non-positive pressure) appeared mid-run.
+    BlowUp,
+}
+
 /// the three conservative variables over the cells.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConservedState {
@@ -58,6 +71,21 @@ pub struct EulerResult {
     pub steps: usize,
     /// true when the residual reached the requested tolerance.
     pub converged: bool,
+    /// why the run stopped.
+    pub reason: TerminationReason,
+}
+
+/// the result of a physical-validity scan over a state.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PhysicalCheck {
+    /// true when every cell has finite, non-negative density and positive pressure.
+    pub ok: bool,
+    /// the smallest density seen across the cells.
+    pub min_rho: f64,
+    /// the smallest pressure seen where the density was usable.
+    pub min_p: f64,
+    /// the first cell index that failed the scan, if any.
+    pub bad_cell: Option<usize>,
 }
 
 /// the run configuration: the gas, step control, boundaries, and stopping rules.
@@ -167,13 +195,58 @@ pub fn advance(
     Ok((dt, resid))
 }
 
+/// scan a conserved state for non-finite or non-physical cells.
+///
+/// a cell is valid when its density is finite and positive and its derived
+/// pressure is finite and positive; the scan reports the running minima and the
+/// first bad cell so a caller can either continue or stop cleanly.
+pub fn check_physical(state: &ConservedState, gamma: f64) -> PhysicalCheck {
+    let mut out = PhysicalCheck {
+        ok: true,
+        min_rho: f64::INFINITY,
+        min_p: f64::INFINITY,
+        bad_cell: None,
+    };
+    for i in 0..state.rho.len() {
+        let r = state.rho[i];
+        let (m, e) = (state.m[i], state.e[i]);
+        out.min_rho = out.min_rho.min(r);
+        let r_ok = r.is_finite() && r > 0.0;
+        if r_ok {
+            let u = m / r;
+            let et = e / r;
+            let p = (gamma - 1.0) * r * (et - 0.5 * u * u);
+            out.min_p = out.min_p.min(p);
+            if !(p.is_finite() && p > 0.0) {
+                out.ok = false;
+                out.bad_cell = out.bad_cell.or(Some(i));
+            }
+        } else {
+            out.ok = false;
+            out.bad_cell = out.bad_cell.or(Some(i));
+        }
+        if !(m.is_finite() && e.is_finite()) {
+            out.ok = false;
+            out.bad_cell = out.bad_cell.or(Some(i));
+        }
+    }
+    out
+}
+
 /// run an explicit solve until the residual drops to tol, t_end elapses, or max_steps is used up.
 pub fn euler_solve(state: &mut ConservedState, cfg: &EulerConfig) -> Result<EulerResult, Error> {
     let mut log: Vec<EulerLog> = Vec::new();
     let mut time = 0.0;
     let mut residual = f64::INFINITY;
+    let mut reason = TerminationReason::MaxSteps;
     while log.len() < cfg.max_steps && time < cfg.t_end && residual > cfg.tol {
         let (dt, r) = advance(state, cfg.gamma, cfg.cfl, cfg.dx, cfg.left, cfg.right)?;
+        let chk = check_physical(state, cfg.gamma);
+        if !chk.ok {
+            reason = TerminationReason::BlowUp;
+            residual = r;
+            break;
+        }
         residual = r;
         time += dt;
         log.push(EulerLog {
@@ -182,6 +255,11 @@ pub fn euler_solve(state: &mut ConservedState, cfg: &EulerConfig) -> Result<Eule
             dt,
             residual: r,
         });
+        if residual <= cfg.tol {
+            reason = TerminationReason::Converged;
+        } else if time >= cfg.t_end {
+            reason = TerminationReason::TimeEnd;
+        }
     }
     let steps = log.len();
     Ok(EulerResult {
@@ -190,6 +268,7 @@ pub fn euler_solve(state: &mut ConservedState, cfg: &EulerConfig) -> Result<Eule
         residual,
         time,
         steps,
-        converged: residual <= cfg.tol,
+        converged: reason == TerminationReason::Converged,
+        reason,
     })
 }
