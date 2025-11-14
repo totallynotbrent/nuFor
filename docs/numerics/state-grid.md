@@ -1,13 +1,8 @@
----
-title: 1D state and uniform grid
-description: The 1D Euler state variables (conserved and primitive) and the uniform control-volume grid geometry.
-tags: [numerics]
----
 # 1D state and uniform grid
 
 The 1D Euler milestone builds on a fixed state layout and a uniform
 control-volume geometry. Both live in the Fortran kernel layer
-(`fortran/api/nuforkernels.f90`) behind the [[ffi-boundary|FFI boundary]],
+(`fortran/api/nuforkernels.f90`) behind the ,
 wrapped in `nufor-core` as `grid1d`, `prim_to_cons`, and `cons_to_prim`.
 
 ## State variables
@@ -29,7 +24,7 @@ graph LR
   written in primitives.
 - Conversion is **EOS-free**: `e_t` stays total. The split into
   internal energy plus `u^2/2` and the pressure recovery land in the
-  [[eos|ideal-gas equation of state]] step.
+  [ideal-gas equation of state](eos.md) step.
 - Both directions reject non-positive density (`rho <= 0`) with a structured
   numerical-failure code rather than producing a garbage state.
 
@@ -69,7 +64,6 @@ rejection.
 
 ## Related
 
-- [[1d-euler|Numerics — 1D Euler]] — the milestone these pieces serve
-- [[architecture|Architecture]]
-- [[ffi-boundary|Research — FFI boundary]]
-- [[case-toml|Formats — case.toml (case definition)]]
+- [Numerics — 1D Euler](1d-euler.md) — the milestone these pieces serve
+- [Architecture](../architecture.md)
+- [Formats — case.toml (case definition)](../formats/case-toml.md)

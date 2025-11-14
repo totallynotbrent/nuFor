@@ -1,7 +1,3 @@
----
-title: nuFor — docs
-description: nuFor, a CPU-first computational fluid dynamics framework.
----
 # nuFor
 
 nuFor is a portable, open-source, CPU-first computational fluid dynamics
@@ -11,22 +7,37 @@ stack. This site documents the architecture, numerics, and internal formats.
 
 ## Explore
 
-- [[architecture|Architecture]] — system layout, tech baseline, build
-- [[1d-euler|Numerics — 1D Euler milestone]] — current solver focus
-- [[state-grid|Numerics — 1D state and uniform grid]] — state layout and mesh
-- [[eos|Numerics — Ideal-gas equation of state]] — thermodynamics and pressure
-- [[numerics/flux-hll|Numerics — HLL flux]] — the baseline approximate solver
-- [[numerics/time-step|Numerics — CFL time-step control]] — the explicit step
-- [[case-toml|Formats — case.toml]] — the reproducibility root of a run
-- [[ffi-boundary|Research — FFI boundary]] — how Rust calls Fortran
-- [[toml-config|Research — config crate choice]] — why TOML + `toml`
-- [[research/flux-hll|Research — HLL vs HLLC]] — baseline flux decision
-- [[research/cfl-time-step|Research — time-step rule]] — the CFL decision
+- [Architecture](architecture.md) — system layout, tech baseline, build
+- [Formats — case.toml](formats/case-toml.md) — the reproducibility root of a run
+- [1D Euler gate record](verification/gate-1d-euler.md) — the closed milestone
+
+### Numerics
+
+- [1D Euler milestone](numerics/1d-euler.md) — the finite-volume solver
+- [State and uniform grid](numerics/state-grid.md) — state layout and mesh
+- [Ideal-gas equation of state](numerics/eos.md) — thermodynamics and pressure
+- [HLL flux](numerics/flux-hll.md) — the baseline approximate solver
+- [CFL time-step control](numerics/time-step.md) — the explicit step
+- [Sod verification](numerics/sod.md) — exact-Riemann comparison
+- [Lax verification](numerics/lax.md) — the stronger shock tube
+- [Verification ladder](numerics/verification.md) — rung-by-rung checks
+- [Output (CSV/VTK)](numerics/output.md) — plain-text writers
+- [HDF5 output](numerics/hdf5.md) — self-describing binary + Python export
+- [Restart](numerics/restart.md) — bit-exact save/load
+- [Diagnostics](numerics/diagnostics.md) — termination reasons, validity scan
+- [Web UI skeleton](numerics/web-ui.md) — the data API a front end designs against
+
+### Performance
+
+- [Optimization ledger](performance/optimization-ledger.md) — measured baselines
 
 ## Status
 
-Foundations are in place: mixed Rust/Fortran build, case schema and
-validation, the FFI boundary, the 1D state and uniform grid geometry, the
-ideal-gas equation of state, the HLL baseline flux, and CFL time-step control
-are landed and tested. The next milestone is the 1D Euler solver itself; see
-the roadmap in [[1d-euler|Numerics]] and the broader plan in the repository.
+The 1D Euler milestone is complete: the finite-volume solver (HLL flux, CFL
+time-step control, reflective and transmissive boundaries, residual and log),
+verification against the exact Riemann solution (Sod, Lax, and the four-rung
+ladder), structured output (CSV, VTK, HDF5 + a Python export), bit-exact
+restart, a command-line driver, a minimal web skeleton, and run diagnostics
+(termination reasons and a physical-validity scan) are all landed and tested.
+A measured performance baseline is recorded in the optimization ledger. The
+next milestone is the 2D extension of the state, grid, and solver.

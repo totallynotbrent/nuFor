@@ -1,8 +1,3 @@
----
-title: Architecture
-description: Long-term system layout, language split, and build wiring.
-tags: [architecture]
----
 # Architecture
 
 nuFor separates a Rust application layer from a Fortran numerical layer across
@@ -32,7 +27,7 @@ graph TD
 
 Rust and Fortran cross a deliberate C-compatible ABI: contiguous arrays with
 explicit lengths, structured error codes, no Fortran derived-type leakage.
-See [[ffi-boundary]] for the full design and its rules.
+See  for the full design and its rules.
 
 ## Build
 
@@ -43,7 +38,5 @@ Fortran kernels into a static archive and link them in. The tree is
 
 ## Areas
 
-- [[1d-euler|Numerics — 1D Euler]]
-- [[case-toml|Formats — case.toml]]
-- [[ffi-boundary|Research — FFI boundary]]
-- [[toml-config|Research — config crate choice]]
+- [Numerics — 1D Euler](numerics/1d-euler.md)
+- [Formats — case.toml](formats/case-toml.md)
