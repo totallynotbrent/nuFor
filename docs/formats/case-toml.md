@@ -1,8 +1,3 @@
----
-title: case.toml
-description: The case file — the reproducibility root of a nuFor run.
-tags: [formats]
----
 # case.toml
 
 The case file is the reproducibility root of a nuFor run (spec 40). A case
@@ -142,6 +137,4 @@ interpretable description.
 
 ## Related
 
-- [[toml-config|Research — why `toml` parses this]]
-- [[ffi-boundary|Research — the FFI boundary that consumes it]]
-- [[architecture|Architecture]]
+- [Architecture](../architecture.md)

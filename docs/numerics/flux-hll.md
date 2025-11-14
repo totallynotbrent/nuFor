@@ -1,14 +1,9 @@
----
-title: HLL flux
-description: The Harten-Lax-van Leer numerical flux for the 1D Euler equations, with Davis wave-speed estimates.
-tags: [numerics]
----
 # HLL numerical flux
 
 The baseline approximate Riemann solver for the 1D Euler milestone is the
 Harten-Lax-van Leer (HLL) flux: two waves with a single intermediate state,
 chosen conservatively so the numerical method stays conservative by
-construction. See the [[research/flux-hll|research note]] for the HLL-vs-HLLC
+construction. See the  for the HLL-vs-HLLC
 decision and sources.
 
 ## Two-wave model
@@ -52,7 +47,7 @@ in the literature and is not used.
 ## State validity
 
 The kernel recovers primitives, pressure, and sound speed on both sides
-through the [[eos|ideal-gas equation of state]] and applies the same
+through the [ideal-gas equation of state](eos.md) and applies the same
 admissibility rules as the EOS step: positive density and positive internal
 energy, all components finite. A face violating these rules fails with a
 structured numerical-failure code instead of producing a flux from an
@@ -85,8 +80,6 @@ graph TD
 
 ## Related
 
-- [[numerics/1d-euler|Numerics — 1D Euler milestone]]
-- [[eos|Numerics — Ideal-gas equation of state]]
-- [[state-grid|Numerics — 1D state and uniform grid]]
-- [[research/flux-hll|Research — HLL vs HLLC decision]]
-- [[ffi-boundary|Research — FFI boundary]]
+- [Numerics — 1D Euler milestone](1d-euler.md)
+- [Numerics — Ideal-gas equation of state](eos.md)
+- [Numerics — 1D state and uniform grid](state-grid.md)

@@ -1,21 +1,16 @@
----
-title: Ideal-gas equation of state
-description: The ideal-gas EOS — pressure, sound speed, Mach, and temperature recovery with explicit physical-validity checks.
-tags: [numerics]
----
 # Ideal-gas equation of state
 
 The thermodynamic model for the 1D Euler milestone is a calorically perfect
 ideal gas: constant ratio of specific heats `gamma`, constant specific gas
 constant `R`, and the linear thermal law `p = rho*R*T`. Both constants come
-from the `[physics]` section of the [[case-toml|case definition]], and all
+from the `[physics]` section of the [case definition](../formats/case-toml.md), and all
 of the recovery paths below live in the Fortran kernel layer behind the
-[[ffi-boundary|FFI boundary]], wrapped in `nufor-core` as `eos_pressure`,
+, wrapped in `nufor-core` as `eos_pressure`,
 `eos_sound_speed`, `eos_mach`, and `eos_temperature`.
 
 ## Relations
 
-From the [[state-grid|primitive state]] `(rho, u, e_t)` the specific internal
+From the [primitive state](state-grid.md) `(rho, u, e_t)` the specific internal
 energy is the total minus the kinetic part:
 
 ```mermaid
@@ -82,9 +77,8 @@ empty slices, and single-cell calls.
 
 ## Related
 
-- [[state-grid|Numerics — 1D state and uniform grid]] — the state variables
+- [Numerics — 1D state and uniform grid](state-grid.md) — the state variables
   these relations close
-- [[1d-euler|Numerics — 1D Euler]] — the milestone this serves
-- [[case-toml|Formats — case.toml (case definition)]] — where `gamma` and `R`
+- [Numerics — 1D Euler](1d-euler.md) — the milestone this serves
+- [Formats — case.toml (case definition)](../formats/case-toml.md) — where `gamma` and `R`
   come from
-- [[ffi-boundary|Research — FFI boundary]]
