@@ -8,24 +8,29 @@ use std::os::raw::c_int;
 
 mod cfl;
 mod eos;
+mod eos2d;
 mod error;
 mod exact;
 mod ffi;
 mod flux;
 mod grid;
+mod grid2d;
 mod h5;
 mod output;
 mod restart;
 mod solver;
 mod state;
+mod state2d;
 mod util;
 
 pub use cfl::{cfl_dt, CflStep};
 pub use eos::{eos_mach, eos_pressure, eos_sound_speed, eos_temperature};
+pub use eos2d::{eos_mach2d, eos_pressure2d, eos_sound_speed2d};
 pub use error::Error;
 pub use exact::{riemann, ExactSolution, PrimState};
 pub use flux::{hll_flux, HllFlux};
 pub use grid::{grid1d, Grid1d};
+pub use grid2d::{grid2d, Grid2d};
 pub use h5::{read_h5, write_h5};
 pub use output::{write_csv, write_vtk, OutputState};
 pub use restart::{read_restart, write_restart, RestartData};
@@ -34,6 +39,9 @@ pub use solver::{
     EulerResult, PhysicalCheck, TerminationReason,
 };
 pub use state::{cons_to_prim, prim_to_cons};
+pub use state2d::{
+    check_physical2d, cons_to_prim2d, prim_to_cons2d, ConservedState2d, PhysicalCheck2d,
+};
 
 use error::{codes, from_code};
 
