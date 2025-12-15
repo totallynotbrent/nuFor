@@ -1,32 +1,44 @@
 # Web UI skeleton
 
-The first pass at a web presence is deliberately minimal: a tiny, dependency-free
-HTTP server in the `nufor` CLI that publishes the last computed snapshot as JSON
-so a real front end can be layered on top of it.
+A dependency-free HTTP server in the `nufor` CLI (`nufor serve`) exposes the
+whole solvable surface as a small data API plus an app shell page. The front
+end is intentionally plain and functional: an external design tool restyles it
+against the same endpoints, so the API is the contract that stays stable.
 
 ## Running
 
     nufor serve [port]        # default port 8060
 
-The server binds to 127.0.0.1, runs a Sod shock tube to t = 0.2, and serves:
+## Pages
 
-- `/` — a minimal HTML page that fetches the snapshot and plots density.
-- `/api/result` — the snapshot as JSON.
+The `/` shell has one panel per feature:
 
-## API
+- **Solve** — pick the field (density / velocity / pressure / Mach / momentum /
+  energy), run, and watch the curve; optional exact-solution overlay.
+- **Case** — edit the case parameters used by the next run (initial condition,
+  cells, end time, gamma, CFL, boundary).
+- **Verify** — run against the exact 1D Riemann solution and read the L1
+  density error.
+- **Output** — download the current snapshot as CSV, VTK, or HDF5.
+- **Benchmark** — run a single-core throughput sweep.
+- **History** — every run in the session with its mesh, outcome, and reason.
 
-`GET /api/result` returns the conserved and derived fields on the cell centers:
+## Data API
 
-    {
-      "n": 300, "gamma": 1.4, "time": 0.2,
-      "centers": [...],        // x coordinates of cell centers
-      "rho": [...],            // density
-      "m": [...],              // momentum
-      "e": [...],              // specific total energy
-      "u": [...],              // velocity (derived)
-      "p": [...],              // pressure (derived)
-    }
+All routes answer on `127.0.0.1:<port>`:
 
-The page is intentionally plain; the plan is to hand this skeleton over to an
-external design tool and have it build the polished interface against the same
-data API. A live residual stream and the config editor are follow-ups.
+- `GET /api/result` (alias `/api/snapshot`) — the current result envelope:
+  steps, residual, termination reason, the snapshot (centers, rho, m, e, u, p,
+  mach), and the exact solution with its L1 density error.
+- `GET /api/config` — the current case configuration as JSON.
+- `GET /api/run?kind=sod|lax&n=..&t=..&gamma=..&cfl=..&bc=transmissive|reflective`
+  — reconfigure and run, returning the same envelope; the run is recorded.
+- `GET /api/exact` — just the exact arrays (rho, u, p) plus the L1 error.
+- `GET /api/export?format=csv|vtk|h5` — the snapshot written to that format and
+  returned as the file bytes.
+- `GET /api/benchmark?steps=..` — a JSON throughput table across mesh sizes.
+- `GET /api/history` — every run in the session as JSON.
+
+The rule going forward: whenever a new feature lands (2D HLLC, wedge cases,
+viscous terms), it gets an API route and a panel in the same commit, so the
+skeleton stays a faithful mirror of the solver.

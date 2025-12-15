@@ -12,6 +12,7 @@ use nufor_core::{
 };
 
 mod serve;
+mod webviews;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const GAMMA: f64 = 1.4;

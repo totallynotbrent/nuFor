@@ -1,17 +1,71 @@
 //! a minimal http server for the web ui skeleton.
 //!
-//! serves one plain page and the last run's snapshot as json; the polished
-//! front end is designed separately (e.g. by an external design tool) on top of
-//! this data api, so the server stays tiny and dependency-free.
+//! exposes the whole cli as a small data api (config, run, snapshot, export,
+//! benchmark, history) plus one app shell page. the front end is intentionally
+//! plain so an external design tool can restyle it against these endpoints.
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::time::Instant;
 
-use nufor_core::{euler_solve, grid1d, prim_to_cons, Boundary, ConservedState, EulerConfig};
+use crate::webviews::app_html;
+
+use nufor_core::{
+    euler_solve, grid1d, prim_to_cons, riemann, write_csv, write_h5, write_vtk, Boundary,
+    ConservedState, EulerConfig, OutputState, PrimState, TerminationReason,
+};
 
 pub const DEFAULT_PORT: u16 = 8060;
 
-/// a run snapshot plus the derived primitive fields, served as json.
+/// which initial condition the run starts from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaseKind {
+    Sod,
+    Lax,
+}
+
+impl CaseKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            CaseKind::Sod => "sod",
+            CaseKind::Lax => "lax",
+        }
+    }
+    fn from_str(s: &str) -> CaseKind {
+        if s == "lax" {
+            CaseKind::Lax
+        } else {
+            CaseKind::Sod
+        }
+    }
+}
+
+/// a run configuration, edited from the case panel and passed to the solver.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RunConfig {
+    pub kind: CaseKind,
+    pub n: usize,
+    pub t: f64,
+    pub gamma: f64,
+    pub cfl: f64,
+    pub bc: Boundary,
+}
+
+impl Default for RunConfig {
+    fn default() -> Self {
+        RunConfig {
+            kind: CaseKind::Sod,
+            n: 200,
+            t: 0.2,
+            gamma: 1.4,
+            cfl: 0.5,
+            bc: Boundary::Transmissive,
+        }
+    }
+}
+
+/// a run snapshot plus derived primitives, served as json.
+#[derive(Debug, Clone)]
 pub struct Snapshot {
     pub n: usize,
     pub gamma: f64,
@@ -22,74 +76,94 @@ pub struct Snapshot {
     pub e: Vec<f64>,
     pub u: Vec<f64>,
     pub p: Vec<f64>,
+    pub mach: Vec<f64>,
 }
 
-/// runs a sod shock tube to `t` and derives the primitives for serving.
-pub fn build_snapshot(n: usize, t: f64) -> Snapshot {
-    let g = grid1d(n, 0.0, 1.0).expect("grid");
+/// the outcome of a solve kept in the server as the result summary.
+#[derive(Debug, Clone, Copy)]
+pub struct RunInfo {
+    pub steps: usize,
+    pub residual: f64,
+    pub time: f64,
+    pub reason: TerminationReason,
+    pub n: usize,
+    pub kind: CaseKind,
+}
+
+/// the mutable server state: current config, current snapshot, and run history.
+pub struct Server {
+    pub config: RunConfig,
+    pub snap: Snapshot,
+    pub history: Vec<RunInfo>,
+}
+
+/// the left/right primitive states for a case.
+fn data(kind: CaseKind) -> ((f64, f64, f64), (f64, f64, f64)) {
+    match kind {
+        CaseKind::Sod => ((1.0, 0.0, 1.0), (0.125, 0.0, 0.1)),
+        CaseKind::Lax => ((0.445, 0.698, 3.528), (0.5, 0.0, 0.571)),
+    }
+}
+
+/// run the configured case to time t and return both the snapshot and outcome.
+fn solve(cfg: &RunConfig) -> (Snapshot, RunInfo) {
+    let g = grid1d(cfg.n, 0.0, 1.0).expect("grid");
+    let (l, r) = data(cfg.kind);
     let mut state = ConservedState {
-        rho: vec![0.0; n],
-        m: vec![0.0; n],
-        e: vec![0.0; n],
+        rho: vec![0.0; cfg.n],
+        m: vec![0.0; cfg.n],
+        e: vec![0.0; cfg.n],
     };
     for (i, &x) in g.centers.iter().enumerate() {
-        let (r, u, p) = if x < 0.5 {
-            (1.0, 0.0, 1.0)
-        } else {
-            (0.125, 0.0, 0.1)
-        };
-        state.rho[i] = r;
-        let et = p / (0.4 * r) + 0.5 * u * u;
-        let (mi, ei) = prim_to_cons(&[r], &[u], &[et]).expect("prim");
+        let (rl, u, p) = if x < 0.5 { l } else { r };
+        state.rho[i] = rl;
+        let et = p / ((cfg.gamma - 1.0) * rl) + 0.5 * u * u;
+        let (mi, ei) = prim_to_cons(&[rl], &[u], &[et]).expect("prim");
         state.m[i] = mi[0];
         state.e[i] = ei[0];
     }
-    let cfg = EulerConfig {
-        gamma: 1.4,
-        cfl: 0.5,
-        dx: 1.0 / n as f64,
-        left: Boundary::Transmissive,
-        right: Boundary::Transmissive,
-        max_steps: (16.0 * t * n as f64) as usize + 300,
-        t_end: t,
+    let solver = EulerConfig {
+        gamma: cfg.gamma,
+        cfl: cfg.cfl,
+        dx: 1.0 / cfg.n as f64,
+        left: cfg.bc,
+        right: cfg.bc,
+        max_steps: (16.0 * cfg.t * cfg.n as f64) as usize + 300,
+        t_end: cfg.t,
         tol: 0.0,
     };
-    euler_solve(&mut state, &cfg).expect("solve");
-    let mut u = vec![0.0; n];
-    let mut p = vec![0.0; n];
-    for i in 0..n {
+    let result = euler_solve(&mut state, &solver).expect("solve");
+    let mut u = vec![0.0; cfg.n];
+    let mut p = vec![0.0; cfg.n];
+    let mut mach = vec![0.0; cfg.n];
+    for i in 0..cfg.n {
         u[i] = state.m[i] / state.rho[i];
         let et = state.e[i] / state.rho[i];
-        p[i] = (1.4 - 1.0) * state.rho[i] * (et - 0.5 * u[i] * u[i]);
+        p[i] = (cfg.gamma - 1.0) * state.rho[i] * (et - 0.5 * u[i] * u[i]);
+        let a = (cfg.gamma * p[i] / state.rho[i]).sqrt();
+        mach[i] = u[i].abs() / a;
     }
-    Snapshot {
-        n,
-        gamma: 1.4,
-        time: t,
+    let snap = Snapshot {
+        n: cfg.n,
+        gamma: cfg.gamma,
+        time: result.time,
         centers: g.centers,
         rho: state.rho,
         m: state.m,
         e: state.e,
         u,
         p,
-    }
-}
-
-/// the served json body for a snapshot.
-pub fn snapshot_json(s: &Snapshot) -> String {
-    let mut out = format!(
-        "{{\"n\":{},\"gamma\":{},\"time\":{},\"centers\":[{}],\"rho\":[{}]",
-        s.n,
-        s.gamma,
-        s.time,
-        join(&s.centers),
-        join(&s.rho)
-    );
-    for (key, arr) in [("m", &s.m), ("e", &s.e), ("u", &s.u), ("p", &s.p)] {
-        out.push_str(&format!(",\"{key}\":[{}]", join(arr)));
-    }
-    out.push('}');
-    out
+        mach,
+    };
+    let info = RunInfo {
+        steps: result.steps,
+        residual: result.residual,
+        time: result.time,
+        reason: result.reason,
+        n: cfg.n,
+        kind: cfg.kind,
+    };
+    (snap, info)
 }
 
 fn join(arr: &[f64]) -> String {
@@ -99,37 +173,280 @@ fn join(arr: &[f64]) -> String {
         .join(",")
 }
 
-/// the page served at `/`; intentionally plain so an external design tool can
-/// restyle it against the data api.
-fn index_html() -> String {
-    r##"<!doctype html>
-<html lang="en">
-<head><meta charset="utf-8"><title>nuFor &mdash; 1D Euler</title>
-<style>body{font-family:sans-serif;margin:2rem}svg{background:#111}</style></head>
-<body>
-<h1>nuFor &mdash; 1D Euler snapshot</h1>
-<svg id="plot" width="640" height="220"></svg>
-<script>
-fetch('/api/result').then(r=>r.json()).then(d=>{
-  const x=d.centers, y=d.rho, w=640, h=220, mx=Math.max(...y), mn=Math.min(...y);
-  const px=v=>((v-x[0])/(x[x.length-1]-x[0]))*w;
-  const py=v=>(1-(v-mn)/(mx-mn))*h;
-  const pts=y.map((v,i)=>px(x[i])+','+py(v)).join(' ');
-  document.getElementById('plot').innerHTML =
-    '<polyline points="'+pts+'" fill="none" stroke="#4f8" stroke-width="1.5"/>';
-});
-</script>
-</body></html>"##
-        .into()
+fn arr_json(key: &str, v: &[f64]) -> String {
+    format!("{key}:[{}]", join(v))
 }
 
-/// (status, content-type, body) for a request path.
-pub fn handle_request(path: &str, s: &Snapshot) -> (String, &'static str, String) {
-    match path {
-        "/" | "/index.html" => ("200 OK".into(), "text/html; charset=utf-8", index_html()),
-        "/api/result" => ("200 OK".into(), "application/json", snapshot_json(s)),
-        _ => (
-            "404 Not Found".into(),
+/// json for the exact solution (density, velocity, pressure) plus the rho L1 error.
+fn exact_json(cfg: &RunConfig, centers: &[f64], rho: &[f64]) -> String {
+    let (l, r) = data(cfg.kind);
+    let left = PrimState {
+        rho: l.0,
+        u: l.1,
+        p: l.2,
+    };
+    let right = PrimState {
+        rho: r.0,
+        u: r.1,
+        p: r.2,
+    };
+    let mut er = Vec::with_capacity(centers.len());
+    let mut eu = Vec::with_capacity(centers.len());
+    let mut ep = Vec::with_capacity(centers.len());
+    let mut l1 = 0.0f64;
+    for (i, &x) in centers.iter().enumerate() {
+        let sol = riemann(left, right, cfg.gamma, x, cfg.t);
+        er.push(sol.state.rho);
+        eu.push(sol.state.u);
+        ep.push(sol.state.p);
+        l1 += (sol.state.rho - rho[i]).abs();
+    }
+    l1 /= centers.len() as f64;
+    format!(
+        "{{\"l1\":{:.3e},{},{},{}}}",
+        l1,
+        arr_json("\"rho\"", &er),
+        arr_json("\"u\"", &eu),
+        arr_json("\"p\"", &ep),
+    )
+}
+
+/// the full result envelope the front end renders from.
+fn envelope(server: &Server) -> String {
+    let s = &server.snap;
+    let info = server.history.last().copied().unwrap_or(RunInfo {
+        steps: 0,
+        residual: 0.0,
+        time: s.time,
+        reason: TerminationReason::TimeEnd,
+        n: s.n,
+        kind: server.config.kind,
+    });
+    let exact = exact_json(&server.config, &s.centers, &s.rho);
+    let mut body = format!(
+        "{{\"steps\":{},\"residual\":{:.3e},\"reason\":\"{:?}\",\"snapshot\":{{\"n\":{},\"gamma\":{},\"time\":{:.4},{},{},{},{},{}",
+        info.steps,
+        info.residual,
+        info.reason,
+        s.n,
+        s.gamma,
+        s.time,
+        arr_json("\"centers\"", &s.centers),
+        arr_json("\"rho\"", &s.rho),
+        arr_json("\"m\"", &s.m),
+        arr_json("\"e\"", &s.e),
+        arr_json("\"u\"", &s.u),
+    );
+    body.push_str(&format!(
+        ",{},{}",
+        arr_json("\"p\"", &s.p),
+        arr_json("\"mach\"", &s.mach),
+    ));
+    body.push_str(&format!("}},\"exact\":{exact}}}"));
+    body
+}
+
+fn config_json(cfg: &RunConfig) -> String {
+    format!(
+        "{{\"kind\":\"{}\",\"n\":{},\"t\":{},\"gamma\":{},\"cfl\":{},\"boundary\":\"{}\"}}",
+        cfg.kind.as_str(),
+        cfg.n,
+        cfg.t,
+        cfg.gamma,
+        cfg.cfl,
+        match cfg.bc {
+            Boundary::Transmissive => "transmissive",
+            Boundary::Reflective => "reflective",
+        },
+    )
+}
+
+fn history_json(server: &Server) -> String {
+    let rows: Vec<String> = server
+        .history
+        .iter()
+        .enumerate()
+        .map(|(i, r)| {
+            format!(
+                "{{\"index\":{},\"kind\":\"{}\",\"n\":{},\"steps\":{},\"time\":{:.4},\"residual\":{:.3e},\"reason\":\"{:?}\"}}",
+                i + 1, r.kind.as_str(), r.n, r.steps, r.time, r.residual, r.reason
+            )
+        })
+        .collect();
+    format!("[{}]", rows.join(","))
+}
+
+/// run the solver a fixed number of steps at a few mesh sizes and report throughput.
+fn one_solve(n: usize, steps: usize) -> f64 {
+    let g = grid1d(n, 0.0, 1.0).unwrap();
+    let (l, r) = data(CaseKind::Sod);
+    let mut state = ConservedState {
+        rho: vec![0.0; n],
+        m: vec![0.0; n],
+        e: vec![0.0; n],
+    };
+    for (i, &x) in g.centers.iter().enumerate() {
+        let (rl, u, p) = if x < 0.5 { l } else { r };
+        state.rho[i] = rl;
+        let et = p / (0.4 * rl) + 0.5 * u * u;
+        let (mi, ei) = prim_to_cons(&[rl], &[u], &[et]).unwrap();
+        state.m[i] = mi[0];
+        state.e[i] = ei[0];
+    }
+    let solver = EulerConfig {
+        gamma: 1.4,
+        cfl: 0.5,
+        dx: 1.0 / n as f64,
+        left: Boundary::Transmissive,
+        right: Boundary::Transmissive,
+        max_steps: steps,
+        t_end: f64::INFINITY,
+        tol: 0.0,
+    };
+    let start = Instant::now();
+    let _ = euler_solve(&mut state, &solver);
+    start.elapsed().as_secs_f64()
+}
+
+fn benchmark_json(steps: usize) -> String {
+    let mut rows = Vec::new();
+    for &n in &[100usize, 500, 1000] {
+        let mut best = f64::INFINITY;
+        for _ in 0..3 {
+            let secs = one_solve(n, steps);
+            best = best.min(secs * 1e6 / (steps as f64 * n as f64));
+        }
+        let rate = 1e6 / best;
+        rows.push(format!(
+            "{{\"cells\":{},\"us_per_step_per_cell\":{:.3},\"cell_steps_per_second\":{:.0}}}",
+            n, best, rate
+        ));
+    }
+    format!("[{}]", rows.join(","))
+}
+
+/// write the snapshot in the requested format to a temp file and return its bytes.
+fn export_bytes(snap: &Snapshot, format: &str) -> Result<Vec<u8>, String> {
+    let ext = if format == "h5" {
+        "h5"
+    } else if format == "vtk" {
+        "vtk"
+    } else {
+        "csv"
+    };
+    let path = std::env::temp_dir().join(format!("nufor_export_{}.{}", std::process::id(), ext));
+    let st = OutputState {
+        centers: &snap.centers,
+        rho: &snap.rho,
+        m: &snap.m,
+        e: &snap.e,
+        gamma: snap.gamma,
+    };
+    let res = match format {
+        "h5" => write_h5(&path, &st, snap.time),
+        "vtk" => write_vtk(&path, &st),
+        _ => write_csv(&path, &st),
+    };
+    res.map(|_| std::fs::read(&path).unwrap_or_default())
+        .map_err(|e| format!("{e}"))
+}
+
+fn url_decode(s: &str) -> String {
+    s.replace('+', " ")
+}
+
+/// convert a query string into a key/value map.
+fn parse_query(q: &str) -> Vec<(String, String)> {
+    q.split('&')
+        .filter(|p| !p.is_empty())
+        .map(|p| {
+            let (k, v) = p.split_once('=').unwrap_or((p, ""));
+            (url_decode(k).to_string(), url_decode(v).to_string())
+        })
+        .collect()
+}
+
+/// build a response tuple from a status, content type, and text body.
+fn respond(status: &str, ct: &'static str, body: String) -> (String, &'static str, Vec<u8>) {
+    (status.to_string(), ct, body.into_bytes())
+}
+
+/// (status, content-type, body) for a request path with its query string.
+pub fn handle_request(path: &str, server: &mut Server) -> (String, &'static str, Vec<u8>) {
+    let (route, query) = match path.split_once('?') {
+        Some((r, q)) => (r, q),
+        None => (path, ""),
+    };
+    let q = parse_query(query);
+    let get = |k: &str| q.iter().find(|(a, _)| a == k).map(|(_, v)| v);
+    match route {
+        "/" | "/index.html" => respond("200 OK", "text/html; charset=utf-8", app_html()),
+        "/api/result" | "/api/snapshot" => respond("200 OK", "application/json", envelope(server)),
+        "/api/config" => respond("200 OK", "application/json", config_json(&server.config)),
+        "/api/history" => respond("200 OK", "application/json", history_json(server)),
+        "/api/run" => {
+            if let Some(v) = get("n").and_then(|s| s.parse().ok()) {
+                server.config.n = v;
+            }
+            if let Some(v) = get("t").and_then(|s| s.parse().ok()) {
+                server.config.t = v;
+            }
+            if let Some(v) = get("gamma").and_then(|s| s.parse().ok()) {
+                server.config.gamma = v;
+            }
+            if let Some(v) = get("cfl").and_then(|s| s.parse().ok()) {
+                server.config.cfl = v;
+            }
+            if let Some(v) = get("kind") {
+                server.config.kind = CaseKind::from_str(v);
+            }
+            if let Some(v) = get("bc") {
+                server.config.bc = if v == "reflective" {
+                    Boundary::Reflective
+                } else {
+                    Boundary::Transmissive
+                };
+            }
+            let (snap, info) = solve(&server.config);
+            server.snap = snap;
+            server.history.push(info);
+            respond("200 OK", "application/json", envelope(server))
+        }
+        "/api/exact" => respond(
+            "200 OK",
+            "application/json",
+            exact_json(&server.config, &server.snap.centers, &server.snap.rho),
+        ),
+        "/api/export" => {
+            let format = get("format").map(String::as_str).unwrap_or("csv");
+            match format {
+                "h5" | "vtk" | "csv" => {
+                    let (ctype, body) = match export_bytes(&server.snap, format) {
+                        Ok(b) => (
+                            match format {
+                                "h5" => "application/octet-stream",
+                                "vtk" => "text/plain; charset=utf-8",
+                                _ => "text/csv; charset=utf-8",
+                            },
+                            b,
+                        ),
+                        Err(e) => ("text/plain; charset=utf-8", e.into_bytes()),
+                    };
+                    ("200 OK".to_string(), ctype, body)
+                }
+                _ => respond(
+                    "400 Bad Request",
+                    "text/plain; charset=utf-8",
+                    "bad format".to_string(),
+                ),
+            }
+        }
+        "/api/benchmark" => {
+            let steps = get("steps").and_then(|s| s.parse().ok()).unwrap_or(1500);
+            respond("200 OK", "application/json", benchmark_json(steps))
+        }
+        _ => respond(
+            "404 Not Found",
             "text/plain; charset=utf-8",
             "not found".to_string(),
         ),
@@ -138,29 +455,34 @@ pub fn handle_request(path: &str, s: &Snapshot) -> (String, &'static str, String
 
 /// serves requests on 127.0.0.1:port until the process is stopped.
 pub fn run(port: u16) -> std::io::Result<()> {
-    let snap = build_snapshot(300, 0.2);
+    let (snap, info) = solve(&RunConfig::default());
+    let mut server = Server {
+        config: RunConfig::default(),
+        snap,
+        history: vec![info],
+    };
     let listener = TcpListener::bind(("127.0.0.1", port))?;
     println!("serving on http://127.0.0.1:{port}/ (Ctrl-C to stop)");
     for mut stream in listener.incoming().flatten() {
-        let _ = serve_one(&mut stream, &snap);
+        let _ = serve_one(&mut stream, &mut server);
     }
     Ok(())
 }
 
 /// reads one request and writes its response.
-fn serve_one(stream: &mut TcpStream, snap: &Snapshot) -> std::io::Result<()> {
-    let mut buf = [0u8; 1024];
+fn serve_one(stream: &mut TcpStream, server: &mut Server) -> std::io::Result<()> {
+    let mut buf = [0u8; 2048];
     let n = stream.read(&mut buf).unwrap_or(0);
     let head = String::from_utf8_lossy(&buf[..n]);
     let line = head.lines().next().unwrap_or("");
     let path = line.split_whitespace().nth(1).unwrap_or("/").to_string();
-    let (status, ctype, body) = handle_request(&path, snap);
+    let (status, ctype, body) = handle_request(&path, server);
     let head = format!(
         "HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
     );
     stream.write_all(head.as_bytes())?;
-    stream.write_all(body.as_bytes())?;
+    stream.write_all(&body)?;
     stream.flush()
 }
 
@@ -168,37 +490,98 @@ fn serve_one(stream: &mut TcpStream, snap: &Snapshot) -> std::io::Result<()> {
 mod tests {
     use super::*;
 
+    fn server() -> Server {
+        let (snap, info) = solve(&RunConfig::default());
+        Server {
+            config: RunConfig::default(),
+            snap,
+            history: vec![info],
+        }
+    }
+
+    fn body(b: &[u8]) -> String {
+        String::from_utf8_lossy(b).into_owned()
+    }
+
     #[test]
-    fn api_returns_snapshot_json() {
-        let s = build_snapshot(8, 0.1);
-        assert_eq!(s.n, 8);
-        assert!(s.rho.iter().all(|&r| r > 0.0));
-        let (status, ctype, body) = handle_request("/api/result", &s);
-        assert_eq!(status, "200 OK");
-        assert_eq!(ctype, "application/json");
-        assert!(body.starts_with("{\"n\":8"));
-        assert!(body.contains("\"rho\":["));
-        assert!(body.contains("\"p\":["));
+    fn snapshot_endpoint_returns_the_envelope() {
+        let mut s = server();
+        let (st, ct, b) = handle_request("/api/result", &mut s);
+        assert_eq!(st, "200 OK");
+        assert_eq!(ct, "application/json");
+        let t = body(&b);
+        assert!(t.contains("\"n\":200"));
+        assert!(t.contains("\"mach\":["));
+        assert!(t.contains("\"exact\":"));
+    }
+
+    #[test]
+    fn run_endpoint_reconfigures_and_runs() {
+        let mut s = server();
+        let (st, _, b) = handle_request(
+            "/api/run?kind=lax&n=100&t=0.15&gamma=1.4&cfl=0.5&bc=transmissive",
+            &mut s,
+        );
+        assert_eq!(st, "200 OK");
+        assert!(body(&b).contains("\"n\":100"));
+        assert_eq!(s.history.len(), 2);
+        assert_eq!(s.snap.n, 100);
+    }
+
+    #[test]
+    fn history_tracks_runs() {
+        let mut s = server();
+        let _ = handle_request("/api/run?kind=sod&n=50&t=0.1", &mut s);
+        let _ = handle_request("/api/run?kind=lax&n=80&t=0.2", &mut s);
+        let (_, _, b) = handle_request("/api/history", &mut s);
+        let t = body(&b);
+        assert!(t.contains("\"n\":50"));
+        assert!(t.contains("\"n\":80"));
+    }
+
+    #[test]
+    fn export_writes_all_three_formats() {
+        let mut s = server();
+        let (_, _, b) = handle_request("/api/export?format=csv", &mut s);
+        assert!(body(&b).contains(",rho"));
+        let (_, _, b) = handle_request("/api/export?format=vtk", &mut s);
+        assert!(body(&b).contains("SCALARS"));
+        let (st, ct, b) = handle_request("/api/export?format=h5", &mut s);
+        assert_eq!(st, "200 OK");
+        assert_eq!(ct, "application/octet-stream");
+        // the hdf5 magic signature 89 48 44 46 (\x89HDF)
+        assert!(b.starts_with(&[0x89, b'H', b'D', b'F']));
+    }
+
+    #[test]
+    fn benchmark_returns_a_json_table() {
+        let mut s = server();
+        let (_, _, b) = handle_request("/api/benchmark?steps=300", &mut s);
+        let t = body(&b);
+        assert!(t.contains("\"cells\":"));
+        assert!(t.contains("cell_steps_per_second"));
     }
 
     #[test]
     fn index_is_served_and_unknown_is_404() {
-        let s = build_snapshot(8, 0.1);
-        let (st, _ct, body) = handle_request("/", &s);
+        let mut s = server();
+        let (st, ct, b) = handle_request("/", &mut s);
         assert_eq!(st, "200 OK");
-        assert!(body.contains("<svg"));
-        let (st, _, _) = handle_request("/nope", &s);
+        assert_eq!(ct, "text/html; charset=utf-8");
+        assert!(body(&b).contains("Solve"));
+        let (st, _, b) = handle_request("/nope", &mut s);
         assert_eq!(st, "404 Not Found");
+        assert!(body(&b) == "not found");
     }
 
     #[test]
     fn serves_data_over_http() {
-        let snap = build_snapshot(16, 0.1);
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
+        let mut server = server();
         std::thread::spawn(move || {
             if let Ok((mut stream, _)) = listener.accept() {
-                let _ = serve_one(&mut stream, &snap);
+                let _ = serve_one(&mut stream, &mut server);
             }
         });
         use std::io::{Read, Write};
@@ -206,16 +589,16 @@ mod tests {
         sock.write_all(b"GET /api/result HTTP/1.1\r\nHost: localhost\r\n\r\n")
             .unwrap();
         let mut resp = String::new();
-        let mut buf = [0u8; 4096];
+        let mut buf = [0u8; 8192];
         loop {
             let n = sock.read(&mut buf).unwrap();
-            if n == 0 || resp.contains("\"rho\":[") {
+            if n == 0 {
                 break;
             }
             resp.push_str(&String::from_utf8_lossy(&buf[..n]));
         }
         assert!(resp.starts_with("HTTP/1.1 200 OK"));
-        assert!(resp.contains("application/json"));
         assert!(resp.contains("\"rho\":["));
+        assert!(resp.contains("\"mach\":["));
     }
 }
