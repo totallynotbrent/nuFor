@@ -16,9 +16,11 @@ mod flux;
 mod grid;
 mod grid2d;
 mod h5;
+mod hllc2d;
 mod output;
 mod restart;
 mod solver;
+mod solver2d;
 mod state;
 mod state2d;
 mod util;
@@ -32,12 +34,14 @@ pub use flux::{hll_flux, HllFlux};
 pub use grid::{grid1d, Grid1d};
 pub use grid2d::{grid2d, Grid2d};
 pub use h5::{read_h5, write_h5};
+pub use hllc2d::{hllc_flux, FacePrim, Flux4};
 pub use output::{write_csv, write_vtk, OutputState};
 pub use restart::{read_restart, write_restart, RestartData};
 pub use solver::{
     advance, check_physical, euler_solve, Boundary, ConservedState, EulerConfig, EulerLog,
     EulerResult, PhysicalCheck, TerminationReason,
 };
+pub use solver2d::{advance2d, advance2d_rk2};
 pub use state::{cons_to_prim, prim_to_cons};
 pub use state2d::{
     check_physical2d, cons_to_prim2d, prim_to_cons2d, ConservedState2d, PhysicalCheck2d,
