@@ -42,6 +42,53 @@ fn face_states(p: &[f64], n: usize, muscl: bool) -> (Vec<f64>, Vec<f64>) {
     (fl, fr)
 }
 
+/// a boundary condition applied to one side of the 2d domain.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum Bc2d {
+    /// open end; the ghost copies the interior state so waves leave freely.
+    #[default]
+    Transmissive,
+    /// fixed freestream primitive state, used at a supersonic inflow face.
+    SupersonicInflow { rho: f64, u: f64, v: f64, p: f64 },
+    /// the ghost copies the interior state, the usual supersonic outflow.
+    SupersonicOutflow,
+    /// solid wall; the ghost mirrors the normal velocity and copies the rest.
+    SlipWall,
+}
+
+/// the boundary condition on each of the four sides (west,east,south,north).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Boundaries2d {
+    pub west: Bc2d,
+    pub east: Bc2d,
+    pub south: Bc2d,
+    pub north: Bc2d,
+}
+
+/// the ghost value for one primitive at one side of a strip.
+///
+/// `var` is the variable index (0=rho,1=u,2=v,3=p) and `normal_var` the index of
+/// the velocity normal to the face (1 for vertical walls, 2 for horizontal), so
+/// a slip wall knows which component to reflect.
+fn ghost_value(bc: Bc2d, interior: f64, var: usize, normal_var: usize) -> f64 {
+    match bc {
+        Bc2d::Transmissive | Bc2d::SupersonicOutflow => interior,
+        Bc2d::SlipWall => {
+            if var == normal_var {
+                -interior
+            } else {
+                interior
+            }
+        }
+        Bc2d::SupersonicInflow { rho, u, v, p } => match var {
+            0 => rho,
+            2 => v,
+            3 => p,
+            _ => u,
+        },
+    }
+}
+
 /// transpose copies (rho,u,v,p) of a flat row-major slab into per-axis padded strips.
 ///
 /// returns two closures avoided: this is just a helper collecting the face flux
@@ -61,6 +108,7 @@ pub fn advance2d(
     gamma: f64,
     cfl: f64,
     muscl: bool,
+    bc: &Boundaries2d,
 ) -> Result<(f64, f64), Error> {
     let nx = g.nx;
     let ny = g.ny;
@@ -90,17 +138,17 @@ pub fn advance2d(
             pv[i] = v[idx(i, j)];
             pp[i] = p[idx(i, j)];
         }
-        let pad = |c: &[f64]| -> Vec<f64> {
+        let pad = |c: &[f64], var: usize| -> Vec<f64> {
             let mut out = vec![0.0; nx + 2];
-            out[0] = c[0];
-            out[nx + 1] = c[nx - 1];
+            out[0] = ghost_value(bc.west, c[0], var, 1);
+            out[nx + 1] = ghost_value(bc.east, c[nx - 1], var, 1);
             out[1..=nx].copy_from_slice(c);
             out
         };
-        let (rl, rr) = face_states(&pad(&pr), nx, muscl);
-        let (ul, ur) = face_states(&pad(&pu), nx, muscl);
-        let (vl, vr) = face_states(&pad(&pv), nx, muscl);
-        let (pl, prr) = face_states(&pad(&pp), nx, muscl);
+        let (rl, rr) = face_states(&pad(&pr, 0), nx, muscl);
+        let (ul, ur) = face_states(&pad(&pu, 1), nx, muscl);
+        let (vl, vr) = face_states(&pad(&pv, 2), nx, muscl);
+        let (pl, prr) = face_states(&pad(&pp, 3), nx, muscl);
         for f in 0..=nx {
             let q = hllc_flux(
                 gamma,
@@ -146,17 +194,17 @@ pub fn advance2d(
             cv[j] = v[idx(i, j)];
             cp[j] = p[idx(i, j)];
         }
-        let pad = |c: &[f64]| -> Vec<f64> {
+        let pad = |c: &[f64], var: usize| -> Vec<f64> {
             let mut out = vec![0.0; ny + 2];
-            out[0] = c[0];
-            out[ny + 1] = c[ny - 1];
+            out[0] = ghost_value(bc.south, c[0], var, 2);
+            out[ny + 1] = ghost_value(bc.north, c[ny - 1], var, 2);
             out[1..=ny].copy_from_slice(c);
             out
         };
-        let (rl, rr) = face_states(&pad(&cr), ny, muscl);
-        let (ul, ur) = face_states(&pad(&cu), ny, muscl);
-        let (vl, vr) = face_states(&pad(&cv), ny, muscl);
-        let (pl, prr) = face_states(&pad(&cp), ny, muscl);
+        let (rl, rr) = face_states(&pad(&cr, 0), ny, muscl);
+        let (ul, ur) = face_states(&pad(&cu, 1), ny, muscl);
+        let (vl, vr) = face_states(&pad(&cv, 2), ny, muscl);
+        let (pl, prr) = face_states(&pad(&cp, 3), ny, muscl);
         for f in 0..=ny {
             let q = hllc_flux(
                 gamma,
@@ -225,14 +273,15 @@ pub fn advance2d_rk2(
     gamma: f64,
     cfl: f64,
     muscl: bool,
+    bc: &Boundaries2d,
 ) -> Result<(f64, f64), Error> {
     // heun: s1 = st + dt l(st); s2 = s1 + dt l(s1); st = 0.5(st + s2).
     let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
     let p = eos_pressure2d(gamma, &state.rho, &et, &u, &v)?;
     let dt = cfl * g.dx.min(g.dy) / smax_of(&u, &v, &p, &state.rho, gamma, g.nx * g.ny);
     let mut s1 = state.clone();
-    advance2d(&mut s1, g, gamma, cfl, muscl)?;
-    advance2d(&mut s1, g, gamma, cfl, muscl)?;
+    advance2d(&mut s1, g, gamma, cfl, muscl, bc)?;
+    advance2d(&mut s1, g, gamma, cfl, muscl, bc)?;
     for k in 0..g.nx * g.ny {
         state.rho[k] = 0.5 * state.rho[k] + 0.5 * s1.rho[k];
         state.mx[k] = 0.5 * state.mx[k] + 0.5 * s1.mx[k];
