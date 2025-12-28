@@ -2,8 +2,8 @@
 //! reduction to 1d, and conservation / positivity.
 
 use nufor_core::{
-    advance2d, advance2d_rk2, grid1d, grid2d, hllc_flux, prim_to_cons, prim_to_cons2d, Boundary,
-    ConservedState, ConservedState2d, EulerConfig, FacePrim, Grid2d,
+    advance2d, advance2d_rk2, grid1d, grid2d, hllc_flux, prim_to_cons, prim_to_cons2d,
+    Boundaries2d, Boundary, ConservedState, ConservedState2d, EulerConfig, FacePrim, Grid2d,
 };
 
 const GAMMA: f64 = 1.4;
@@ -13,7 +13,7 @@ fn run_to_rk2(state: &mut ConservedState2d, g: &Grid2d, muscl: bool, t: f64) -> 
     let mut time = 0.0;
     let mut steps = 0;
     while time < t {
-        let (dt, _) = advance2d_rk2(state, g, GAMMA, 0.5, muscl).unwrap();
+        let (dt, _) = advance2d_rk2(state, g, GAMMA, 0.5, muscl, &Boundaries2d::default()).unwrap();
         time += dt;
         steps += 1;
     }
@@ -24,7 +24,7 @@ fn run_to(state: &mut ConservedState2d, g: &Grid2d, muscl: bool, t: f64) -> usiz
     let mut time = 0.0;
     let mut steps = 0;
     while time < t {
-        match advance2d(state, g, GAMMA, 0.5, muscl) {
+        match advance2d(state, g, GAMMA, 0.5, muscl, &Boundaries2d::default()) {
             Ok((dt, _)) => {
                 time += dt;
                 steps += 1;
@@ -248,5 +248,5 @@ fn hllc_rejects_non_physical_inputs_at_the_solver_boundary() {
     // a nan in the state should surface as an error rather than NaN garbage.
     let (mut st, g, _) = vortex_init(20, 1.0);
     st.rho[0] = f64::NAN;
-    assert!(advance2d(&mut st, &g, GAMMA, 0.5, true).is_err());
+    assert!(advance2d(&mut st, &g, GAMMA, 0.5, true, &Boundaries2d::default()).is_err());
 }
