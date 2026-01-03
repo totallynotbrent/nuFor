@@ -3,10 +3,15 @@
 Verifies the top-level files the repo contract requires and that tracked text
 files are LF-only, so line-ending drift never sneaks in (project rule 6).
 Runs on Linux and Windows runners. Exits nonzero on any failure.
+
+Only tracked files are walked: gitignored work areas (plans/, docs-site/,
+target/, .vscode/) never enter a fresh checkout and must not be required or
+scanned.
 """
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -19,7 +24,6 @@ REQUIRED = [
     ".gitattributes",
     ".gitignore",
     "docs/README.md",
-    "plans/PLAN.md",
     ".github/ISSUE_TEMPLATE/bug_report.md",
     ".github/ISSUE_TEMPLATE/feature_request.md",
     ".github/workflows/ci.yml",
@@ -27,10 +31,15 @@ REQUIRED = [
 
 BINARY_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf", ".zip",
                    ".gz", ".tar", ".h5", ".o", ".mod", ".so", ".dll", ".exe"}
+BINARY_NAMES = {"Cargo.lock"}
 
-TEXT_SUFFIXES = {".md", ".txt", ".rs", ".f90", ".f", ".py", ".toml", ".yaml",
-                 ".yml", ".json", ".sh", ".bat", ".ps1", ".cmake", ".svg",
-                 ".html", ".css", ".js", ".yml"}
+
+def tracked_files(root: Path) -> list[Path]:
+    """the paths git tracks, so scans never touch ignored work areas."""
+    out = subprocess.run(["git", "-C", str(root), "ls-files", "-z"],
+                         capture_output=True, check=True, text=False)
+    files = [root / p.decode("utf-8") for p in out.stdout.split(b"\0") if p]
+    return [f for f in files if f.is_file()]
 
 
 def main() -> int:
@@ -46,18 +55,11 @@ def main() -> int:
             print("FAIL", e)
         return 1
 
-    # Verify text files are LF-only.
-    for path in root.rglob("*"):
-        if not path.is_file() or ".git" in path.parts:
+    # Verify tracked text files are LF-only.
+    for path in tracked_files(root):
+        if path.name in BINARY_NAMES or path.suffix in BINARY_SUFFIXES:
             continue
-        # Build artifacts (Cargo target/, CMake build/) hold binary data with
-        # arbitrary bytes; they are gitignored and never part of the text tree.
-        if "target" in path.parts or "build" in path.parts:
-            continue
-        if path.name in ("Cargo.lock",) or path.suffix in BINARY_SUFFIXES:
-            continue
-        raw = path.read_bytes()
-        if b"\r\n" in raw:
+        if b"\r\n" in path.read_bytes():
             errors.append(f"CRLF line endings in {path.relative_to(root)}")
 
     # Require LICENSE to start with the GPL banner.
