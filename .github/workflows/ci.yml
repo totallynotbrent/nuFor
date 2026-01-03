@@ -51,7 +51,7 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gfortran cmake
+          sudo apt-get install -y --no-install-recommends gfortran cmake libhdf5-dev
           rustup component add rustfmt clippy
       - name: Lint + format
         shell: bash
