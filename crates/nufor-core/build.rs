@@ -4,7 +4,41 @@ use std::env;
 use std::path::PathBuf;
 use std::process::Command;
 
+/// emit a rustc link-search for the hdf5 shared library so `-lhdf5` resolves.
+///
+/// the crate links libhdf5 via #[link(name = "hdf5")]; the library's directory
+/// is not always on the linker's default path (ubuntu puts it under
+/// <libdir>/hdf5/serial), so find its directory and expose it here.
+fn add_hdf5_link_search() {
+    let libdir = Command::new("pkg-config")
+        .args(["--variable=libdir", "hdf5"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    if let Some(dir) = libdir {
+        println!("cargo:rustc-link-search=native={dir}");
+        return;
+    }
+    for dir in [
+        "/usr/lib/x86_64-linux-gnu/hdf5/serial",
+        "/usr/lib64/hdf5/serial",
+        "/usr/lib/hdf5/serial",
+        "/usr/lib64",
+        "/usr/lib",
+        "/usr/local/lib",
+    ] {
+        if PathBuf::from(dir).join("libhdf5.so").exists() {
+            println!("cargo:rustc-link-search=native={dir}");
+            return;
+        }
+    }
+}
+
 fn main() {
+    add_hdf5_link_search();
     let root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap())
         .join("..")
         .join("..")
