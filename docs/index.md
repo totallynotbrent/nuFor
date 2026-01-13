@@ -30,6 +30,7 @@ stack. This site documents the architecture, numerics, and internal formats.
 - [2D Euler solver](numerics/2d-euler.md) — HLLC flux, MUSCL, van Leer limiter
 - [2D boundaries](numerics/2d-boundaries.md) — slip wall, supersonic in/out
 - [Oblique shock](numerics/oblique-shock.md) — the supersonic wedge, verified against θ-β-M
+- [Shock reflection](numerics/shock-reflection.md) — the two-shock reflection off a wall
 
 ### Performance
 
