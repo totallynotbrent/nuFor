@@ -35,6 +35,7 @@ td,th{border:1px solid #ddd;padding:.2rem .6rem;text-align:right}
   <button data-v="output">Output</button>
   <button data-v="bench">Benchmark</button>
   <button data-v="history">History</button>
+  <button data-v="image">2D field</button>
 </nav>
 <main>
 
@@ -95,6 +96,14 @@ td,th{border:1px solid #ddd;padding:.2rem .6rem;text-align:right}
 <section id="v-history">
   <h2>Run history</h2>
   <table id="historytable"></table>
+</section>
+
+<section id="v-image">
+  <h2>2D field</h2>
+  <p class="stat">A 2D blast wave (high-pressure disc) solved and rendered to an
+  image. Reload the panel to recompute it.</p>
+  <img src="/api/image?n=128" alt="2D blast density" height="420">
+  <div class="row stat">density colormap; blue is ambient, red is compressed.</div>
 </section>
 
 </main>

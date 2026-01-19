@@ -11,8 +11,9 @@ use std::time::Instant;
 use crate::webviews::app_html;
 
 use nufor_core::{
-    euler_solve, grid1d, prim_to_cons, riemann, write_csv, write_h5, write_vtk, Boundary,
-    ConservedState, EulerConfig, OutputState, PrimState, TerminationReason,
+    advance2d_rk2, euler_solve, grid1d, grid2d, prim_to_cons, prim_to_cons2d, render_png, riemann,
+    write_csv, write_h5, write_vtk, Boundaries2d, Boundary, ConservedState, ConservedState2d,
+    EulerConfig, Grid2d, OutputState, PrimState, TerminationReason,
 };
 
 pub const DEFAULT_PORT: u16 = 8060;
@@ -371,6 +372,38 @@ fn respond(status: &str, ct: &'static str, body: String) -> (String, &'static st
     (status.to_string(), ct, body.into_bytes())
 }
 
+/// render a 2d blast wave (a high-pressure disc in a quiescent gas) as a png.
+fn blast_image(n: usize, t_run: f64) -> Vec<u8> {
+    const GAMMA: f64 = 1.4;
+    let g: Grid2d = grid2d(n, n, 0.0, 1.0, 0.0, 1.0).unwrap();
+    let (cx, cy, r0): (f64, f64, f64) = (0.35, 0.5, 0.2);
+    let (rho, mut p) = (vec![1.0; n * n], vec![1.0; n * n]);
+    for j in 0..n {
+        for i in 0..n {
+            let (x, y) = (g.centers_x[j * n + i], g.centers_y[j * n + i]);
+            if (x - cx).powi(2) + (y - cy).powi(2) < r0.powi(2) {
+                p[j * n + i] = 5.0;
+            }
+        }
+    }
+    let u = vec![0.0; n * n];
+    let v = vec![0.0; n * n];
+    let et: Vec<f64> = p
+        .iter()
+        .zip(&rho)
+        .map(|(pp, r)| pp / (r * (GAMMA - 1.0)))
+        .collect();
+    let (mx, my, e) = prim_to_cons2d(&rho, &u, &v, &et).unwrap();
+    let mut st = ConservedState2d { rho, mx, my, e };
+    let bc = Boundaries2d::default();
+    let mut t = 0.0;
+    while t < t_run {
+        let (dt, _) = advance2d_rk2(&mut st, &g, GAMMA, 0.5, true, &bc).unwrap();
+        t += dt;
+    }
+    render_png(&st.rho, n, 1.0, 2.6).unwrap()
+}
+
 /// (status, content-type, body) for a request path with its query string.
 pub fn handle_request(path: &str, server: &mut Server) -> (String, &'static str, Vec<u8>) {
     let (route, query) = match path.split_once('?') {
@@ -383,6 +416,11 @@ pub fn handle_request(path: &str, server: &mut Server) -> (String, &'static str,
         "/" | "/index.html" => respond("200 OK", "text/html; charset=utf-8", app_html()),
         "/api/result" | "/api/snapshot" => respond("200 OK", "application/json", envelope(server)),
         "/api/config" => respond("200 OK", "application/json", config_json(&server.config)),
+        "/api/image" => {
+            let n = get("n").and_then(|s| s.parse().ok()).unwrap_or(128);
+            let body = blast_image(n, 0.10);
+            ("200 OK".to_string(), "image/png", body)
+        }
         "/api/history" => respond("200 OK", "application/json", history_json(server)),
         "/api/run" => {
             if let Some(v) = get("n").and_then(|s| s.parse().ok()) {
@@ -453,7 +491,7 @@ pub fn handle_request(path: &str, server: &mut Server) -> (String, &'static str,
     }
 }
 
-/// serves requests on 127.0.0.1:port until the process is stopped.
+/// serves requests on all interfaces (0.0.0.0:port) until the process is stopped.
 pub fn run(port: u16) -> std::io::Result<()> {
     let (snap, info) = solve(&RunConfig::default());
     let mut server = Server {
@@ -461,8 +499,8 @@ pub fn run(port: u16) -> std::io::Result<()> {
         snap,
         history: vec![info],
     };
-    let listener = TcpListener::bind(("127.0.0.1", port))?;
-    println!("serving on http://127.0.0.1:{port}/ (Ctrl-C to stop)");
+    let listener = TcpListener::bind(("0.0.0.0", port))?;
+    println!("serving on http://0.0.0.0:{port}/ (Ctrl-C to stop)");
     for mut stream in listener.incoming().flatten() {
         let _ = serve_one(&mut stream, &mut server);
     }
