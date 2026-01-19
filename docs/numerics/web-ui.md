@@ -7,7 +7,10 @@ against the same endpoints, so the API is the contract that stays stable.
 
 ## Running
 
-    nufor serve [port]        # default port 8060
+    nufor serve [port]        # default port 8060, bound to 0.0.0.0
+
+The server listens on all interfaces so the dashboard is reachable over the
+LAN or Tailscale, not just on the box itself.
 
 ## Pages
 
@@ -22,10 +25,12 @@ The `/` shell has one panel per feature:
 - **Output** — download the current snapshot as CSV, VTK, or HDF5.
 - **Benchmark** — run a single-core throughput sweep.
 - **History** — every run in the session with its mesh, outcome, and reason.
+- **2D field** — a 2D blast wave solved and rendered to a colour-mapped image
+  (density colormap, blue ambient to red compressed).
 
 ## Data API
 
-All routes answer on `127.0.0.1:<port>`:
+All routes answer on `0.0.0.0:<port>`:
 
 - `GET /api/result` (alias `/api/snapshot`) — the current result envelope:
   steps, residual, termination reason, the snapshot (centers, rho, m, e, u, p,
@@ -38,6 +43,8 @@ All routes answer on `127.0.0.1:<port>`:
   returned as the file bytes.
 - `GET /api/benchmark?steps=..` — a JSON throughput table across mesh sizes.
 - `GET /api/history` — every run in the session as JSON.
+- `GET /api/image?n=..` — a 2D blast wave solved at `n` cells and returned as a
+  PNG density field (`image/png`).
 
 The rule going forward: whenever a new feature lands (2D HLLC, wedge cases,
 viscous terms), it gets an API route and a panel in the same commit, so the

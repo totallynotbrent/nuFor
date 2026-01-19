@@ -18,6 +18,7 @@ mod grid2d;
 mod h5;
 mod hllc2d;
 mod output;
+mod render2d;
 mod restart;
 mod solver;
 mod solver2d;
@@ -36,6 +37,7 @@ pub use grid2d::{grid2d, Grid2d};
 pub use h5::{read_h5, write_h5};
 pub use hllc2d::{hllc_flux, FacePrim, Flux4};
 pub use output::{write_csv, write_vtk, OutputState};
+pub use render2d::{colormap, render_png};
 pub use restart::{read_restart, write_restart, RestartData};
 pub use solver::{
     advance, check_physical, euler_solve, Boundary, ConservedState, EulerConfig, EulerLog,
