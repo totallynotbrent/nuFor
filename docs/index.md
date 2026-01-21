@@ -32,6 +32,7 @@ stack. This site documents the architecture, numerics, and internal formats.
 - [Oblique shock](numerics/oblique-shock.md) — the supersonic wedge, verified against θ-β-M
 - [Shock reflection](numerics/shock-reflection.md) — the two-shock reflection off a wall
 - [Positivity](numerics/positivity.md) — why density and pressure stay positive
+- [Viscous terms](numerics/viscous.md) — the Navier-Stokes diffusive flux
 
 ### Performance
 

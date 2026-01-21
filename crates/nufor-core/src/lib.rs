@@ -25,6 +25,7 @@ mod solver2d;
 mod state;
 mod state2d;
 mod util;
+mod viscous2d;
 
 pub use cfl::{cfl_dt, CflStep};
 pub use eos::{eos_mach, eos_pressure, eos_sound_speed, eos_temperature};
@@ -48,6 +49,7 @@ pub use state::{cons_to_prim, prim_to_cons};
 pub use state2d::{
     check_physical2d, cons_to_prim2d, prim_to_cons2d, ConservedState2d, PhysicalCheck2d,
 };
+pub use viscous2d::{add_viscous, advance2d_visc_rk2, sutherland_mu, ViscParams};
 
 use error::{codes, from_code};
 
