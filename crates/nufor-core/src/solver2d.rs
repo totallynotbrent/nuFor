@@ -102,20 +102,26 @@ struct Sweep {
 }
 
 /// one conservative step for the 2d state over the grid.
-pub fn advance2d(
+/// one conservative step, with the time increment additionally capped at max_dt.
+///
+/// cap is infinite for pure euler; the viscous wrapper passes the diffusive
+/// stability bound so the explicit diffusion never outruns the time step.
+pub(crate) fn advance2d_capped(
     state: &mut ConservedState2d,
     g: &Grid2d,
     gamma: f64,
     cfl: f64,
     muscl: bool,
     bc: &Boundaries2d,
+    max_dt: f64,
 ) -> Result<(f64, f64), Error> {
     let nx = g.nx;
     let ny = g.ny;
     let idx = |i: usize, j: usize| j * nx + i;
     let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
     let p = eos_pressure2d(gamma, &state.rho, &et, &u, &v)?;
-    let dt = cfl * g.dx.min(g.dy) / smax_of(&u, &v, &p, &state.rho, gamma, nx * ny);
+    let dti = cfl * g.dx.min(g.dy) / smax_of(&u, &v, &p, &state.rho, gamma, nx * ny);
+    let dt = dti.min(max_dt);
 
     // vertical (x) faces: one flux per row at each of the nx+1 vertical faces.
     let mut fx = vec![
@@ -253,6 +259,18 @@ pub fn advance2d(
         }
     }
     Ok((dt, resid))
+}
+
+/// the plain euler step (no time-step cap beyond the cfl bound).
+pub fn advance2d(
+    state: &mut ConservedState2d,
+    g: &Grid2d,
+    gamma: f64,
+    cfl: f64,
+    muscl: bool,
+    bc: &Boundaries2d,
+) -> Result<(f64, f64), Error> {
+    advance2d_capped(state, g, gamma, cfl, muscl, bc, f64::INFINITY)
 }
 
 /// the largest fast-characteristic speed over the cells, bounding the wave speeds.
