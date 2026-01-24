@@ -54,6 +54,9 @@ pub enum Bc2d {
     SupersonicOutflow,
     /// solid wall; the ghost mirrors the normal velocity and copies the rest.
     SlipWall,
+    /// viscous solid wall: both velocity components are reversed so the
+    /// wall-average velocity vanishes (no slip), density and pressure copied.
+    NoSlipWall,
 }
 
 /// the boundary condition on each of the four sides (west,east,south,north).
@@ -75,6 +78,13 @@ fn ghost_value(bc: Bc2d, interior: f64, var: usize, normal_var: usize) -> f64 {
         Bc2d::Transmissive | Bc2d::SupersonicOutflow => interior,
         Bc2d::SlipWall => {
             if var == normal_var {
+                -interior
+            } else {
+                interior
+            }
+        }
+        Bc2d::NoSlipWall => {
+            if var == 1 || var == 2 {
                 -interior
             } else {
                 interior
