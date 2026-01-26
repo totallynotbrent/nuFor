@@ -44,7 +44,7 @@ pub use solver::{
     advance, check_physical, euler_solve, Boundary, ConservedState, EulerConfig, EulerLog,
     EulerResult, PhysicalCheck, TerminationReason,
 };
-pub use solver2d::{advance2d, advance2d_rk2, Bc2d, Boundaries2d};
+pub use solver2d::{advance2d, advance2d_par, advance2d_rk2, Bc2d, Boundaries2d};
 pub use state::{cons_to_prim, prim_to_cons};
 pub use state2d::{
     check_physical2d, cons_to_prim2d, prim_to_cons2d, ConservedState2d, PhysicalCheck2d,
