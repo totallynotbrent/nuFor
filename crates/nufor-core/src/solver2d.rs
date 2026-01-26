@@ -293,6 +293,213 @@ fn smax_of(u: &[f64], v: &[f64], p: &[f64], rho: &[f64], gamma: f64, n: usize) -
     s
 }
 
+/// threaded 2d euler step: shards the x-face rows and y-face columns and the
+/// update across a thread pool, then applies the deltas serially so the result
+/// is bit-identical to the serial advance2d regardless of the thread count.
+pub fn advance2d_par(
+    state: &mut ConservedState2d,
+    g: &Grid2d,
+    gamma: f64,
+    cfl: f64,
+    muscl: bool,
+    bc: &Boundaries2d,
+    nthreads: usize,
+) -> Result<(f64, f64), Error> {
+    let nx = g.nx;
+    let ny = g.ny;
+    let idx = |i: usize, j: usize| j * nx + i;
+    let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
+    let p = eos_pressure2d(gamma, &state.rho, &et, &u, &v)?;
+    let dt = cfl * g.dx.min(g.dy) / smax_of(&u, &v, &p, &state.rho, gamma, nx * ny);
+    // a shared reference for the read-only flux closures so they can be Sync.
+    let st: &ConservedState2d = state;
+    let row_flux = |j: usize| -> Sweep {
+        let (mut pr, mut pu, mut pv, mut pp) =
+            (vec![0.0; nx], vec![0.0; nx], vec![0.0; nx], vec![0.0; nx]);
+        for i in 0..nx {
+            pr[i] = st.rho[idx(i, j)];
+            pu[i] = u[idx(i, j)];
+            pv[i] = v[idx(i, j)];
+            pp[i] = p[idx(i, j)];
+        }
+        let pad = |c: &[f64], var: usize| -> Vec<f64> {
+            let mut out = vec![0.0; nx + 2];
+            out[0] = ghost_value(bc.west, c[0], var, 1);
+            out[nx + 1] = ghost_value(bc.east, c[nx - 1], var, 1);
+            out[1..=nx].copy_from_slice(c);
+            out
+        };
+        let (rl, rr) = face_states(&pad(&pr, 0), nx, muscl);
+        let (ul, ur) = face_states(&pad(&pu, 1), nx, muscl);
+        let (vl, vr) = face_states(&pad(&pv, 2), nx, muscl);
+        let (pl, prr) = face_states(&pad(&pp, 3), nx, muscl);
+        let mut sw = Sweep {
+            mass: vec![0.0; nx + 1],
+            mx: vec![0.0; nx + 1],
+            my: vec![0.0; nx + 1],
+            e: vec![0.0; nx + 1],
+        };
+        for f in 0..=nx {
+            let q = hllc_flux(
+                gamma,
+                FacePrim {
+                    rho: rl[f],
+                    u: ul[f],
+                    v: vl[f],
+                    p: pl[f],
+                },
+                FacePrim {
+                    rho: rr[f],
+                    u: ur[f],
+                    v: vr[f],
+                    p: prr[f],
+                },
+                0,
+            );
+            sw.mass[f] = q.mass;
+            sw.mx[f] = q.mx;
+            sw.my[f] = q.my;
+            sw.e[f] = q.e;
+        }
+        sw
+    };
+    let col_flux = |i: usize| -> Sweep {
+        let (mut cr, mut cu, mut cv, mut cp) =
+            (vec![0.0; ny], vec![0.0; ny], vec![0.0; ny], vec![0.0; ny]);
+        for j in 0..ny {
+            cr[j] = st.rho[idx(i, j)];
+            cu[j] = u[idx(i, j)];
+            cv[j] = v[idx(i, j)];
+            cp[j] = p[idx(i, j)];
+        }
+        let pad = |c: &[f64], var: usize| -> Vec<f64> {
+            let mut out = vec![0.0; ny + 2];
+            out[0] = ghost_value(bc.south, c[0], var, 2);
+            out[ny + 1] = ghost_value(bc.north, c[ny - 1], var, 2);
+            out[1..=ny].copy_from_slice(c);
+            out
+        };
+        let (rl, rr) = face_states(&pad(&cr, 0), ny, muscl);
+        let (ul, ur) = face_states(&pad(&cu, 1), ny, muscl);
+        let (vl, vr) = face_states(&pad(&cv, 2), ny, muscl);
+        let (pl, prr) = face_states(&pad(&cp, 3), ny, muscl);
+        let mut sw = Sweep {
+            mass: vec![0.0; ny + 1],
+            mx: vec![0.0; ny + 1],
+            my: vec![0.0; ny + 1],
+            e: vec![0.0; ny + 1],
+        };
+        for f in 0..=ny {
+            let q = hllc_flux(
+                gamma,
+                FacePrim {
+                    rho: rl[f],
+                    u: ul[f],
+                    v: vl[f],
+                    p: pl[f],
+                },
+                FacePrim {
+                    rho: rr[f],
+                    u: ur[f],
+                    v: vr[f],
+                    p: prr[f],
+                },
+                1,
+            );
+            sw.mass[f] = q.mass;
+            sw.mx[f] = q.mx;
+            sw.my[f] = q.my;
+            sw.e[f] = q.e;
+        }
+        sw
+    };
+    let build = |n: usize, flux: &(dyn Fn(usize) -> Sweep + Sync)| -> Vec<Sweep> {
+        let threads = nthreads.min(n).max(1);
+        let chunk = n.div_ceil(threads);
+        let mut out: Vec<Option<Sweep>> = (0..n).map(|_| None).collect();
+        std::thread::scope(|s| {
+            let mut handles = Vec::new();
+            for start in (0..n).step_by(chunk) {
+                let end = (start + chunk).min(n);
+                let flux = &flux;
+                handles.push(s.spawn(move || (start, (start..end).map(flux).collect::<Vec<_>>())));
+            }
+            for h in handles {
+                let (start, v) = h.join().unwrap();
+                for (k, sw) in v.into_iter().enumerate() {
+                    out[start + k] = Some(sw);
+                }
+            }
+        });
+        out.into_iter().map(|s| s.unwrap()).collect()
+    };
+    let fx = build(ny, &row_flux);
+    let fy = build(nx, &col_flux);
+    // per-cell deltas are independent; compute them in parallel, apply serially.
+    let dtdx = dt / g.dx;
+    let dtdy = dt / g.dy;
+    let cells = g.nx * g.ny;
+    let mut resid = 0.0f64;
+    let threads = nthreads.min(cells).max(1);
+    let chunk = cells.div_ceil(threads);
+    let mut dr = vec![0.0; cells];
+    let mut dm = vec![0.0; cells];
+    let mut dn = vec![0.0; cells];
+    let mut de = vec![0.0; cells];
+    std::thread::scope(|s| {
+        let mut handles = Vec::new();
+        for start in (0..cells).step_by(chunk) {
+            let end = (start + chunk).min(cells);
+            let fx = &fx;
+            let fy = &fy;
+            let (mut drl, mut dml, mut dnl, mut del) = (
+                vec![0.0; end - start],
+                vec![0.0; end - start],
+                vec![0.0; end - start],
+                vec![0.0; end - start],
+            );
+            let mut res = 0.0f64;
+            for c in start..end {
+                let i = c % nx;
+                let j = c / nx;
+                let k = c - start;
+                let fxrow = &fx[j];
+                let fycol = &fy[i];
+                drl[k] = dtdx * (fxrow.mass[i + 1] - fxrow.mass[i])
+                    + dtdy * (fycol.mass[j + 1] - fycol.mass[j]);
+                dml[k] =
+                    dtdx * (fxrow.mx[i + 1] - fxrow.mx[i]) + dtdy * (fycol.mx[j + 1] - fycol.mx[j]);
+                dnl[k] =
+                    dtdx * (fxrow.my[i + 1] - fxrow.my[i]) + dtdy * (fycol.my[j + 1] - fycol.my[j]);
+                del[k] =
+                    dtdx * (fxrow.e[i + 1] - fxrow.e[i]) + dtdy * (fycol.e[j + 1] - fycol.e[j]);
+                res = res
+                    .max(drl[k].abs())
+                    .max(dml[k].abs())
+                    .max(dnl[k].abs())
+                    .max(del[k].abs());
+            }
+            handles.push(s.spawn(move || (start, drl, dml, dnl, del, res)));
+        }
+        for h in handles {
+            let (start, drl, dml, dnl, del, res) = h.join().unwrap();
+            let len = drl.len();
+            dr[start..start + len].copy_from_slice(&drl);
+            dm[start..start + len].copy_from_slice(&dml);
+            dn[start..start + len].copy_from_slice(&dnl);
+            de[start..start + len].copy_from_slice(&del);
+            resid = resid.max(res);
+        }
+    });
+    for c in 0..cells {
+        state.rho[c] -= dr[c];
+        state.mx[c] -= dm[c];
+        state.my[c] -= dn[c];
+        state.e[c] -= de[c];
+    }
+    Ok((dt, resid))
+}
+
 /// second-order two-stage (heun) time step: explicit predictor-corrector so
 /// muscl's spatial accuracy is not masked by first-order time integration.
 pub fn advance2d_rk2(

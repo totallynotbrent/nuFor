@@ -34,6 +34,7 @@ stack. This site documents the architecture, numerics, and internal formats.
 - [Positivity](numerics/positivity.md) — why density and pressure stay positive
 - [Viscous terms](numerics/viscous.md) — the Navier-Stokes diffusive flux
 - [Channel flow](numerics/channel-flow.md) — Poiseuille flow, the parabolic profile validated
+- [Threading](numerics/threading.md) — shared-memory parallel step and its scaling
 
 ### Performance
 
