@@ -100,9 +100,19 @@ td,th{border:1px solid #ddd;padding:.2rem .6rem;text-align:right}
 
 <section id="v-image">
   <h2>2D field</h2>
-  <p class="stat">A 2D blast wave (high-pressure disc) solved and rendered to an
-  image. Reload the panel to recompute it.</p>
-  <img src="/api/image?n=128" alt="2D blast density" height="420">
+  <p class="stat">A 2D blast wave solved and rendered to an image; pick the scalar
+  field to view. Reloads on change.</p>
+  <div class="row">
+    <label>field <select id="imgField">
+      <option value="rho">density</option>
+      <option value="mach">mach</option>
+      <option value="p">pressure</option>
+    </select></label>
+  </div>
+  <img id="img2d" src="/api/image?n=128&field=rho" alt="2D blast field" height="420">
+  <script>document.getElementById('imgField').addEventListener('change', function(){
+    document.getElementById('img2d').src='/api/image?n=128&field='+this.value;
+  });</script>
   <div class="row stat">density colormap; blue is ambient, red is compressed.</div>
 </section>
 

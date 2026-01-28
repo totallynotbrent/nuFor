@@ -35,6 +35,7 @@ stack. This site documents the architecture, numerics, and internal formats.
 - [Viscous terms](numerics/viscous.md) — the Navier-Stokes diffusive flux
 - [Channel flow](numerics/channel-flow.md) — Poiseuille flow, the parabolic profile validated
 - [Threading](numerics/threading.md) — shared-memory parallel step and its scaling
+- [Memory layout](numerics/memory-layout.md) — the structure-of-arrays state and why it stays in cache
 
 ### Performance
 
