@@ -25,8 +25,8 @@ The `/` shell has one panel per feature:
 - **Output** — download the current snapshot as CSV, VTK, or HDF5.
 - **Benchmark** — run a single-core throughput sweep.
 - **History** — every run in the session with its mesh, outcome, and reason.
-- **2D field** — a 2D blast wave solved and rendered to a colour-mapped image
-  (density colormap, blue ambient to red compressed).
+- **2D field** — a 2D blast wave solved and rendered to a colour-mapped image,
+  switchable between density, mach, and pressure.
 
 ## Data API
 
@@ -43,8 +43,8 @@ All routes answer on `0.0.0.0:<port>`:
   returned as the file bytes.
 - `GET /api/benchmark?steps=..` — a JSON throughput table across mesh sizes.
 - `GET /api/history` — every run in the session as JSON.
-- `GET /api/image?n=..` — a 2D blast wave solved at `n` cells and returned as a
-  PNG density field (`image/png`).
+- `GET /api/image?n=..&field=rho|mach|p` — a 2D blast wave solved at `n` cells
+  and returned as a PNG of the chosen scalar field (`image/png`).
 
 The rule going forward: whenever a new feature lands (2D HLLC, wedge cases,
 viscous terms), it gets an API route and a panel in the same commit, so the

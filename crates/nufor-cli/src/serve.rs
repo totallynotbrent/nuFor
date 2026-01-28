@@ -11,9 +11,9 @@ use std::time::Instant;
 use crate::webviews::app_html;
 
 use nufor_core::{
-    advance2d_rk2, euler_solve, grid1d, grid2d, prim_to_cons, prim_to_cons2d, render_png, riemann,
-    write_csv, write_h5, write_vtk, Boundaries2d, Boundary, ConservedState, ConservedState2d,
-    EulerConfig, Grid2d, OutputState, PrimState, TerminationReason,
+    advance2d_rk2, cons_to_prim2d, euler_solve, grid1d, grid2d, prim_to_cons, prim_to_cons2d,
+    render_png, riemann, write_csv, write_h5, write_vtk, Boundaries2d, Boundary, ConservedState,
+    ConservedState2d, EulerConfig, Grid2d, OutputState, PrimState, TerminationReason,
 };
 
 pub const DEFAULT_PORT: u16 = 8060;
@@ -373,7 +373,7 @@ fn respond(status: &str, ct: &'static str, body: String) -> (String, &'static st
 }
 
 /// render a 2d blast wave (a high-pressure disc in a quiescent gas) as a png.
-fn blast_image(n: usize, t_run: f64) -> Vec<u8> {
+fn blast_image(n: usize, t_run: f64, field: &str) -> Vec<u8> {
     const GAMMA: f64 = 1.4;
     let g: Grid2d = grid2d(n, n, 0.0, 1.0, 0.0, 1.0).unwrap();
     let (cx, cy, r0): (f64, f64, f64) = (0.35, 0.5, 0.2);
@@ -401,7 +401,30 @@ fn blast_image(n: usize, t_run: f64) -> Vec<u8> {
         let (dt, _) = advance2d_rk2(&mut st, &g, GAMMA, 0.5, true, &bc).unwrap();
         t += dt;
     }
-    render_png(&st.rho, n, 1.0, 2.6).unwrap()
+    let (u, v, _) = cons_to_prim2d(&st.rho, &st.mx, &st.my, &st.e).unwrap();
+    let (data, lo, hi) = match field {
+        "mach" => {
+            let m: Vec<f64> = (0..n * n)
+                .map(|k| {
+                    let pp = (GAMMA - 1.0)
+                        * (st.e[k] - 0.5 * (st.mx[k] * st.mx[k] + st.my[k] * st.my[k]) / st.rho[k]);
+                    (u[k] * u[k] + v[k] * v[k]).sqrt() / (GAMMA * pp / st.rho[k]).sqrt().max(1e-12)
+                })
+                .collect();
+            (m, 0.0, 3.0)
+        }
+        "p" => {
+            let pr: Vec<f64> = (0..n * n)
+                .map(|k| {
+                    (GAMMA - 1.0)
+                        * (st.e[k] - 0.5 * (st.mx[k] * st.mx[k] + st.my[k] * st.my[k]) / st.rho[k])
+                })
+                .collect();
+            (pr, 1.0, 5.0)
+        }
+        _ => (st.rho.clone(), 1.0, 2.6),
+    };
+    render_png(&data, n, lo, hi).unwrap()
 }
 
 /// (status, content-type, body) for a request path with its query string.
@@ -418,7 +441,8 @@ pub fn handle_request(path: &str, server: &mut Server) -> (String, &'static str,
         "/api/config" => respond("200 OK", "application/json", config_json(&server.config)),
         "/api/image" => {
             let n = get("n").and_then(|s| s.parse().ok()).unwrap_or(128);
-            let body = blast_image(n, 0.10);
+            let field = get("field").map(String::as_str).unwrap_or("rho");
+            let body = blast_image(n, 0.10, field);
             ("200 OK".to_string(), "image/png", body)
         }
         "/api/history" => respond("200 OK", "application/json", history_json(server)),
