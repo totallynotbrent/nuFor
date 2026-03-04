@@ -9,12 +9,14 @@ use std::os::raw::c_int;
 mod cfl;
 mod eos;
 mod eos2d;
+mod eos3d;
 mod error;
 mod exact;
 mod ffi;
 mod flux;
 mod grid;
 mod grid2d;
+mod grid3d;
 mod h5;
 mod hllc2d;
 mod output;
@@ -24,17 +26,20 @@ mod solver;
 mod solver2d;
 mod state;
 mod state2d;
+mod state3d;
 mod util;
 mod viscous2d;
 
 pub use cfl::{cfl_dt, CflStep};
 pub use eos::{eos_mach, eos_pressure, eos_sound_speed, eos_temperature};
 pub use eos2d::{eos_mach2d, eos_pressure2d, eos_sound_speed2d};
+pub use eos3d::{eos_mach3d, eos_pressure3d, eos_sound_speed3d};
 pub use error::Error;
 pub use exact::{riemann, ExactSolution, PrimState};
 pub use flux::{hll_flux, HllFlux};
 pub use grid::{grid1d, Grid1d};
 pub use grid2d::{grid2d, Grid2d};
+pub use grid3d::{grid3d, Bounds3d, Grid3d};
 pub use h5::{read_h5, write_h5};
 pub use hllc2d::{hllc_flux, FacePrim, Flux4};
 pub use output::{write_csv, write_vtk, OutputState};
@@ -49,6 +54,7 @@ pub use state::{cons_to_prim, prim_to_cons};
 pub use state2d::{
     check_physical2d, cons_to_prim2d, prim_to_cons2d, ConservedState2d, PhysicalCheck2d,
 };
+pub use state3d::{cons_to_prim3d, prim_to_cons3d, ConservedState3d};
 pub use viscous2d::{add_viscous, advance2d_visc_rk2, sutherland_mu, ViscParams};
 
 use error::{codes, from_code};
