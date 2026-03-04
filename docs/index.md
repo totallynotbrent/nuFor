@@ -37,6 +37,7 @@ stack. This site documents the architecture, numerics, and internal formats.
 - [Threading](numerics/threading.md) — shared-memory parallel step and its scaling
 - [Memory layout](numerics/memory-layout.md) — the structure-of-arrays state and why it stays in cache
 - [HLL vs HLLC](numerics/hll-vs-hllc.md) — when the contact wave pays for its extra state
+- [3D foundations](numerics/3d.md) — the 3D grid, state, and ideal-gas EOS
 - [Regression suite](verification/regression-suite.md) — the automated gate every change must pass
 
 ### Performance
