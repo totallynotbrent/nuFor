@@ -19,11 +19,13 @@ mod grid2d;
 mod grid3d;
 mod h5;
 mod hllc2d;
+mod hllc3d;
 mod output;
 mod render2d;
 mod restart;
 mod solver;
 mod solver2d;
+mod solver3d;
 mod state;
 mod state2d;
 mod state3d;
@@ -42,6 +44,7 @@ pub use grid2d::{grid2d, Grid2d};
 pub use grid3d::{grid3d, Bounds3d, Grid3d};
 pub use h5::{read_h5, write_h5};
 pub use hllc2d::{hllc_flux, FacePrim, Flux4};
+pub use hllc3d::{hllc_flux3, FacePrim3, Flux5};
 pub use output::{write_csv, write_vtk, OutputState};
 pub use render2d::{colormap, render_png};
 pub use restart::{read_restart, write_restart, RestartData};
@@ -50,6 +53,7 @@ pub use solver::{
     EulerResult, PhysicalCheck, TerminationReason,
 };
 pub use solver2d::{advance2d, advance2d_par, advance2d_rk2, Bc2d, Boundaries2d};
+pub use solver3d::{advance3d, advance3d_rk2};
 pub use state::{cons_to_prim, prim_to_cons};
 pub use state2d::{
     check_physical2d, cons_to_prim2d, prim_to_cons2d, ConservedState2d, PhysicalCheck2d,
