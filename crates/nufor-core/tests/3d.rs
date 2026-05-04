@@ -31,7 +31,7 @@ fn grid3d_has_the_right_geometry() {
     assert_eq!(g.faces_x.len(), 3);
     assert_eq!(g.faces_y.len(), 4);
     assert_eq!(g.faces_z.len(), 5);
-// the (0,0,0) cell is flat index 0: x=0.25, y=1/3, z=0.375.
+    // the (0,0,0) cell is flat index 0: x=0.25, y=1/3, z=0.375.
     let k = 0;
     assert!((g.centers_x[k] - 0.25).abs() < 1e-12);
     assert!((g.centers_y[k] - 1.0 / 3.0).abs() < 1e-12);
