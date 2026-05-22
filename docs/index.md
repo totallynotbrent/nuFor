@@ -41,6 +41,7 @@ stack. This site documents the architecture, numerics, and internal formats.
 - [3D solver](numerics/3d-solver.md) — the 3D HLLC step, verified against the Sod tube
 - [Memory budget](operations/memory-budget.md) — the 3D footprint and the 8 GB solve ceiling
 - [Unstructured meshes](numerics/unstructured-mesh.md) — the research note steering the FV mesh path
+- [Unstructured FV](numerics/unstructured-fv.md) — the cell-centered prototype, verified on a quad mesh
 - [Regression suite](verification/regression-suite.md) — the automated gate every change must pass
 
 ### Performance
