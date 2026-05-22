@@ -26,9 +26,11 @@ mod restart;
 mod solver;
 mod solver2d;
 mod solver3d;
+mod solver_u;
 mod state;
 mod state2d;
 mod state3d;
+mod ugrid;
 mod util;
 mod viscous2d;
 
@@ -54,11 +56,13 @@ pub use solver::{
 };
 pub use solver2d::{advance2d, advance2d_par, advance2d_rk2, Bc2d, Boundaries2d};
 pub use solver3d::{advance3d, advance3d_rk2};
+pub use solver_u::advance_ugrid;
 pub use state::{cons_to_prim, prim_to_cons};
 pub use state2d::{
     check_physical2d, cons_to_prim2d, prim_to_cons2d, ConservedState2d, PhysicalCheck2d,
 };
 pub use state3d::{cons_to_prim3d, prim_to_cons3d, ConservedState3d};
+pub use ugrid::Ugrid;
 pub use viscous2d::{add_viscous, advance2d_visc_rk2, sutherland_mu, ViscParams};
 
 use error::{codes, from_code};
