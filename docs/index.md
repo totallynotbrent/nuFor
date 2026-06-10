@@ -42,6 +42,7 @@ stack. This site documents the architecture, numerics, and internal formats.
 - [Memory budget](operations/memory-budget.md) — the 3D footprint and the 8 GB solve ceiling
 - [Unstructured meshes](numerics/unstructured-mesh.md) — the research note steering the FV mesh path
 - [Unstructured FV](numerics/unstructured-fv.md) — the cell-centered prototype, verified on a quad mesh
+- [Spalart-Allmaras](numerics/spalart-allmaras.md) — the research note scoping nuFor's first turbulence model
 - [Regression suite](verification/regression-suite.md) — the automated gate every change must pass
 
 ### Performance
