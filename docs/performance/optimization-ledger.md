@@ -1,4 +1,6 @@
-# Optimization ledger
+---
+title: Optimization ledger
+---
 
 A running record of solver performance work. Each entry records the change, how
 it was measured, the numbers before/after, and a verdict. The goal is one honest,

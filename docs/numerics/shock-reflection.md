@@ -1,4 +1,6 @@
-# Shock reflection off a wall
+---
+title: Shock reflection off a wall
+---
 
 A plane oblique shock is one thing; when it runs into a solid wall it reflects,
 and the reflected shock plus the doubly compressed flow are fixed by the

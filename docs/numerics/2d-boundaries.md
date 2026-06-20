@@ -1,4 +1,6 @@
-# 2D boundary conditions
+---
+title: 2D boundary conditions
+---
 
 The 2D solver exposes a boundary condition on each of the four sides. A ghost
 cell is filled per side before the MUSCL reconstruction, so the flux step is

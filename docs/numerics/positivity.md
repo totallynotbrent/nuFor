@@ -1,4 +1,6 @@
-# Keeping the solution positive
+---
+title: Keeping the solution positive
+---
 
 A compressible solver that allows density or pressure to go negative is not a
 solver — it is a crash with a stack trace. The 2D Euler module lives or dies by

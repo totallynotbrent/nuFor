@@ -1,4 +1,6 @@
-# Memory layout
+---
+title: Memory layout
+---
 
 How the solver lays its fields out decides how much of the working set fits in
 cache, which for a memory-bound kernel is the whole game.

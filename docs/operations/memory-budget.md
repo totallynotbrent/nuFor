@@ -1,4 +1,6 @@
-# Memory budget
+---
+title: Memory budget
+---
 
 A CPU-first CFD code lives or dies by how big the working set can get before it
 starts thrashing. This page records the 3D solver's memory footprint per cell

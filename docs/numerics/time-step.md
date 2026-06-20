@@ -1,4 +1,6 @@
-# CFL time-step control
+---
+title: CFL time-step control
+---
 
 The 1D Euler solver advances explicitly, so every step must obey the
 Courant-Friedrichs-Lewy (CFL) condition: the numerical domain of dependence

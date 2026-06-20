@@ -1,4 +1,6 @@
-# Lax shock tube
+---
+title: Lax shock tube
+---
 
 A second, much stronger Riemann problem used to stress the solver: larger
 density and pressure jumps and a supersonic left state, producing a left

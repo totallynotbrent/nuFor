@@ -1,4 +1,6 @@
-# Shared-memory threading
+---
+title: Shared-memory threading
+---
 
 A 2D finite-volume step is embarrassingly parallel: each row's vertical-face
 flux and each column's horizontal-face flux depend only on that strip's own

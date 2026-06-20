@@ -1,4 +1,6 @@
-# Sod shock tube
+---
+title: Sod shock tube
+---
 
 The classic one-dimensional Riemann problem: a high-pressure gas on the left
 expanding into a low-density, low-pressure gas on the right, producing a left

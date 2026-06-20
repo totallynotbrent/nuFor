@@ -1,4 +1,6 @@
-# HDF5 output
+---
+title: HDF5 output
+---
 
 The solver can write its state to HDF5 through direct calls into the system
 libhdf5 (no Rust binding), keeping the datasets the project owns:

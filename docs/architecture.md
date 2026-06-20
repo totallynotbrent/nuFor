@@ -1,4 +1,6 @@
-# Architecture
+---
+title: Architecture
+---
 
 nuFor separates a Rust application layer from a Fortran numerical layer across
 a narrow C ABI, with Python reserved for analysis and reference calculations

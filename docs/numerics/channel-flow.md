@@ -1,4 +1,6 @@
-# Laminar channel flow
+---
+title: Laminar channel flow
+---
 
 With viscous terms in place the solver finally models a real viscous boundary
 layer. The simplest such flow — steady, incompressible, pressure-driven flow

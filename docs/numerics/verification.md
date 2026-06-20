@@ -1,4 +1,6 @@
-# Verification ladder
+---
+title: Verification ladder
+---
 
 The scheme is checked rung by rung, each a stronger physical statement than the
 last, so that a passing test means the solver is doing the right thing rather

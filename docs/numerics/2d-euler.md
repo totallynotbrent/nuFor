@@ -1,4 +1,6 @@
-# 2D Euler solver
+---
+title: 2D Euler solver
+---
 
 The two-dimensional extension of the finite-volume solver: an HLLC Riemann
 flux with MUSCL reconstruction and a van Leer limiter, time-marched to second

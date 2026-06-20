@@ -1,4 +1,6 @@
-# 3D HLLC solver
+---
+title: 3D HLLC solver
+---
 
 With the 3D state and grid in place, [32] adds the solver that actually moves
 it: the three-wave HLLC flux on all three face families, MUSCL reconstruction,

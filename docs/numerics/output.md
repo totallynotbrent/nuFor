@@ -1,4 +1,6 @@
-# Structured output
+---
+title: Structured output
+---
 
 Two plain-text writers for the 1D state, both driven from the Rust core over the
 conserved fields:

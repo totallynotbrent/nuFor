@@ -1,4 +1,6 @@
-# nuFor
+---
+title: nuFor
+---
 
 nuFor is a portable, open-source, CPU-first computational fluid dynamics
 framework: finite-volume solvers for the Euler and Navier-Stokes equations in

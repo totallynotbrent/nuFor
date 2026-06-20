@@ -1,4 +1,6 @@
-# Viscous terms
+---
+title: Viscous terms
+---
 
 The Euler equations are the inviscid limit of the Navier-Stokes equations.
 Adding viscosity and heat conduction turns the sharp, non-diffusive solver into

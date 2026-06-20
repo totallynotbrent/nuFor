@@ -1,4 +1,6 @@
-# Diagnostics and log hardening
+---
+title: Diagnostics and log hardening
+---
 
 The solver reports *why* it stopped, and can scan a state for non-physical
 cells, so a long run that blows up is diagnosed instead of silently producing
