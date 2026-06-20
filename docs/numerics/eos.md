@@ -82,3 +82,9 @@ empty slices, and single-cell calls.
 - [Numerics — 1D Euler](1d-euler.md) — the milestone this serves
 - [Formats — case.toml (case definition)](../formats/case-toml.md) — where `gamma` and `R`
   come from
+
+## See also
+
+- [[numerics/state-grid|State and grid]]
+- [[numerics/1d-euler|1D Euler]]
+- [[numerics/positivity|Positivity]]

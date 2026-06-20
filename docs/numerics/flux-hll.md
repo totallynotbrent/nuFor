@@ -83,3 +83,10 @@ graph TD
 - [Numerics — 1D Euler milestone](1d-euler.md)
 - [Numerics — Ideal-gas equation of state](eos.md)
 - [Numerics — 1D state and uniform grid](state-grid.md)
+
+## See also
+
+- [[numerics/hll-vs-hllc|HLL vs HLLC]]
+- [[numerics/time-step|CFL time-step]]
+- [[numerics/1d-euler|1D Euler]]
+- [[numerics/2d-euler|2D Euler solver]]

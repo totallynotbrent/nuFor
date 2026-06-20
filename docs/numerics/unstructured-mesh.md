@@ -81,3 +81,9 @@ to round-off on a closed box, exactly as on the structured grid.
 ## Date
 
 2026-05-02
+
+## See also
+
+- [[numerics/unstructured-fv|Unstructured FV]]
+- [[numerics/2d-euler|2D Euler solver]]
+- [[numerics/3d-solver|3D solver]]

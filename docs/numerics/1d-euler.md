@@ -33,3 +33,10 @@ the CFL time step.
 Constant state → uniform advection/contact → Sod tube → Lax tube → stationary
 shock → isentropic expansion. Each feature ships with a focused verification
 case and evidence; a successful run or a screenshot is not verification.
+
+## See also
+
+- [[numerics/state-grid|State and grid]]
+- [[numerics/flux-hll|HLL flux]]
+- [[numerics/sod|Sod verification]]
+- [[numerics/verification|Verification ladder]]

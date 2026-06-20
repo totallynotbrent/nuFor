@@ -9,3 +9,9 @@ libhdf5 (no Rust binding), keeping the datasets the project owns:
 The bundled script `tools/export_h5.py` reads a snapshot with h5py and prints a
 CSV (x, rho, m, e, u, p) for plotting or further analysis on machines that have
 Python and h5py installed.
+
+## See also
+
+- [[numerics/output|Output]]
+- [[numerics/restart|Restart]]
+- [[numerics/diagnostics|Diagnostics]]

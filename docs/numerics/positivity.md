@@ -50,3 +50,10 @@ almost never reached.
 The practical rule the code follows: preserve positivity structurally where you
 can (wave speeds, CFL, limiting), and keep a floor + diagnostics for the
 corners you cannot see coming.
+
+## See also
+
+- [[numerics/eos|Ideal-gas EOS]]
+- [[numerics/flux-hll|HLL flux]]
+- [[numerics/time-step|CFL time-step]]
+- [[numerics/diagnostics|Diagnostics]]

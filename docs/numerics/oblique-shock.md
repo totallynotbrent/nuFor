@@ -33,3 +33,9 @@ solver must keep it in place:
 
 Try the same exercise for a stronger turn (larger theta) and the post-shock
 state follows the relations until the shock detaches.
+
+## See also
+
+- [[numerics/2d-euler|2D Euler solver]]
+- [[numerics/shock-reflection|Shock reflection]]
+- [[numerics/verification|Verification ladder]]

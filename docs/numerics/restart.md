@@ -7,3 +7,10 @@ block sizes, so a corrupt or foreign file is rejected rather than misread.
 
 Round-trip tested: a saved state comes back bit-for-bit identical, including the
 simulated time and the step count, which lets a run resume where it left off.
+
+## See also
+
+- [[numerics/output|Output]]
+- [[numerics/hdf5|HDF5 output]]
+- [[numerics/diagnostics|Diagnostics]]
+- [[formats/case-toml|case.toml format]]

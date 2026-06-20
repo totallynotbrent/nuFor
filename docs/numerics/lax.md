@@ -14,3 +14,9 @@ numerical density is compared against the exact 1D Riemann solution. The error
 norm shrinks as the mesh refines, the same first-order convergence seen on the
 Sod case. Together with the Sod case this forms the core of the shock-tube
 verification ladder.
+
+## See also
+
+- [[numerics/sod|Sod verification]]
+- [[numerics/verification|Verification ladder]]
+- [[numerics/1d-euler|1D Euler]]

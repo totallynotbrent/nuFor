@@ -80,3 +80,9 @@ Navier-Stokes solver; it is the next additive layer.
 ## Date
 
 2026-06-10
+
+## See also
+
+- [[numerics/unstructured-fv|Unstructured FV]]
+- [[numerics/viscous|Viscous terms]]
+- [[numerics/unstructured-mesh|Unstructured meshes]]

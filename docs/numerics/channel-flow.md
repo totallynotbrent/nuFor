@@ -33,3 +33,9 @@ the solver must hold it in place -- and it does, to better than a percent over
 the run, with density staying positive throughout. The profile error is
 dominated by the accumulated drift of the body-force-driven, mildly
 compressible flow, not by the viscous discretisation itself.
+
+## See also
+
+- [[numerics/viscous|Viscous terms]]
+- [[numerics/2d-euler|2D Euler solver]]
+- [[numerics/positivity|Positivity]]

@@ -53,3 +53,9 @@ temperature-dependent law is provided too:
 
 with the air constants mu0 = 1.716e-5, T0 = 273.15 K, S = 110.4 K. It lowers the
 computational cost of the channel-flow milestone's high-temperature cases.
+
+## See also
+
+- [[numerics/channel-flow|Channel flow]]
+- [[numerics/2d-euler|2D Euler solver]]
+- [[numerics/positivity|Positivity]]

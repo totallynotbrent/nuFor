@@ -27,3 +27,9 @@ mechanical overrun stops the run cleanly with reason `BlowUp` rather than
 propagating garbage. Steady-state runs report `Converged` only when the residual
 rule actually fires; a run exhausted by its step or time budget says so
 explicitly rather than being misread as converged.
+
+## See also
+
+- [[numerics/positivity|Positivity]]
+- [[numerics/output|Output]]
+- [[numerics/restart|Restart]]

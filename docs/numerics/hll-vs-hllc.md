@@ -45,3 +45,9 @@ states. Reach for HLL when the per-interface cost is everything, the flow is
 highly supersonic with no resolved contacts, or you want the cheapest possible
 scheme for a code with a tight budget. The two live side by side in the solver
 precisely so that cost and accuracy can be traded per use rather than fixed.
+
+## See also
+
+- [[numerics/flux-hll|HLL flux]]
+- [[numerics/2d-euler|2D Euler solver]]
+- [[numerics/1d-euler|1D Euler]]

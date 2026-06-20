@@ -57,5 +57,19 @@ verification against the exact Riemann solution (Sod, Lax, and the four-rung
 ladder), structured output (CSV, VTK, HDF5 + a Python export), bit-exact
 restart, a command-line driver, a minimal web skeleton, and run diagnostics
 (termination reasons and a physical-validity scan) are all landed and tested.
-A measured performance baseline is recorded in the optimization ledger. The
-next milestone is the 2D extension of the state, grid, and solver.
+A measured performance baseline is recorded in the optimization ledger.
+
+From there the solver grew in two directions. The 2D extension added the
+state, grid, HLLC flux with MUSCL reconstruction and the van Leer limiter,
+slip-wall and supersonic inflow/outflow boundaries, the viscous
+Navier-Stokes terms, and Poiseuille-channel validation — featured on the
+oblique-shock and shock-reflection cases, verified against θ-β-M and
+two-shock theory. The 3D extension added the structured grid, state, and
+ideal-gas EOS with a 3D HLLC step, verified against the Sod tube, and a
+memory-budget analysis that anchors the largest full solve the 8 GB box can
+carry.
+
+The current push is the unstructured path: a research note steers the
+cell-centered finite-volume prototype, verified on a quad mesh, and a
+Spalart-Allmaras research note scopes nuFor's first turbulence model. These
+pages are the working record of that trajectory.
