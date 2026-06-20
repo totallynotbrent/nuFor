@@ -65,8 +65,10 @@ research/scratch/
 /plans/
 /nuFor_README.md
 
-# local docs-site tooling, kept out of the repo until docs move to a site build
-/docs-site/
+# Quartz docs-site: infrastructure is tracked, build artifacts are not.
+/docs-site/node_modules/
+/docs-site/public/
+/docs-site/**/.quartz-cache/
 
 # Editors / OS
 .vscode/
