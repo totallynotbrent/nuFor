@@ -42,3 +42,10 @@ first-order integrator.
 
 The boundary handling here is simple transmissive ghost cells; supersonic
 inflow/outflow, slip-wall, and symmetry conditions are a separate milestone.
+
+## See also
+
+- [[numerics/2d|2D foundations]]
+- [[numerics/oblique-shock|Oblique shock]]
+- [[numerics/hll-vs-hllc|HLL vs HLLC]]
+- [[numerics/2d-boundaries|2D boundaries]]

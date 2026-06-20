@@ -37,3 +37,9 @@ the largest full 3D solve the 8 GB box will carry without swapping, so a
 research case at that size is the deliberate target, and anything bigger is
 flagged as needing the distributed-memory path (or accepting a coarser grid).
 (spec 189)
+
+## See also
+
+- [[numerics/3d-solver|3D solver]]
+- [[numerics/memory-layout|Memory layout]]
+- [[numerics/3d|3D foundations]]

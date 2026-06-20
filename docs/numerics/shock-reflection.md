@@ -32,3 +32,9 @@ short horizon and degrades slowly (about four percent of density over a run of
 one image time). The short-march check captures the steady two-shock state
 where it actually holds, and that slow degradation is itself instructive —
 it is exactly the sensitivity that a body-fitted or AMR grid removes.
+
+## See also
+
+- [[numerics/oblique-shock|Oblique shock]]
+- [[numerics/2d-euler|2D Euler solver]]
+- [[numerics/verification|Verification ladder]]

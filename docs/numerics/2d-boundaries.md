@@ -33,3 +33,9 @@ unchanged.
   mass.
 - A supersonic stream through a slip-wall channel with inflow/outflow stays
   uniform to machine precision, so the walls introduce no spurious waves.
+
+## See also
+
+- [[numerics/2d-euler|2D Euler solver]]
+- [[numerics/oblique-shock|Oblique shock]]
+- [[numerics/shock-reflection|Shock reflection]]

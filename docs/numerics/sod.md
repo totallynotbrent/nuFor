@@ -21,3 +21,9 @@ confirming first-order convergence.
 
 The Sod test rides on the solver, flux, and CFL tests already landed, and is
 the first rung of the verification ladder.
+
+## See also
+
+- [[numerics/lax|Lax verification]]
+- [[numerics/verification|Verification ladder]]
+- [[numerics/1d-euler|1D Euler]]

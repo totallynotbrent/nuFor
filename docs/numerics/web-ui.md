@@ -49,3 +49,9 @@ All routes answer on `0.0.0.0:<port>`:
 The rule going forward: whenever a new feature lands (2D HLLC, wedge cases,
 viscous terms), it gets an API route and a panel in the same commit, so the
 skeleton stays a faithful mirror of the solver.
+
+## See also
+
+- [[architecture|Architecture]]
+- [[numerics/2d|2D foundations]]
+- [[numerics/1d-euler|1D Euler]]

@@ -38,3 +38,9 @@ two to three times (the 4-core machine's physical-core limit); the backslide at
 eight threads is the usual hyper-threading oversubscription. Scaling is the
 reason the benchmark harness measures at a fixed thread count — it shows up as
 a single number rather than a per-thread curve.
+
+## See also
+
+- [[numerics/memory-layout|Memory layout]]
+- [[performance/optimization-ledger|Optimization ledger]]
+- [[numerics/2d-euler|2D Euler solver]]

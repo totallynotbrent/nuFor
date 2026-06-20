@@ -23,3 +23,9 @@ speedup on a four-core box: the ceiling is memory bandwidth, not arithmetic.
 SoA is the layout that keeps the working set small and streaming, and it is the
 reason the threaded step stays bit-identical to serial -- there is no shared
 packed state to race over.
+
+## See also
+
+- [[numerics/state-grid|State and grid]]
+- [[numerics/threading|Threading]]
+- [[operations/memory-budget|Memory budget]]

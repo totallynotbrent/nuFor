@@ -10,3 +10,10 @@ conserved fields:
 
 The writers validate the array lengths up front and derive the primitives
 (velocity, pressure) through the same kernels the solver uses.
+
+## See also
+
+- [[numerics/hdf5|HDF5 output]]
+- [[numerics/restart|Restart]]
+- [[numerics/diagnostics|Diagnostics]]
+- [[formats/case-toml|case.toml format]]

@@ -43,3 +43,9 @@ All regression suites pass; `cargo clippy -D warnings` and `cargo fmt --check`
 are clean; every change shipped with its docs in the same commit. The 1D Euler
 milestone is closed and the next milestone extends this state, grid, and solver
 into two dimensions.
+
+## See also
+
+- [[numerics/verification|Verification ladder]]
+- [[numerics/1d-euler|1D Euler]]
+- [[numerics/sod|Sod verification]]

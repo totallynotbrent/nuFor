@@ -32,3 +32,9 @@ the classic solution: density spans 1.0 past 0.125, stays positive, and the
 star plateau reads 0.418 against the exact 0.426 (first-order reconstruction,
 so a little extra smearing is expected). The unstructured path is a front-end
 onto the same physics, not a separate solver.
+
+## See also
+
+- [[numerics/unstructured-mesh|Unstructured meshes]]
+- [[numerics/spalart-allmaras|Spalart-Allmaras]]
+- [[numerics/2d-euler|2D Euler solver]]

@@ -67,3 +67,10 @@ rejection.
 - [Numerics — 1D Euler](1d-euler.md) — the milestone these pieces serve
 - [Architecture](../architecture.md)
 - [Formats — case.toml (case definition)](../formats/case-toml.md)
+
+## See also
+
+- [[numerics/eos|Ideal-gas EOS]]
+- [[numerics/1d-euler|1D Euler]]
+- [[numerics/memory-layout|Memory layout]]
+- [[numerics/3d|3D foundations]]

@@ -13,3 +13,10 @@ than merely staying stable:
 
 Each rung ships as a focused test with evidence; a successful run or a
 screenshot is not verification.
+
+## See also
+
+- [[numerics/sod|Sod verification]]
+- [[numerics/lax|Lax verification]]
+- [[verification/gate-1d-euler|1D Euler gate]]
+- [[verification/regression-suite|Regression suite]]

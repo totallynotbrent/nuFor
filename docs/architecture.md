@@ -40,3 +40,10 @@ Fortran kernels into a static archive and link them in. The tree is
 
 - [Numerics — 1D Euler](numerics/1d-euler.md)
 - [Formats — case.toml](formats/case-toml.md)
+
+## See also
+
+- [[numerics/web-ui|Web UI]]
+- [[formats/case-toml|case.toml format]]
+- [[numerics/3d|3D foundations]]
+- [[performance/optimization-ledger|Optimization ledger]]

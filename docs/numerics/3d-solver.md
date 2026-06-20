@@ -36,3 +36,10 @@ exactly the classic Sod tube:
 
 All three hold, so the 3D step is a faithful extension of the verified 1D and
 2D paths rather than a guess.
+
+## See also
+
+- [[numerics/3d|3D foundations]]
+- [[numerics/hll-vs-hllc|HLL vs HLLC]]
+- [[operations/memory-budget|Memory budget]]
+- [[numerics/sod|Sod verification]]

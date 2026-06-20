@@ -70,3 +70,9 @@ automatically where the flow accelerates and grows again when it settles.
 - [Ideal-gas equation of state](eos.md)
 - HLL flux
 - [case.toml format](../formats/case-toml.md)
+
+## See also
+
+- [[numerics/flux-hll|HLL flux]]
+- [[numerics/positivity|Positivity]]
+- [[numerics/1d-euler|1D Euler]]
