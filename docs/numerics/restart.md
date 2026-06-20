@@ -1,4 +1,6 @@
-# Restart
+---
+title: Restart
+---
 
 The run state can be saved to a compact binary restart file and loaded back
 exactly: a header (magic bytes, cell count, gamma, time, step) followed by the

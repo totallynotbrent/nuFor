@@ -1,4 +1,6 @@
-# 1D state and uniform grid
+---
+title: 1D state and uniform grid
+---
 
 The 1D Euler milestone builds on a fixed state layout and a uniform
 control-volume geometry. Both live in the Fortran kernel layer

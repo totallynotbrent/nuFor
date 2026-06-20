@@ -1,4 +1,6 @@
-# 1D Euler
+---
+title: 1D Euler
+---
 
 The first serious numerical milestone: a conservative, finite-volume 1D Euler
 solver for an ideal gas, evolving density, momentum, and total energy and

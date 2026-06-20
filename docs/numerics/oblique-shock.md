@@ -1,4 +1,6 @@
-# Supersonic wedge and oblique shock
+---
+title: Supersonic wedge and oblique shock
+---
 
 A supersonic stream turning through a wedge is a canonical 2D compressible
 problem. The sharper the wedge, the stronger the oblique shock that detaches

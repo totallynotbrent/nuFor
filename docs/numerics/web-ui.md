@@ -1,4 +1,6 @@
-# Web UI skeleton
+---
+title: Web UI skeleton
+---
 
 A dependency-free HTTP server in the `nufor` CLI (`nufor serve`) exposes the
 whole solvable surface as a small data API plus an app shell page. The front

@@ -1,4 +1,6 @@
-# case.toml
+---
+title: case.toml
+---
 
 The case file is the reproducibility root of a nuFor run (spec 40). A case
 directory holds `case.toml` plus, once a solver exists, `mesh/`, `results/`,

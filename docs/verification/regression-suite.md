@@ -1,4 +1,6 @@
-# Regression suite
+---
+title: Regression suite
+---
 
 The solvent-era rule that a solver stays trustworthy is simple: every time
 anything changes, the whole thing must still produce the answers it produced

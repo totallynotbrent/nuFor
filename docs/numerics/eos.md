@@ -1,4 +1,6 @@
-# Ideal-gas equation of state
+---
+title: Ideal-gas equation of state
+---
 
 The thermodynamic model for the 1D Euler milestone is a calorically perfect
 ideal gas: constant ratio of specific heats `gamma`, constant specific gas

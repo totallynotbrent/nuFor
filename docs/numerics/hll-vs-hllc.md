@@ -1,4 +1,6 @@
-# HLL versus HLLC
+---
+title: HLL versus HLLC
+---
 
 The solver carries two flavours of Riemann flux: the classic HLL scheme used by
 the 1D solver, and the HLLC scheme used by the 2D solver. They share the same

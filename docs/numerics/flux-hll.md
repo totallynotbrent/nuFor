@@ -1,4 +1,6 @@
-# HLL numerical flux
+---
+title: HLL numerical flux
+---
 
 The baseline approximate Riemann solver for the 1D Euler milestone is the
 Harten-Lax-van Leer (HLL) flux: two waves with a single intermediate state,

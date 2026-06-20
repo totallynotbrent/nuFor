@@ -1,4 +1,6 @@
-# Gate A — 1D Euler milestone closed
+---
+title: Gate A — 1D Euler milestone closed
+---
 
 The finite-volume solver for the one-dimensional Euler equations is declared
 complete, with evidence rather than a claim. Everything below is either a

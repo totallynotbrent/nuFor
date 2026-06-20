@@ -1,4 +1,6 @@
-# Unstructured finite-volume prototype
+---
+title: Unstructured finite-volume prototype
+---
 
 The research note laid out the destination: cell-centered finite volume on
 arbitrary polygons, reusing the HLLC flux with a face-normal rotation. This
