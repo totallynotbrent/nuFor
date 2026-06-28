@@ -57,3 +57,4 @@ skeleton stays a faithful mirror of the solver.
 - [[architecture|Architecture]]
 - [[numerics/2d|2D foundations]]
 - [[numerics/1d-euler|1D Euler]]
+- [[numerics/line-probes|Line probes]]

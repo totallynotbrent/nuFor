@@ -21,6 +21,7 @@ mod h5;
 mod hllc2d;
 mod hllc3d;
 mod output;
+mod probe;
 mod render2d;
 mod restart;
 mod solver;
@@ -48,6 +49,7 @@ pub use h5::{read_h5, write_h5};
 pub use hllc2d::{hllc_flux, FacePrim, Flux4};
 pub use hllc3d::{hllc_flux3, FacePrim3, Flux5};
 pub use output::{write_csv, write_vtk, OutputState};
+pub use probe::probe_line;
 pub use render2d::{colormap, render_png};
 pub use restart::{read_restart, write_restart, RestartData};
 pub use solver::{

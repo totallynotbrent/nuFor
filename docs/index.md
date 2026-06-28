@@ -28,6 +28,7 @@ stack. This site documents the architecture, numerics, and internal formats.
 - [Restart](numerics/restart.md) — bit-exact save/load
 - [Diagnostics](numerics/diagnostics.md) — termination reasons, validity scan
 - [Web UI skeleton](numerics/web-ui.md) — the data API a front end designs against
+- [Line probes](numerics/line-probes.md) — sample a 2D field along a line and chart it
 - [2D state and grid](numerics/2d.md) — geometry, 2D state, and thermodynamics
 - [2D Euler solver](numerics/2d-euler.md) — HLLC flux, MUSCL, van Leer limiter
 - [2D boundaries](numerics/2d-boundaries.md) — slip wall, supersonic in/out
