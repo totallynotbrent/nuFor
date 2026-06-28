@@ -36,6 +36,7 @@ td,th{border:1px solid #ddd;padding:.2rem .6rem;text-align:right}
   <button data-v="bench">Benchmark</button>
   <button data-v="history">History</button>
   <button data-v="image">2D field</button>
+  <button data-v="probe">Probe</button>
 </nav>
 <main>
 
@@ -116,6 +117,28 @@ td,th{border:1px solid #ddd;padding:.2rem .6rem;text-align:right}
   <div class="row stat">density colormap; blue is ambient, red is compressed.</div>
 </section>
 
+<section id="v-probe">
+  <h2>Line probe</h2>
+  <p class="stat">Sample a 2D field along a straight line and chart it. Pick a line
+  preset or give explicit endpoints, then Sample. The curve is value vs distance
+  along the line.</p>
+  <div class="row">
+    <label>field <select id="prField">
+      <option value="rho">density</option>
+      <option value="mach">mach</option>
+      <option value="p">pressure</option>
+    </select></label>
+    <label>line <select id="prLine">
+      <option value="H">horizontal (mid y)</option>
+      <option value="V">vertical (mid x)</option>
+      <option value="D">diagonal</option>
+    </select></label>
+    <label>samples <input id="prN" type="number" value="40" min="2" max="200"></label>
+    <button id="prBtn">Sample</button><span id="prline" class="stat"></span>
+  </div>
+  <svg id="prPlot" width="760" height="220"></svg>
+</section>
+
 </main>
 <script>
 async function j(url){const r=await fetch(url);return r.json();}
@@ -174,7 +197,28 @@ document.getElementById('nav').onclick=e=>{
   b.classList.add('active');
   document.getElementById('v-'+b.dataset.v).classList.add('active');
 };
-(async()=>{try{const d=await j('/api/result?auto');afterRun(d);}catch(e){}})();
+async function runProbe(){
+  const field=document.getElementById('prField').value;
+  const line=document.getElementById('prLine').value;
+  const samples=+document.getElementById('prN').value;
+  const L={H:[0,0.5,1,0.5], V:[0.5,0,0.5,1], D:[0.1,0.1,0.9,0.9]}[line];
+  const url=`/api/probe?n=128&field=${field}&x0=${L[0]}&y0=${L[1]}&x1=${L[2]}&y1=${L[3]}&samples=${samples}`;
+  try{
+    const d=await j(url);
+    const pts=d.samples, w=760, h=220;
+    const mx=Math.max(...pts.map(p=>p.v)), mn=Math.min(...pts.map(p=>p.v));
+    const xs=Math.max(...pts.map(p=>p.s))||1;
+    const px=v=>v/xs*w, py=v=>h-(v-mn)/((mx-mn)||1)*h;
+    document.getElementById('prPlot').innerHTML=
+      '<polyline points="'+pts.map(p=>px(p.s)+','+py(p.v)).join(' ')+'" fill="none" stroke="#4f8" stroke-width="1.5"/>';
+    document.getElementById('prline').textContent=
+      `field=${d.field} samples=${pts.length} min=${mn.toFixed(3)} max=${mx.toFixed(3)}`;
+  }catch(e){document.getElementById('prline').textContent='probe failed: '+e;}
+}
+document.getElementById('prBtn').onclick=runProbe;
+document.getElementById('prField').onchange=runProbe;
+document.getElementById('prLine').onchange=runProbe;
+(async()=>{try{const d=await j('/api/result?auto');afterRun(d);}catch(e){}})().then(runProbe);
 </script>
 </body></html>"##
         .to_string()

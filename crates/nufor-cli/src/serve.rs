@@ -12,8 +12,9 @@ use crate::webviews::app_html;
 
 use nufor_core::{
     advance2d_rk2, cons_to_prim2d, euler_solve, grid1d, grid2d, prim_to_cons, prim_to_cons2d,
-    render_png, riemann, write_csv, write_h5, write_vtk, Boundaries2d, Boundary, ConservedState,
-    ConservedState2d, EulerConfig, Grid2d, OutputState, PrimState, TerminationReason,
+    probe_line, render_png, riemann, write_csv, write_h5, write_vtk, Boundaries2d, Boundary,
+    ConservedState, ConservedState2d, EulerConfig, Grid2d, OutputState, PrimState,
+    TerminationReason,
 };
 
 pub const DEFAULT_PORT: u16 = 8060;
@@ -372,8 +373,11 @@ fn respond(status: &str, ct: &'static str, body: String) -> (String, &'static st
     (status.to_string(), ct, body.into_bytes())
 }
 
-/// render a 2d blast wave (a high-pressure disc in a quiescent gas) as a png.
-fn blast_image(n: usize, t_run: f64, field: &str) -> Vec<u8> {
+/// build a resolved 2d blast wave and extract one scalar field from it.
+///
+/// returns (field, colormap-low, colormap-high); the field layout is row-major
+/// (j*nx+i) so both the png renderer and the line probe can read it.
+fn blast_field(n: usize, t_run: f64, field: &str) -> (Vec<f64>, f64, f64) {
     const GAMMA: f64 = 1.4;
     let g: Grid2d = grid2d(n, n, 0.0, 1.0, 0.0, 1.0).unwrap();
     let (cx, cy, r0): (f64, f64, f64) = (0.35, 0.5, 0.2);
@@ -402,7 +406,7 @@ fn blast_image(n: usize, t_run: f64, field: &str) -> Vec<u8> {
         t += dt;
     }
     let (u, v, _) = cons_to_prim2d(&st.rho, &st.mx, &st.my, &st.e).unwrap();
-    let (data, lo, hi) = match field {
+    match field {
         "mach" => {
             let m: Vec<f64> = (0..n * n)
                 .map(|k| {
@@ -423,8 +427,29 @@ fn blast_image(n: usize, t_run: f64, field: &str) -> Vec<u8> {
             (pr, 1.0, 5.0)
         }
         _ => (st.rho.clone(), 1.0, 2.6),
-    };
+    }
+}
+
+/// render a resolved 2d blast wave field as a png.
+fn blast_image(n: usize, t_run: f64, field: &str) -> Vec<u8> {
+    let (data, lo, hi) = blast_field(n, t_run, field);
     render_png(&data, n, lo, hi).unwrap()
+}
+
+/// sample a 2d blast field along a segment and serialise (distance, value) pairs.
+fn probe_json(n: usize, field: &str, x0: f64, y0: f64, x1: f64, y1: f64, samples: usize) -> String {
+    let g = grid2d(n, n, 0.0, 1.0, 0.0, 1.0).expect("grid");
+    let (data, _, _) = blast_field(n, 0.10, field);
+    let pts = probe_line(&data, &g, x0, y0, x1, y1, samples).unwrap_or_default();
+    let rows: Vec<String> = pts
+        .iter()
+        .map(|(s, v)| format!("{{\"s\":{:.4},\"v\":{:.5}}}", s, v))
+        .collect();
+    format!(
+        "{{\"field\":\"{}\",\"samples\":[{}]}}",
+        field,
+        rows.join(",")
+    )
 }
 
 /// (status, content-type, body) for a request path with its query string.
@@ -444,6 +469,17 @@ pub fn handle_request(path: &str, server: &mut Server) -> (String, &'static str,
             let field = get("field").map(String::as_str).unwrap_or("rho");
             let body = blast_image(n, 0.10, field);
             ("200 OK".to_string(), "image/png", body)
+        }
+        "/api/probe" => {
+            let n = get("n").and_then(|s| s.parse().ok()).unwrap_or(128);
+            let field = get("field").map(String::as_str).unwrap_or("rho");
+            let p: Vec<f64> = [("x0", 0.0), ("y0", 0.5), ("x1", 1.0), ("y1", 0.5)]
+                .iter()
+                .map(|(k, d)| get(k).and_then(|s| s.parse().ok()).unwrap_or(*d))
+                .collect();
+            let samples = get("samples").and_then(|s| s.parse().ok()).unwrap_or(40);
+            let body = probe_json(n, field, p[0], p[1], p[2], p[3], samples);
+            respond("200 OK", "application/json", body)
         }
         "/api/history" => respond("200 OK", "application/json", history_json(server)),
         "/api/run" => {
@@ -563,6 +599,25 @@ mod tests {
 
     fn body(b: &[u8]) -> String {
         String::from_utf8_lossy(b).into_owned()
+    }
+
+    #[test]
+    fn probe_endpoint_returns_samples_across_a_horizontal_midplane() {
+        let mut s = server();
+        let (st, ct, b) = handle_request(
+            "/api/probe?n=64&field=rho&x0=0.05&y0=0.5&x1=0.95&y1=0.5&samples=9",
+            &mut s,
+        );
+        assert_eq!(st, "200 OK");
+        assert_eq!(ct, "application/json");
+        let t = body(&b);
+        // a structural check that avoids brittle quote-escape matching.
+        assert!(t.starts_with('{') && t.ends_with('}'));
+        assert!(t.contains("samples") && t.contains("rho"));
+        // nine samples each contribute a comma between the s and v pair.
+        assert!(t.matches(',').count() >= 9, "sample rows present: {}", t);
+        // every value is finite (no nan/inf escapes the wire).
+        assert!(!t.contains("nan") && !t.contains("inf"));
     }
 
     #[test]
