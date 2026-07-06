@@ -452,6 +452,40 @@ fn probe_json(n: usize, field: &str, x0: f64, y0: f64, x1: f64, y1: f64, samples
     )
 }
 
+fn line_coords(line: &str) -> [f64; 4] {
+    match line {
+        "V" => [0.5, 0.0, 0.5, 1.0],
+        "D" => [0.1, 0.1, 0.9, 0.9],
+        _ => [0.0, 0.5, 1.0, 0.5],
+    }
+}
+
+fn compare_json(fields: &[String], n_list: &[usize], line: &str, samples: usize) -> String {
+    let c = line_coords(line);
+    let mut series: Vec<String> = Vec::new();
+    for &n in n_list {
+        let g = grid2d(n, n, 0.0, 1.0, 0.0, 1.0).expect("grid");
+        for field in fields {
+            let (data, _, _) = blast_field(n, 0.10, field);
+            let pts = probe_line(&data, &g, c[0], c[1], c[2], c[3], samples).unwrap_or_default();
+            let points: Vec<String> = pts
+                .iter()
+                .map(|(s, v)| format!(r#"{{"s":{:.4},"v":{:.5}}}"#, s, v))
+                .collect();
+            let obj = format!(
+                r#"{{"label":"{} · n={}","field":"{}","n":{},"points":[{}]}}"#,
+                field,
+                n,
+                field,
+                n,
+                points.join(",")
+            );
+            series.push(obj);
+        }
+    }
+    format!(r#"{{"line":"{}","series":[{}]}}"#, line, series.join(","))
+}
+
 /// (status, content-type, body) for a request path with its query string.
 pub fn handle_request(path: &str, server: &mut Server) -> (String, &'static str, Vec<u8>) {
     let (route, query) = match path.split_once('?') {
@@ -479,6 +513,18 @@ pub fn handle_request(path: &str, server: &mut Server) -> (String, &'static str,
                 .collect();
             let samples = get("samples").and_then(|s| s.parse().ok()).unwrap_or(40);
             let body = probe_json(n, field, p[0], p[1], p[2], p[3], samples);
+            respond("200 OK", "application/json", body)
+        }
+        "/api/compare" => {
+            let fields: Vec<String> = get("fields")
+                .map(|s| s.split(',').map(|x| x.to_string()).collect())
+                .unwrap_or_else(|| vec!["rho".to_string(), "mach".to_string()]);
+            let n_list: Vec<usize> = get("n")
+                .map(|s| s.split(',').filter_map(|x| x.parse().ok()).collect())
+                .unwrap_or_else(|| vec![64, 128]);
+            let line = get("line").map(String::as_str).unwrap_or("H");
+            let samples = get("samples").and_then(|s| s.parse().ok()).unwrap_or(48);
+            let body = compare_json(&fields, &n_list, line, samples);
             respond("200 OK", "application/json", body)
         }
         "/api/history" => respond("200 OK", "application/json", history_json(server)),
@@ -618,6 +664,28 @@ mod tests {
         assert!(t.matches(',').count() >= 9, "sample rows present: {}", t);
         // every value is finite (no nan/inf escapes the wire).
         assert!(!t.contains("nan") && !t.contains("inf"));
+    }
+    #[test]
+    fn compare_endpoint_overlays_fields_across_resolutions() {
+        let mut s = server();
+        let (st, ct, b) = handle_request(
+            "/api/compare?fields=rho,mach&n=32,64&line=H&samples=12",
+            &mut s,
+        );
+        assert_eq!(st, "200 OK");
+        assert_eq!(ct, "application/json");
+        let t = body(&b);
+        assert!(t.starts_with('{') && t.ends_with('}'));
+        assert!(t.contains("series") && t.contains("label"));
+        assert!(t.contains("rho") && t.contains("mach"));
+        assert!(t.contains("n=32") && t.contains("n=64"));
+        // two fields x two resolutions = four series.
+        assert_eq!(t.matches(r#""label""#).count(), 4);
+        assert!(
+            !t.contains("nan") && !t.contains("inf"),
+            "no invalid values: {}",
+            t
+        );
     }
 
     #[test]

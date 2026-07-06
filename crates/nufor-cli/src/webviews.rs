@@ -37,6 +37,7 @@ td,th{border:1px solid #ddd;padding:.2rem .6rem;text-align:right}
   <button data-v="history">History</button>
   <button data-v="image">2D field</button>
   <button data-v="probe">Probe</button>
+  <button data-v="compare">Compare</button>
 </nav>
 <main>
 
@@ -139,6 +140,26 @@ td,th{border:1px solid #ddd;padding:.2rem .6rem;text-align:right}
   <svg id="prPlot" width="760" height="220"></svg>
 </section>
 
+<section id="v-compare">
+  <h2>Comparison dashboard</h2>
+  <p class="stat">Overlay the same probe line for several scalars and mesh
+  resolutions on one chart, to compare profiles across a cut. Pick fields and
+  resolutions, then Draw.</p>
+  <div class="row">
+    <label>fields
+      <label><input type="checkbox" class="cpField" value="rho" checked> rho</label>
+      <label><input type="checkbox" class="cpField" value="mach" checked> mach</label>
+      <label><input type="checkbox" class="cpField" value="p"> p</label>
+    </label>
+    <label>resolutions <input id="cpN" type="text" value="32,64,128"></label>
+    <label>line <select id="cpLine"><option value="H">horizontal</option><option value="V">vertical</option><option value="D">diagonal</option></select></label>
+    <label>samples <input id="cpSamples" type="number" value="48" min="2" max="200"></label>
+    <button id="cpBtn">Draw</button><span id="cpline" class="stat"></span>
+  </div>
+  <div class="row stat" id="cpLegend"></div>
+  <svg id="cpPlot" width="760" height="240"></svg>
+</section>
+
 </main>
 <script>
 async function j(url){const r=await fetch(url);return r.json();}
@@ -218,6 +239,31 @@ async function runProbe(){
 document.getElementById('prBtn').onclick=runProbe;
 document.getElementById('prField').onchange=runProbe;
 document.getElementById('prLine').onchange=runProbe;
+async function runCompare(){
+  const fields=[...document.querySelectorAll('.cpField')].filter(c=>c.checked).map(c=>c.value);
+  const res=document.getElementById('cpN').value.trim()||'32,64';
+  const line=document.getElementById('cpLine').value;
+  const samples=+document.getElementById('cpSamples').value;
+  const url=`/api/compare?fields=${fields.join(',')}&n=${res}&line=${line}&samples=${samples}`;
+  const colors=['#4f8','#f84','#4cf','#fc4','#f4c','#8f4'];
+  try{
+    const d=await j(url);
+    const series=d.series, w=760, h=240;
+    const all=d.series.flatMap(s=>s.points.map(p=>p.v));
+    const mx=Math.max(...all), mn=Math.min(...all);
+    const xs=Math.max(...d.series.flatMap(s=>s.points.map(p=>p.s)))||1;
+    const px=v=>v/xs*w, py=v=>h-(v-mn)/((mx-mn)||1)*h;
+    let polys='';let legend='';
+    series.forEach((s,i)=>{const c=colors[i%colors.length];
+      polys+='<polyline points="'+s.points.map(p=>px(p.s)+','+py(p.v)).join(' ')+'" fill="none" stroke="'+c+'" stroke-width="1.4"/>';
+      legend+='<span style="color:'+c+';margin-right:.8rem">'+s.label+'</span>';});
+    document.getElementById('cpPlot').innerHTML=polys;
+    document.getElementById('cpLegend').innerHTML=legend;
+    document.getElementById('cpline').textContent=`${series.length} series · ${d.line}-line · ${d.series[0].points.length} pts each`;
+  }catch(e){document.getElementById('cpline').textContent='compare failed: '+e;}
+}
+document.getElementById('cpBtn').onclick=runCompare;
+document.getElementById('cpLine').onchange=runCompare;
 (async()=>{try{const d=await j('/api/result?auto');afterRun(d);}catch(e){}})().then(runProbe);
 </script>
 </body></html>"##
