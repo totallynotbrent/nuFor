@@ -217,7 +217,8 @@ fn inspect(args: &[String]) -> i32 {
                 .cloned()
                 .fold(f64::NEG_INFINITY, f64::max);
             println!(
-                "cells: {}\ngamma: {}\ntime: {:.4}\nstep: {}\nrho min/max: {:.4} / {:.4}",
+                "version: {}\ncells: {}\ngamma: {}\ntime: {:.4}\nstep: {}\nrho min/max: {:.4} / {:.4}",
+                r.version,
                 r.state.rho.len(),
                 r.gamma,
                 r.time,
