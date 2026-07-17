@@ -18,6 +18,8 @@ pub enum Error {
     InvalidArgs,
     /// the kernel reported a numerical failure on valid inputs.
     KernelFailure,
+    /// a restart file uses a newer schema version than this build understands.
+    IncompatibleVersion,
 }
 
 impl core::fmt::Display for Error {
@@ -25,6 +27,9 @@ impl core::fmt::Display for Error {
         match self {
             Error::InvalidArgs => write!(f, "invalid arguments across the FFI boundary"),
             Error::KernelFailure => write!(f, "fortran kernel reported a numerical failure"),
+            Error::IncompatibleVersion => {
+                write!(f, "restart file was written by a newer schema version")
+            }
         }
     }
 }
