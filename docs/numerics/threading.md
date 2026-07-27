@@ -44,5 +44,6 @@ a single number rather than a per-thread curve.
 ## See also
 
 - [[numerics/memory-layout|Memory layout]]
+- [[numerics/simd|SIMD vectorization]]
 - [[performance/optimization-ledger|Optimization ledger]]
 - [[numerics/2d-euler|2D Euler solver]]

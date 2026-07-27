@@ -4,6 +4,7 @@ use crate::eos2d::eos_pressure2d;
 use crate::grid2d::Grid2d;
 use crate::hllc2d::{hllc_flux, FacePrim};
 use crate::state2d::{cons_to_prim2d, ConservedState2d};
+use crate::vectorize::apply_divergence;
 use crate::Error;
 
 /// the van leer limiter: the harmonic mean, zero when the slopes disagree.
@@ -248,25 +249,29 @@ pub(crate) fn advance2d_capped(
     let dtdx = dt / g.dx;
     let dtdy = dt / g.dy;
     let mut resid = 0.0f64;
-    for (j, fxrow) in fx.iter().enumerate() {
-        for (i, fycol) in fy.iter().enumerate() {
-            let dr = dtdx * (fxrow.mass[i + 1] - fxrow.mass[i])
-                + dtdy * (fycol.mass[j + 1] - fycol.mass[j]);
-            let dm =
-                dtdx * (fxrow.mx[i + 1] - fxrow.mx[i]) + dtdy * (fycol.mx[j + 1] - fycol.mx[j]);
-            let dn =
-                dtdx * (fxrow.my[i + 1] - fxrow.my[i]) + dtdy * (fycol.my[j + 1] - fycol.my[j]);
-            let de = dtdx * (fxrow.e[i + 1] - fxrow.e[i]) + dtdy * (fycol.e[j + 1] - fycol.e[j]);
-            state.rho[idx(i, j)] -= dr;
-            state.mx[idx(i, j)] -= dm;
-            state.my[idx(i, j)] -= dn;
-            state.e[idx(i, j)] -= de;
+    for (j, fa) in fx.iter().enumerate() {
+        // transverse (y) contribution per cell in this row, all four fields.
+        let mut yr = vec![0.0; nx];
+        let mut ym = vec![0.0; nx];
+        let mut yn = vec![0.0; nx];
+        let mut ye = vec![0.0; nx];
+        for i in 0..nx {
+            let fycol = &fy[i];
+            yr[i] = dtdy * (fycol.mass[j + 1] - fycol.mass[j]);
+            ym[i] = dtdy * (fycol.mx[j + 1] - fycol.mx[j]);
+            yn[i] = dtdy * (fycol.my[j + 1] - fycol.my[j]);
+            ye[i] = dtdy * (fycol.e[j + 1] - fycol.e[j]);
             resid = resid
-                .max(dr.abs())
-                .max(dm.abs())
-                .max(dn.abs())
-                .max(de.abs());
+                .max((dtdx * (fa.mass[i + 1] - fa.mass[i]) + yr[i]).abs())
+                .max((dtdx * (fa.mx[i + 1] - fa.mx[i]) + ym[i]).abs())
+                .max((dtdx * (fa.my[i + 1] - fa.my[i]) + yn[i]).abs())
+                .max((dtdx * (fa.e[i + 1] - fa.e[i]) + ye[i]).abs());
         }
+        let off = j * nx;
+        apply_divergence(&mut state.rho[off..off + nx], &fa.mass, &yr, dtdx);
+        apply_divergence(&mut state.mx[off..off + nx], &fa.mx, &ym, dtdx);
+        apply_divergence(&mut state.my[off..off + nx], &fa.my, &yn, dtdx);
+        apply_divergence(&mut state.e[off..off + nx], &fa.e, &ye, dtdx);
     }
     Ok((dt, resid))
 }

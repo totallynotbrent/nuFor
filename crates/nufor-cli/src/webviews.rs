@@ -206,7 +206,8 @@ async function loadHistory(){try{
 }catch(e){}}
 document.getElementById('benchBtn').onclick=async()=>{
   const d=await j('/api/benchmark?steps=1500');
-  document.getElementById('benchline').textContent='us/step/cell (single core); lower is better.';
+  const simd=await j('/api/simd');
+  document.getElementById('benchline').textContent=`us/step/cell (single core); SIMD: ${simd}; lower is better.`;
   const tb=document.getElementById('benchtable');
   tb.innerHTML='<tr><th>cells</th><th>us/step/cell</th><th>cell-steps/s</th></tr>'+
    d.map(r=>`<tr><td>${r.cells}</td><td>${r.us_per_step_per_cell.toFixed(3)}</td><td>${Number(r.cell_steps_per_second).toLocaleString()}</td></tr>`).join('');

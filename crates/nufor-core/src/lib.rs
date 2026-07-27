@@ -33,6 +33,7 @@ mod state2d;
 mod state3d;
 mod ugrid;
 mod util;
+mod vectorize;
 mod viscous2d;
 
 pub use cfl::{cfl_dt, CflStep};
@@ -65,6 +66,7 @@ pub use state2d::{
 };
 pub use state3d::{cons_to_prim3d, prim_to_cons3d, ConservedState3d};
 pub use ugrid::Ugrid;
+pub use vectorize::{apply_divergence, simd_capability};
 pub use viscous2d::{add_viscous, advance2d_visc_rk2, sutherland_mu, ViscParams};
 
 use error::{codes, from_code};
