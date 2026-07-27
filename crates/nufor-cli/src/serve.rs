@@ -12,8 +12,8 @@ use crate::webviews::app_html;
 
 use nufor_core::{
     advance2d_rk2, cons_to_prim2d, euler_solve, grid1d, grid2d, prim_to_cons, prim_to_cons2d,
-    probe_line, render_png, riemann, write_csv, write_h5, write_vtk, Boundaries2d, Boundary,
-    ConservedState, ConservedState2d, EulerConfig, Grid2d, OutputState, PrimState,
+    probe_line, render_png, riemann, simd_capability, write_csv, write_h5, write_vtk, Boundaries2d,
+    Boundary, ConservedState, ConservedState2d, EulerConfig, Grid2d, OutputState, PrimState,
     TerminationReason,
 };
 
@@ -527,6 +527,11 @@ pub fn handle_request(path: &str, server: &mut Server) -> (String, &'static str,
             let body = compare_json(&fields, &n_list, line, samples);
             respond("200 OK", "application/json", body)
         }
+        "/api/simd" => respond(
+            "200 OK",
+            "application/json",
+            format!("\"{}\"", simd_capability()),
+        ),
         "/api/history" => respond("200 OK", "application/json", history_json(server)),
         "/api/run" => {
             if let Some(v) = get("n").and_then(|s| s.parse().ok()) {
@@ -685,6 +690,19 @@ mod tests {
             !t.contains("nan") && !t.contains("inf"),
             "no invalid values: {}",
             t
+        );
+    }
+    #[test]
+    fn simd_endpoint_reports_the_host_capability() {
+        let mut s = server();
+        let (st, ct, b) = handle_request("/api/simd", &mut s);
+        assert_eq!(st, "200 OK");
+        assert_eq!(ct, "application/json");
+        let t = body(&b);
+        // a quoted scalar name like "avx2" or "scalar".
+        assert!(
+            t.starts_with('"') && t.ends_with('"') && t.len() > 2,
+            "got {t}"
         );
     }
 
