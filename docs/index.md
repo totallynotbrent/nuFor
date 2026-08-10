@@ -35,6 +35,7 @@ stack. This site documents the architecture, numerics, and internal formats.
 - [2D boundaries](numerics/2d-boundaries.md) — slip wall, supersonic in/out
 - [Oblique shock](numerics/oblique-shock.md) — the supersonic wedge, verified against θ-β-M
 - [Shock reflection](numerics/shock-reflection.md) — the two-shock reflection off a wall
+- [Supersonic cylinder](numerics/supersonic-cylinder.md) — the immersed body and its detached bow shock
 - [Positivity](numerics/positivity.md) — why density and pressure stay positive
 - [Viscous terms](numerics/viscous.md) — the Navier-Stokes diffusive flux
 - [Channel flow](numerics/channel-flow.md) — Poiseuille flow, the parabolic profile validated

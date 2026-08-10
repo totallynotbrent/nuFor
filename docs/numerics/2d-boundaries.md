@@ -41,3 +41,4 @@ unchanged.
 - [[numerics/2d-euler|2D Euler solver]]
 - [[numerics/oblique-shock|Oblique shock]]
 - [[numerics/shock-reflection|Shock reflection]]
+- [[numerics/supersonic-cylinder|Supersonic cylinder]]
