@@ -6,6 +6,7 @@
 use std::ffi::c_char;
 use std::os::raw::c_int;
 
+mod body;
 mod cfl;
 mod eos;
 mod eos2d;
@@ -36,6 +37,7 @@ mod util;
 mod vectorize;
 mod viscous2d;
 
+pub use body::{apply_solid, SolidBody};
 pub use cfl::{cfl_dt, CflStep};
 pub use eos::{eos_mach, eos_pressure, eos_sound_speed, eos_temperature};
 pub use eos2d::{eos_mach2d, eos_pressure2d, eos_sound_speed2d};
