@@ -77,5 +77,14 @@ carry.
 
 The current push is the unstructured path: a research note steers the
 cell-centered finite-volume prototype, verified on a quad mesh, and a
-Spalart-Allmaras research note scopes nuFor's first turbulence model. These
-pages are the working record of that trajectory.
+Spalart-Allmaras research note scopes nuFor's first turbulence model.
+
+## 1.0.0 release
+
+v1.0.0 is the first stable public release (2026-09-05). On top of the solver
+trajectory above, it adds a web dashboard with line probes and a comparison
+dashboard, runtime-dispatched SIMD in the conservation update, a
+supersonic-cylinder immersed boundary with a verified detached bow shock,
+and this Quartz documentation site. Cross-platform CI and the full
+verification suite reproduce the milestone results from a clean checkout; see
+the changelog for the complete list.
