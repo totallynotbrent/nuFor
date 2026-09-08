@@ -501,7 +501,8 @@ pub fn handle_request(path: &str, server: &mut Server) -> (String, &'static str,
         "/api/image" => {
             let n = get("n").and_then(|s| s.parse().ok()).unwrap_or(128);
             let field = get("field").map(String::as_str).unwrap_or("rho");
-            let body = blast_image(n, 0.10, field);
+            let t = get("t").and_then(|s| s.parse().ok()).unwrap_or(0.10);
+            let body = blast_image(n, t, field);
             ("200 OK".to_string(), "image/png", body)
         }
         "/api/probe" => {
