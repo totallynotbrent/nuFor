@@ -21,6 +21,8 @@ section.active{display:block}
 label{font-size:.85rem}
 input{width:5rem;padding:.2rem .4rem}
 svg{background:#111;border-radius:6px;display:block}
+.imgwrap{position:relative;display:inline-block}
+#meshOv{position:absolute;top:0;left:0;pointer-events:none}
 table{border-collapse:collapse;font-size:.85rem}
 td,th{border:1px solid #ddd;padding:.2rem .6rem;text-align:right}
 .stat{font-size:.85rem;color:#444}
@@ -101,21 +103,44 @@ td,th{border:1px solid #ddd;padding:.2rem .6rem;text-align:right}
 </section>
 
 <section id="v-image">
-  <h2>2D field</h2>
-  <p class="stat">A 2D blast wave solved and rendered to an image; pick the scalar
-  field to view. Reloads on change.</p>
+  <h2>Flow + mesh</h2>
+  <p class="stat">The solved flow field with the cartesian grid overlaid, so you
+  can see how the mesh resolves the flow. Pick the scalar and toggle the mesh.</p>
   <div class="row">
     <label>field <select id="imgField">
       <option value="rho">density</option>
       <option value="mach">mach</option>
       <option value="p">pressure</option>
     </select></label>
+    <label><input type="checkbox" id="meshOn"> mesh</label>
+    <label>cells/edge <select id="meshN">
+      <option value="16">16</option>
+      <option value="32" selected>32</option>
+      <option value="64">64</option>
+    </select></label>
   </div>
-  <img id="img2d" src="/api/image?n=128&field=rho" alt="2D blast field" height="420">
-  <script>document.getElementById('imgField').addEventListener('change', function(){
+  <div class="imgwrap">
+    <svg id="meshOv" width="480" height="480" style="display:none"></svg>
+    <img id="img2d" src="/api/image?n=128&field=rho" alt="2D flow field" width="480" height="480">
+  </div>
+  <div class="row stat">density colormap; blue is ambient, red is compressed. the grid mirrors the uniform cartesian mesh.</div>
+  <script>
+  function redrawMesh(){
+    const el=document.getElementById('meshOv'), show=document.getElementById('meshOn').checked;
+    el.style.display=show?'block':'none';
+    if(!show)return;
+    const n=+document.getElementById('meshN').value, W=480, H=480, step=W/n;
+    let s='<rect width="'+W+'" height="'+H+'" fill="none"/>', i;
+    for(i=0;i<=n;i++){const p=i*step; s+='<line x1="'+p+'" y1="0" x2="'+p+'" y2="'+H+'" stroke="rgba(255,255,255,0.35)"/>';
+      s+='<line x1="0" y1="'+p+'" x2="'+W+'" y2="'+p+'" stroke="rgba(255,255,255,0.35)"/>';}
+    el.innerHTML=s;
+  }
+  document.getElementById('meshOn').onchange=redrawMesh;
+  document.getElementById('meshN').onchange=redrawMesh;
+  document.getElementById('imgField').addEventListener('change', function(){
     document.getElementById('img2d').src='/api/image?n=128&field='+this.value;
-  });</script>
-  <div class="row stat">density colormap; blue is ambient, red is compressed.</div>
+  });
+  </script>
 </section>
 
 <section id="v-probe">
