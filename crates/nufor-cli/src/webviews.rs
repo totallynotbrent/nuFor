@@ -119,12 +119,24 @@ td,th{border:1px solid #ddd;padding:.2rem .6rem;text-align:right}
       <option value="64">64</option>
     </select></label>
   </div>
+  <div class="row">
+    <button id="playBtn">▶ play</button>
+    <label>t <input id="tSlide" type="range" min="0.02" max="0.35" step="0.005" value="0.10"></label>
+    <span class="stat" id="tRead">0.100</span>
+  </div>
   <div class="imgwrap">
     <svg id="meshOv" width="480" height="480" style="display:none"></svg>
     <img id="img2d" src="/api/image?n=128&field=rho" alt="2D flow field" width="480" height="480">
   </div>
   <div class="row stat">density colormap; blue is ambient, red is compressed. the grid mirrors the uniform cartesian mesh.</div>
   <script>
+  var imgTimer=null, imgT=0.10;
+  function imgField(){return document.getElementById('imgField').value;}
+  function loadFrame(t){
+    document.getElementById('tRead').textContent=t.toFixed(3);
+    document.getElementById('tSlide').value=t;
+    document.getElementById('img2d').src='/api/image?n=128&field='+imgField()+'&t='+t.toFixed(3);
+  }
   function redrawMesh(){
     const el=document.getElementById('meshOv'), show=document.getElementById('meshOn').checked;
     el.style.display=show?'block':'none';
@@ -135,11 +147,21 @@ td,th{border:1px solid #ddd;padding:.2rem .6rem;text-align:right}
       s+='<line x1="0" y1="'+p+'" x2="'+W+'" y2="'+p+'" stroke="rgba(255,255,255,0.35)"/>';}
     el.innerHTML=s;
   }
+  function togglePlay(){
+    if(imgTimer){clearInterval(imgTimer);imgTimer=null;document.getElementById('playBtn').textContent='▶ play';}
+    else{
+      document.getElementById('playBtn').textContent='⏸ pause';
+      imgTimer=setInterval(function(){
+        imgT+=0.005; if(imgT>0.35)imgT=0.02;
+        loadFrame(imgT); redrawMesh();
+      },90);
+    }
+  }
+  document.getElementById('playBtn').onclick=togglePlay;
+  document.getElementById('tSlide').oninput=function(){imgT=+this.value;loadFrame(imgT);redrawMesh();};
   document.getElementById('meshOn').onchange=redrawMesh;
   document.getElementById('meshN').onchange=redrawMesh;
-  document.getElementById('imgField').addEventListener('change', function(){
-    document.getElementById('img2d').src='/api/image?n=128&field='+this.value;
-  });
+  document.getElementById('imgField').addEventListener('change', function(){loadFrame(imgT);redrawMesh();});
   </script>
 </section>
 
