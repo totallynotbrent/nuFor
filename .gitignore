@@ -87,3 +87,6 @@ htmlcov/
 
 # generated benchmark output
 bench.csv
+
+# flow-field dumps from the cylinder test (env-gated)
+*.rgb

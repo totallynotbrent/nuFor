@@ -11,10 +11,10 @@ use std::time::Instant;
 use crate::webviews::app_html;
 
 use nufor_core::{
-    advance2d_rk2, cons_to_prim2d, euler_solve, grid1d, grid2d, prim_to_cons, prim_to_cons2d,
-    probe_line, render_png, riemann, simd_capability, write_csv, write_h5, write_vtk, Boundaries2d,
-    Boundary, ConservedState, ConservedState2d, EulerConfig, Grid2d, OutputState, PrimState,
-    TerminationReason,
+    advance2d_rk2, advance3d, cons_to_prim2d, euler_solve, grid1d, grid2d, grid3d, prim_to_cons,
+    prim_to_cons2d, prim_to_cons3d, probe_line, render_png, riemann, simd_capability, write_csv,
+    write_h5, write_vtk, Boundaries2d, Boundary, Bounds3d, ConservedState, ConservedState2d,
+    ConservedState3d, EulerConfig, Grid2d, OutputState, PrimState, TerminationReason,
 };
 
 pub const DEFAULT_PORT: u16 = 8060;
@@ -436,6 +436,76 @@ fn blast_image(n: usize, t_run: f64, field: &str) -> Vec<u8> {
     render_png(&data, n, lo, hi).unwrap()
 }
 
+/// solve a 3d sphere-blast and return one coordinate-plane slice of a scalar.
+fn blast3d_slice(n: usize, t_run: f64, field: &str, axis: char, frac: f64) -> Vec<f64> {
+    const GAMMA: f64 = 1.4;
+    let b = Bounds3d {
+        xmin: 0.0,
+        xmax: 1.0,
+        ymin: 0.0,
+        ymax: 1.0,
+        zmin: 0.0,
+        zmax: 1.0,
+    };
+    let g = grid3d(n, n, n, &b).unwrap();
+    let (cx, cy, cz, r0): (f64, f64, f64, f64) = (0.35, 0.5, 0.5, 0.2);
+    let (rho, mut p) = (vec![1.0; n * n * n], vec![1.0; n * n * n]);
+    let idx = |i: usize, j: usize, k: usize| (k * n + j) * n + i;
+    for k in 0..n {
+        for j in 0..n {
+            for i in 0..n {
+                let kk = i + n * j + n * n * k;
+                let (x, y, z) = (g.centers_x[kk], g.centers_y[kk], g.centers_z[kk]);
+                if (x - cx).powi(2) + (y - cy).powi(2) + (z - cz).powi(2) < r0.powi(2) {
+                    p[idx(i, j, k)] = 5.0;
+                }
+            }
+        }
+    }
+    let u = vec![0.0; n * n * n];
+    let v = vec![0.0; n * n * n];
+    let w = vec![0.0; n * n * n];
+    let et: Vec<f64> = p
+        .iter()
+        .zip(&rho)
+        .map(|(pp, r)| pp / (r * (GAMMA - 1.0)))
+        .collect();
+    let (mx, my, mz, e) = prim_to_cons3d(&rho, &u, &v, &w, &et).unwrap();
+    let mut st = ConservedState3d { rho, mx, my, mz, e };
+    let mut t = 0.0;
+    while t < t_run {
+        let (dt, _) = advance3d(&mut st, &g, GAMMA, 0.5, false).unwrap();
+        t += dt;
+    }
+    let scl: Vec<f64> = match field {
+        "p" => (0..n * n * n)
+            .map(|k| {
+                (GAMMA - 1.0)
+                    * (st.e[k]
+                        - 0.5 * (st.mx[k] * st.mx[k] + st.my[k] * st.my[k] + st.mz[k] * st.mz[k])
+                            / st.rho[k])
+            })
+            .collect(),
+        _ => st.rho.clone(),
+    };
+    let slab = ((frac.clamp(0.0, 1.0)) * (n - 1) as f64).round() as usize;
+    let mut out = Vec::with_capacity(n * n);
+    for a in 0..n {
+        for b in 0..n {
+            let v = match axis {
+                // fixed x: free axes (z row, y col)
+                'x' => scl[(a * n + b) * n + slab],
+                // fixed y: free axes (z row, x col)
+                'y' => scl[(a * n + slab) * n + b],
+                // fixed z: free axes (y row, x col)
+                _ => scl[(slab * n + a) * n + b],
+            };
+            out.push(v);
+        }
+    }
+    out
+}
+
 /// sample a 2d blast field along a segment and serialise (distance, value) pairs.
 fn probe_json(n: usize, field: &str, x0: f64, y0: f64, x1: f64, y1: f64, samples: usize) -> String {
     let g = grid2d(n, n, 0.0, 1.0, 0.0, 1.0).expect("grid");
@@ -503,6 +573,17 @@ pub fn handle_request(path: &str, server: &mut Server) -> (String, &'static str,
             let field = get("field").map(String::as_str).unwrap_or("rho");
             let t = get("t").and_then(|s| s.parse().ok()).unwrap_or(0.10);
             let body = blast_image(n, t, field);
+            ("200 OK".to_string(), "image/png", body)
+        }
+        "/api/image3d" => {
+            let n = get("n").and_then(|s| s.parse().ok()).unwrap_or(40);
+            let field = get("field").map(String::as_str).unwrap_or("rho");
+            let t = get("t").and_then(|s| s.parse().ok()).unwrap_or(0.05);
+            let axis = get("axis").and_then(|s| s.parse().ok()).unwrap_or('z');
+            let frac = get("u").and_then(|s| s.parse().ok()).unwrap_or(0.5);
+            let data = blast3d_slice(n, t, field, axis, frac);
+            let (lo, hi) = if field == "p" { (1.0, 5.0) } else { (1.0, 2.6) };
+            let body = render_png(&data, n, lo, hi).unwrap();
             ("200 OK".to_string(), "image/png", body)
         }
         "/api/probe" => {
@@ -772,7 +853,8 @@ mod tests {
         let (st, ct, b) = handle_request("/", &mut s);
         assert_eq!(st, "200 OK");
         assert_eq!(ct, "text/html; charset=utf-8");
-        assert!(body(&b).contains("Solve"));
+        assert!(body(&b).contains("viewport"));
+        assert!(body(&b).contains("Simulation"));
         let (st, _, b) = handle_request("/nope", &mut s);
         assert_eq!(st, "404 Not Found");
         assert!(body(&b) == "not found");
