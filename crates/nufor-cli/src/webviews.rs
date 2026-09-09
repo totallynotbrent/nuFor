@@ -261,10 +261,24 @@ colorbar('rho');fitViz();window.addEventListener('resize',fitViz);refreshViz();
 // monitor (1d solve envelope)
 async function j(url){var r=await fetch(url);return r.json();}
 async function runCase(){
-  var url='/api/run?kind='+document.getElementById('cfg-kind').value+'&n='+document.getElementById('cfg-n').value+
-    '&t='+document.getElementById('cfg-t').value+'&gamma='+document.getElementById('cfg-gamma').value+
-    '&cfl='+document.getElementById('cfg-cfl').value;
-  try{var d=await j(url);monitor(d);loadHistory();return d;}catch(e){document.getElementById('monStat').textContent='run failed: '+e;}
+  var dim=document.getElementById('dim').value;
+  var cfl=(+document.getElementById('cfg-cfl').value)||0.4;
+  var t=(+document.getElementById('cfg-t').value)||0.15;
+  // 1d monitor case (sod/lax) keeps the Monitor + history populated
+  try{
+    var d1=await j('/api/run?kind='+document.getElementById('cfg-kind').value+'&n='+document.getElementById('cfg-n').value+
+      '&t='+t+'&gamma='+document.getElementById('cfg-gamma').value+'&cfl='+cfl);
+    monitor(d1);loadHistory();
+  }catch(e){}
+  // the viewport case: solve the configured dim to t, save a results vtk, report convergence
+  try{
+    var n=Math.max(20,+document.getElementById('cfg-n').value||96);
+    var nn=(dim==='3d')?Math.min(40,n):n;
+    var d=await j('/api/run-case?dim='+dim+'&n='+nn+'&t='+t+'&cfl='+cfl+'&name=case-'+dim);
+    document.getElementById('monStat').textContent=dim.toUpperCase()+' blast '+nn+(dim==='3d'?'^3':'\u00d7'+nn)+
+      '\nsteps='+d.steps+'\ntime='+d.time.toFixed(4)+'\nsolve '+d.seconds.toFixed(2)+'s  \u2192 results/case-'+dim+'.vtk';
+    refreshViz();
+  }catch(e){}
 }
 function monitor(d){
   var s=d.snapshot,w=560,h=120,f='rho',y=s[f],x=s.centers;

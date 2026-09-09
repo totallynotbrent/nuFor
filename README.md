@@ -83,7 +83,28 @@ is an order of magnitude slower at the flow solves behind the UI. The page is
 a single CFD workspace: a central flow viewport (2D blast animation or 3D
 slice planes, with a toggleable mesh overlay and colorbar), a left
 data/display sidebar, and a diagnostics dock (1D monitor, line probes,
-comparison overlay, run history).
+comparison overlay, run history). The Run button executes your configured case
+(2D/3D), saves `results/<name>.vtk`, and reports the convergence summary.
+
+## Running a case
+
+One `case.toml` drives the solver from the terminal across all three dimensions:
+
+```
+nufor init case.toml              # write a runnable template
+nufor run case.toml               # solve it (euler_1d / euler_2d / euler_3d)
+```
+
+`physics.equations` picks the dimension, `[mesh]` the cell count and domain
+(2D/3D add `ny/nz`), and `initial_condition` is `uniform`, `two_state` (1D), or
+`blast` (2D/3D). Results land next to the case as csv/vtk (and a PNG for 2D).
+To bring your own mesh, set `mesh.source = "file"` with a `path` to a list of
+cell-center coordinates (must be uniformly spaced). Schema and validation in
+`docs/formats/case-toml.md`.
+
+To keep the web UI running unattended (auto-rebuild + restart on source
+changes), a systemd user unit `nufor-serve.service` wraps
+`~/.local/scripts/nufor-serve.sh`.
 
 ## Roadmap
 

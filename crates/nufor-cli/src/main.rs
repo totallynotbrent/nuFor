@@ -3,12 +3,17 @@
 //! `serve` hosts a minimal web ui skeleton: one page plus the snapshot as json,
 //! ready for a real front end to be designed against the same data api.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use nufor_config::{
+    load_case_config, BoundaryKind, CaseConfig, Equations, InitialCondition, Mesh, OutputFormat,
+};
 use nufor_core::{
-    euler_solve, grid1d, prim_to_cons, read_restart, write_csv, write_h5, write_restart, write_vtk,
-    Boundary, ConservedState, Error, EulerConfig, OutputState,
+    advance2d_rk2, advance3d_rk2, euler_solve, grid1d, grid2d, grid3d, prim_to_cons,
+    prim_to_cons2d, prim_to_cons3d, read_restart, render_png, write_csv, write_h5, write_restart,
+    write_vtk, write_vtk2d, write_vtk3d, Boundaries2d, Boundary, Bounds3d, ConservedState,
+    ConservedState2d, ConservedState3d, Error, EulerConfig, Grid1d, Grid2d, Grid3d, OutputState,
 };
 
 mod serve;
@@ -26,6 +31,7 @@ fn main() {
     }
     let code = match args[1].as_str() {
         "version" | "--version" => version(),
+        "init" => init(&args),
         "mesh" => mesh(&args),
         "run" => run(&args),
         "inspect" => inspect(&args),
@@ -51,8 +57,10 @@ fn usage(prog: &str) {
         "nufor {VERSION} - 1D ideal-gas Euler solver (Fortran kernels, Rust runtime)\n\
          \nusage: {prog} <command> [args]\n\
          \ncommands:\n\
+         \x20 init      [case.toml]       write a case to run (default case.toml)\n\
          \x20 mesh      N xmin xmax        show a computed grid\n\
-         \x20 run       N t [sod|lax] [rst] run a shock tube to time t, save a restart\n\
+         \x20 run       <case.toml> | N t [sod|lax] [rst]\n\
+         \x20                        run a case file, or a shock tube to time t\n\
          \x20 inspect   file.rst           show a restart's header and min/max density\n\
          \x20 export    in.rst out.vtk|h5  write a vtk or hdf5 snapshot\n\
          \x20 history   N [file.csv]       run sod to t=0.2 and write a csv snapshot\n\
@@ -163,6 +171,17 @@ fn mesh(args: &[String]) -> i32 {
 }
 
 fn run(args: &[String]) -> i32 {
+    if args.len() < 3 {
+        eprintln!("run needs a case file or: <N> <t> [sod|lax] [rst]");
+        return 2;
+    }
+    if Path::new(&args[2]).exists() && args[2].ends_with(".toml") {
+        return run_case(&args[2]);
+    }
+    run_shock_tube(args)
+}
+
+fn run_shock_tube(args: &[String]) -> i32 {
     if args.len() < 4 {
         eprintln!("run needs: N t [sod|lax] [restart.rst]");
         return 2;
@@ -357,4 +376,612 @@ fn serve(args: &[String]) -> i32 {
             1
         }
     }
+}
+
+fn init(args: &[String]) -> i32 {
+    let path = args.get(2).map(String::as_str).unwrap_or("case.toml");
+    let template = r#"# nuFor case definition. Schema in docs/formats/case-toml.md.
+schema_version = 1
+
+[metadata]
+name = "my-case"
+description = "a nuFor case"
+case_revision = 1
+
+[physics]
+equations = "euler_1d"
+gamma = 1.4
+gas_constant = 287.0
+
+[mesh]
+nx = 200
+x0 = 0.0
+x1 = 1.0
+source = "uniform"
+
+[initial_condition]
+type = "two_state"
+left = { rho = 1.0, u = 0.0, p = 1.0 }
+right = { rho = 0.125, u = 0.0, p = 0.1 }
+
+[boundaries]
+left = "wall"
+right = "wall"
+
+[numerics]
+flux = "hll"
+reconstruction = "first_order"
+cfl = 0.5
+
+[time]
+final_time = 0.2
+max_steps = 10000
+residual_target = 1.0e-10
+
+[output]
+interval_steps = 100
+formats = ["csv", "vtk"]
+fields = ["rho", "u", "p"]
+"#;
+    if std::fs::write(path, template).is_err() {
+        eprintln!("init: could not write {path}");
+        return 1;
+    }
+    println!("init: wrote {path} (edit it, then run with `nufor run {path}`)");
+    0
+}
+
+/// build a 1d grid from a case's mesh section, uniform or loaded from a file.
+fn build_1d_mesh(mesh: &Mesh) -> Result<Grid1d, String> {
+    match mesh.source.as_str() {
+        "file" => {
+            let path = mesh
+                .path
+                .as_deref()
+                .ok_or_else(|| "mesh source = file needs a `path`".to_string())?;
+            let centers = read_centers(path)?;
+            if centers.len() < 2 {
+                return Err("mesh file needs at least two cell centers".into());
+            }
+            let mut dx: Option<f64> = None;
+            for w in centers.windows(2) {
+                let d = w[1] - w[0];
+                if d <= 0.0 {
+                    return Err("mesh coordinates must be strictly increasing".into());
+                }
+                if let Some(e) = dx {
+                    if (e - d).abs() > 1e-12 * e.abs().max(1.0) {
+                        return Err(
+                            "mesh is not uniform; this solver assumes equal cell spacing".into(),
+                        );
+                    }
+                } else {
+                    dx = Some(d);
+                }
+            }
+            let d = dx.unwrap();
+            let n = centers.len();
+            grid1d(n, centers[0] - d / 2.0, centers[n - 1] + d / 2.0).map_err(|e| e.to_string())
+        }
+        _ => grid1d(mesh.nx as usize, mesh.x0, mesh.x1).map_err(|e| e.to_string()),
+    }
+}
+
+/// read one cell-center coordinate per line from a mesh file.
+fn read_centers(path: &str) -> Result<Vec<f64>, String> {
+    std::fs::read_to_string(path)
+        .map_err(|e| format!("could not read mesh file {path}: {e}"))?
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(|l| {
+            l.parse::<f64>()
+                .map_err(|e| format!("bad coordinate in {path}: {l} ({e})"))
+        })
+        .collect()
+}
+
+/// build a conserved 1d state from a case's initial_condition.
+fn ic_from_case(ic: &InitialCondition, n: usize, gamma: f64) -> Result<ConservedState, String> {
+    let fill = |rho0: f64, u0: f64, p0: f64| -> ConservedState {
+        let rho = vec![rho0; n];
+        let u = vec![u0; n];
+        let et: Vec<f64> = (0..n)
+            .map(|i| p0 / ((gamma - 1.0) * rho0) + 0.5 * u[i] * u[i])
+            .collect();
+        let (m, e) = prim_to_cons(&rho, &u, &et).expect("valid initial condition");
+        ConservedState { rho, m, e }
+    };
+    match ic {
+        InitialCondition::Uniform { rho, u, p } => Ok(fill(*rho, *u, *p)),
+        InitialCondition::TwoState { left, right } => {
+            let mut st = fill(right.rho, right.u, right.p);
+            let mid = n / 2;
+            for i in 0..mid {
+                let r0 = left.rho;
+                let u0 = left.u;
+                let p0 = left.p;
+                st.rho[i] = r0;
+                st.m[i] = r0 * u0;
+                st.e[i] = p0 / ((gamma - 1.0) * r0) + 0.5 * r0 * u0 * u0;
+            }
+            Ok(st)
+        }
+        InitialCondition::Blast { .. } => Err("blast is a 2d/3d initial condition".into()),
+    }
+}
+
+fn bc1d(kind: BoundaryKind) -> Boundary {
+    match kind {
+        BoundaryKind::Wall => Boundary::Reflective,
+        _ => Boundary::Transmissive,
+    }
+}
+
+fn run_case(path: &str) -> i32 {
+    let cfg = match load_case_config(Path::new(path)) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("case error: {e}");
+            return 2;
+        }
+    };
+    match cfg.physics.equations {
+        Equations::Euler1d => run_case_1d(&cfg, path),
+        Equations::Euler2d => run_case_2d(&cfg, path),
+        Equations::Euler3d => run_case_3d(&cfg, path),
+    }
+}
+
+fn run_case_1d(cfg: &CaseConfig, path: &str) -> i32 {
+    let g = match build_1d_mesh(&cfg.mesh) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("mesh error: {e}");
+            return 2;
+        }
+    };
+    let mut state = match ic_from_case(&cfg.initial_condition, g.centers.len(), cfg.physics.gamma) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("initial condition error: {e}");
+            return 2;
+        }
+    };
+    let max_steps = if cfg.time.max_steps > 0 {
+        cfg.time.max_steps as usize
+    } else {
+        1_000_000
+    };
+    let ecfg = EulerConfig {
+        gamma: cfg.physics.gamma,
+        cfl: cfg.numerics.cfl,
+        dx: g.dx,
+        left: bc1d(cfg.boundaries.left),
+        right: bc1d(cfg.boundaries.right),
+        max_steps,
+        t_end: cfg.time.final_time,
+        tol: cfg.time.residual_target.unwrap_or(0.0),
+    };
+    let t0 = Instant::now();
+    match euler_solve(&mut state, &ecfg) {
+        Ok(r) => {
+            println!(
+                "case {} ({})\nsteps: {}\ntime: {:.4}\nfinal residual: {:.3e}\nconverged: {}\nwall: {:.3}s",
+                cfg.metadata.name,
+                path,
+                r.steps,
+                r.time,
+                r.residual,
+                r.converged,
+                t0.elapsed().as_secs_f64()
+            );
+            write_case_outputs(
+                path,
+                &cfg.metadata.name,
+                &g,
+                &state,
+                &cfg.output.formats,
+                cfg.physics.gamma,
+            )
+        }
+        Err(e) => euler_error(e),
+    }
+}
+
+fn write_case_outputs(
+    case_path: &str,
+    name: &str,
+    g: &Grid1d,
+    st: &ConservedState,
+    formats: &[OutputFormat],
+    gamma: f64,
+) -> i32 {
+    let out = OutputState {
+        centers: &g.centers,
+        rho: &st.rho,
+        m: &st.m,
+        e: &st.e,
+        gamma,
+    };
+    let dir = match Path::new(case_path).parent() {
+        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+        _ => PathBuf::from("."),
+    };
+    let mut ok = true;
+    for f in formats {
+        let ext = match f {
+            OutputFormat::Csv => "csv",
+            OutputFormat::Vtk => "vtk",
+            OutputFormat::Hdf5 => "h5",
+        };
+        let dst = dir.join(format!("{name}.{ext}"));
+        let res = match f {
+            OutputFormat::Csv => write_csv(&dst, &out),
+            OutputFormat::Vtk => write_vtk(&dst, &out),
+            OutputFormat::Hdf5 => write_h5(&dst, &out, 0.0),
+        };
+        match res {
+            Ok(()) => println!("wrote: {}", dst.display()),
+            Err(e) => {
+                ok = false;
+                eprintln!("output error ({ext}): {e}");
+            }
+        }
+    }
+    if ok {
+        0
+    } else {
+        1
+    }
+}
+
+/// solve a 2d case: blast or uniform IC on a uniform cartesian mesh.
+fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
+    let mesh = &cfg.mesh;
+    if mesh.source != "uniform" {
+        eprintln!("2d/3d case runs use uniform meshes for now");
+        return 2;
+    }
+    let ny = mesh.ny.unwrap_or(mesh.nx) as usize;
+    let (y0, y1) = (mesh.y0.unwrap_or(mesh.x0), mesh.y1.unwrap_or(mesh.x1));
+    let g = match grid2d(mesh.nx as usize, ny, mesh.x0, mesh.x1, y0, y1) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("mesh error: {e}");
+            return 2;
+        }
+    };
+    let gamma = cfg.physics.gamma;
+    let mut st = match ic2d_from_case(&cfg.initial_condition, &g, gamma) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("initial condition error: {e}");
+            return 2;
+        }
+    };
+    let bc = Boundaries2d::default();
+    let cfl = cfg.numerics.cfl;
+    let t_end = cfg.time.final_time;
+    let max_steps = if cfg.time.max_steps > 0 {
+        cfg.time.max_steps as usize
+    } else {
+        1_000_000
+    };
+    let t0 = Instant::now();
+    let mut t = 0.0;
+    let mut steps = 0usize;
+    let mut ok = true;
+    while t < t_end && steps < max_steps {
+        match advance2d_rk2(&mut st, &g, gamma, cfl, true, &bc) {
+            Ok((dt, _)) => t += dt,
+            Err(e) => {
+                eprintln!("solver error: {e}");
+                ok = false;
+                break;
+            }
+        }
+        steps += 1;
+    }
+    if ok {
+        println!(
+            "case {} ({})\nthink: 2d blast, {}x{}\nsteps: {}\ntime: {:.4}\nwall: {:.3}s",
+            cfg.metadata.name,
+            path,
+            g.nx,
+            g.ny,
+            steps,
+            t,
+            t0.elapsed().as_secs_f64()
+        );
+        write_case_vtk2d(path, &cfg.metadata.name, &g, &st, gamma)
+    } else {
+        1
+    }
+}
+
+/// solve a 3d case: blast IC on a uniform cartesian mesh.
+fn run_case_3d(cfg: &CaseConfig, path: &str) -> i32 {
+    let mesh = &cfg.mesh;
+    if mesh.source != "uniform" {
+        eprintln!("2d/3d case runs use uniform meshes for now");
+        return 2;
+    }
+    let (ny, nz) = (
+        mesh.ny.unwrap_or(mesh.nx) as usize,
+        mesh.nz.unwrap_or(mesh.nx) as usize,
+    );
+    let (y0, y1) = (mesh.y0.unwrap_or(mesh.x0), mesh.y1.unwrap_or(mesh.x1));
+    let (z0, z1) = (mesh.z0.unwrap_or(mesh.x0), mesh.z1.unwrap_or(mesh.x1));
+    let b = Bounds3d {
+        xmin: mesh.x0,
+        xmax: mesh.x1,
+        ymin: y0,
+        ymax: y1,
+        zmin: z0,
+        zmax: z1,
+    };
+    let g = match grid3d(mesh.nx as usize, ny, nz, &b) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("mesh error: {e}");
+            return 2;
+        }
+    };
+    let gamma = cfg.physics.gamma;
+    let mut st = match ic3d_from_case(&cfg.initial_condition, &g, gamma) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("initial condition error: {e}");
+            return 2;
+        }
+    };
+    let cfl = cfg.numerics.cfl;
+    let t_end = cfg.time.final_time;
+    let max_steps = if cfg.time.max_steps > 0 {
+        cfg.time.max_steps as usize
+    } else {
+        1_000_000
+    };
+    let t0 = Instant::now();
+    let mut t = 0.0;
+    let mut steps = 0usize;
+    let mut ok = true;
+    while t < t_end && steps < max_steps {
+        match advance3d_rk2(&mut st, &g, gamma, cfl, true) {
+            Ok((dt, _)) => t += dt,
+            Err(e) => {
+                eprintln!("solver error: {e}");
+                ok = false;
+                break;
+            }
+        }
+        steps += 1;
+    }
+    if ok {
+        println!(
+            "case {} ({})\nthink: 3d blast, {}x{}x{}\nsteps: {}\ntime: {:.4}\nwall: {:.3}s",
+            cfg.metadata.name,
+            path,
+            g.nx,
+            g.ny,
+            g.nz,
+            steps,
+            t,
+            t0.elapsed().as_secs_f64()
+        );
+        write_case_vtk3d(path, &cfg.metadata.name, &g, &st, gamma)
+    } else {
+        1
+    }
+}
+
+/// 2d initial condition: uniform field or an over-pressured fireball.
+fn ic2d_from_case(
+    ic: &InitialCondition,
+    g: &Grid2d,
+    gamma: f64,
+) -> Result<ConservedState2d, String> {
+    let (n, cx, cy) = (
+        g.nx * g.ny,
+        0.5 * (g.xmin + g.xmax),
+        0.5 * (g.ymin + g.ymax),
+    );
+    match ic {
+        InitialCondition::Uniform { rho, u, p } => fill2d(*rho, *u, 0.0, *p, n, gamma),
+        InitialCondition::Blast {
+            radius,
+            ambient,
+            fireball,
+        } => {
+            let mut rhost = vec![ambient.rho; n];
+            let mut ud = vec![ambient.u; n];
+            let mut vd = vec![0.0; n];
+            let mut pd = vec![ambient.p; n];
+            for j in 0..g.ny {
+                for i in 0..g.nx {
+                    let k = j * g.nx + i;
+                    let dx = g.centers_x[k] - cx;
+                    let dy = g.centers_y[k] - cy;
+                    if dx * dx + dy * dy < radius * radius {
+                        rhost[k] = fireball.rho;
+                        ud[k] = fireball.u;
+                        vd[k] = 0.0;
+                        pd[k] = fireball.p;
+                    }
+                }
+            }
+            state2d(&rhost, &ud, &vd, &pd, gamma)
+        }
+        InitialCondition::TwoState { .. } => Err("two_state is a 1d shock-tube IC".into()),
+    }
+}
+
+/// 3d initial condition: uniform field or an over-pressured fireball.
+fn ic3d_from_case(
+    ic: &InitialCondition,
+    g: &Grid3d,
+    gamma: f64,
+) -> Result<ConservedState3d, String> {
+    let n = g.nx * g.ny * g.nz;
+    let (cx, cy, cz) = (
+        0.5 * (g.xmin + g.xmax),
+        0.5 * (g.ymin + g.ymax),
+        0.5 * (g.zmin + g.zmax),
+    );
+    match ic {
+        InitialCondition::Uniform { rho, u, p } => fill3d(*rho, *u, 0.0, 0.0, *p, n, gamma),
+        InitialCondition::Blast {
+            radius,
+            ambient,
+            fireball,
+        } => {
+            let mut rhost = vec![ambient.rho; n];
+            let mut ud = vec![ambient.u; n];
+            let vd = vec![0.0; n];
+            let wd = vec![0.0; n];
+            let mut pd = vec![ambient.p; n];
+            for k in 0..n {
+                let dx = g.centers_x[k] - cx;
+                let dy = g.centers_y[k] - cy;
+                let dz = g.centers_z[k] - cz;
+                if dx * dx + dy * dy + dz * dz < radius * radius {
+                    rhost[k] = fireball.rho;
+                    ud[k] = fireball.u;
+                    pd[k] = fireball.p;
+                }
+            }
+            state3d(&rhost, &ud, &vd, &wd, &pd, gamma)
+        }
+        InitialCondition::TwoState { .. } => Err("two_state is a 1d shock-tube IC".into()),
+    }
+}
+
+fn fill2d(
+    rho0: f64,
+    u0: f64,
+    v0: f64,
+    p0: f64,
+    n: usize,
+    gamma: f64,
+) -> Result<ConservedState2d, String> {
+    let (rho, u, v) = (vec![rho0; n], vec![u0; n], vec![v0; n]);
+    let et: Vec<f64> = (0..n)
+        .map(|k| p0 / ((gamma - 1.0) * rho0) + 0.5 * (u[k] * u[k] + v[k] * v[k]))
+        .collect();
+    let (mx, my, e) = prim_to_cons2d(&rho, &u, &v, &et).map_err(|e| e.to_string())?;
+    Ok(ConservedState2d { rho, mx, my, e })
+}
+
+fn state2d(
+    rho: &[f64],
+    u: &[f64],
+    v: &[f64],
+    p: &[f64],
+    gamma: f64,
+) -> Result<ConservedState2d, String> {
+    let et: Vec<f64> = (0..rho.len())
+        .map(|k| p[k] / ((gamma - 1.0) * rho[k]) + 0.5 * (u[k] * u[k] + v[k] * v[k]))
+        .collect();
+    let (mx, my, e) = prim_to_cons2d(rho, u, v, &et).map_err(|e| e.to_string())?;
+    Ok(ConservedState2d {
+        rho: rho.to_vec(),
+        mx,
+        my,
+        e,
+    })
+}
+
+fn fill3d(
+    rho0: f64,
+    u0: f64,
+    v0: f64,
+    w0: f64,
+    p0: f64,
+    n: usize,
+    gamma: f64,
+) -> Result<ConservedState3d, String> {
+    let (rho, u, v, w) = (vec![rho0; n], vec![u0; n], vec![v0; n], vec![w0; n]);
+    let et: Vec<f64> = (0..n)
+        .map(|k| p0 / ((gamma - 1.0) * rho0) + 0.5 * (u[k] * u[k] + v[k] * v[k] + w[k] * w[k]))
+        .collect();
+    let (mx, my, mz, e) = prim_to_cons3d(&rho, &u, &v, &w, &et).map_err(|e| e.to_string())?;
+    Ok(ConservedState3d { rho, mx, my, mz, e })
+}
+
+fn state3d(
+    rho: &[f64],
+    u: &[f64],
+    v: &[f64],
+    w: &[f64],
+    p: &[f64],
+    gamma: f64,
+) -> Result<ConservedState3d, String> {
+    let et: Vec<f64> = (0..rho.len())
+        .map(|k| p[k] / ((gamma - 1.0) * rho[k]) + 0.5 * (u[k] * u[k] + v[k] * v[k] + w[k] * w[k]))
+        .collect();
+    let (mx, my, mz, e) = prim_to_cons3d(rho, u, v, w, &et).map_err(|e| e.to_string())?;
+    Ok(ConservedState3d {
+        rho: rho.to_vec(),
+        mx,
+        my,
+        mz,
+        e,
+    })
+}
+
+fn write_case_vtk2d(path: &str, name: &str, g: &Grid2d, st: &ConservedState2d, gamma: f64) -> i32 {
+    let dir = case_dir(path);
+    let dst = dir.join(format!("{name}.vtk"));
+    match write_vtk2d(&dst, g, st, gamma) {
+        Ok(()) => {
+            println!("wrote: {}", dst.display());
+            if g.nx == g.ny {
+                let lo = min_of(&st.rho);
+                let hi = max_of(&st.rho);
+                let png = dir.join(format!("{name}.png"));
+                match render_png(&st.rho, g.nx, lo, hi) {
+                    Ok(bytes) => {
+                        let _ = std::fs::write(&png, bytes);
+                        println!("wrote: {}", png.display());
+                    }
+                    Err(e) => eprintln!("png render error: {e}"),
+                }
+            }
+            0
+        }
+        Err(e) => {
+            eprintln!("output error: {e}");
+            1
+        }
+    }
+}
+
+fn write_case_vtk3d(path: &str, name: &str, g: &Grid3d, st: &ConservedState3d, gamma: f64) -> i32 {
+    let dir = case_dir(path);
+    let dst = dir.join(format!("{name}.vtk"));
+    match write_vtk3d(&dst, g, st, gamma) {
+        Ok(()) => {
+            println!("wrote: {}", dst.display());
+            0
+        }
+        Err(e) => {
+            eprintln!("output error: {e}");
+            1
+        }
+    }
+}
+
+fn case_dir(path: &str) -> PathBuf {
+    match Path::new(path).parent() {
+        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+        _ => PathBuf::from("."),
+    }
+}
+
+fn min_of(v: &[f64]) -> f64 {
+    v.iter().cloned().fold(f64::INFINITY, f64::min)
+}
+fn max_of(v: &[f64]) -> f64 {
+    v.iter().cloned().fold(f64::NEG_INFINITY, f64::max)
 }

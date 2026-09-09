@@ -6,15 +6,17 @@
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::path::Path;
 use std::time::Instant;
 
 use crate::webviews::app_html;
 
 use nufor_core::{
-    advance2d_rk2, advance3d, cons_to_prim2d, euler_solve, grid1d, grid2d, grid3d, prim_to_cons,
-    prim_to_cons2d, prim_to_cons3d, probe_line, render_png, riemann, simd_capability, write_csv,
-    write_h5, write_vtk, Boundaries2d, Boundary, Bounds3d, ConservedState, ConservedState2d,
-    ConservedState3d, EulerConfig, Grid2d, OutputState, PrimState, TerminationReason,
+    advance2d_rk2, advance3d, advance3d_rk2, cons_to_prim2d, euler_solve, grid1d, grid2d, grid3d,
+    prim_to_cons, prim_to_cons2d, prim_to_cons3d, probe_line, render_png, riemann, simd_capability,
+    write_csv, write_h5, write_vtk, write_vtk2d, write_vtk3d, Boundaries2d, Boundary, Bounds3d,
+    ConservedState, ConservedState2d, ConservedState3d, EulerConfig, Grid2d, OutputState,
+    PrimState, TerminationReason,
 };
 
 pub const DEFAULT_PORT: u16 = 8060;
@@ -173,6 +175,117 @@ fn join(arr: &[f64]) -> String {
         .map(|v| format!("{v:.6}"))
         .collect::<Vec<_>>()
         .join(",")
+}
+
+/// solve a blast case in the requested dimension and write a results vtk,
+/// returning a json summary for the monitor dock.
+fn run_case_json(dim: &str, n: usize, t_end: f64, cfl: f64, name: &str) -> String {
+    let _ = std::fs::create_dir_all("results");
+    let gamma = 1.4;
+    let t0 = Instant::now();
+    let (steps, time) = match dim {
+        "3d" => {
+            let b = Bounds3d {
+                xmin: 0.0,
+                xmax: 1.0,
+                ymin: 0.0,
+                ymax: 1.0,
+                zmin: 0.0,
+                zmax: 1.0,
+            };
+            if let Ok(g) = grid3d(n, n, n, &b) {
+                let mut st = blast_ic3d(&g, gamma);
+                let mut t = 0.0;
+                let mut steps = 0usize;
+                while t < t_end {
+                    if let Ok((dt, _)) = advance3d_rk2(&mut st, &g, gamma, cfl, true) {
+                        t += dt;
+                        steps += 1;
+                    } else {
+                        break;
+                    }
+                }
+                let dst = format!("results/{name}.vtk");
+                let _ = write_vtk3d(Path::new(&dst), &g, &st, gamma);
+                (steps, t)
+            } else {
+                (0, 0.0)
+            }
+        }
+        _ => {
+            if let Ok(g) = grid2d(n, n, 0.0, 1.0, 0.0, 1.0) {
+                let mut st = blast_ic2d(&g, gamma);
+                let bc = Boundaries2d::default();
+                let mut t = 0.0;
+                let mut steps = 0usize;
+                while t < t_end {
+                    if let Ok((dt, _)) = advance2d_rk2(&mut st, &g, gamma, cfl, true, &bc) {
+                        t += dt;
+                        steps += 1;
+                    } else {
+                        break;
+                    }
+                }
+                let dst = format!("results/{name}.vtk");
+                let _ = write_vtk2d(Path::new(&dst), &g, &st, gamma);
+                (steps, t)
+            } else {
+                (0, 0.0)
+            }
+        }
+    };
+    format!(
+                "{{\"dim\":\"{dim}\",\"cells\":{n},\"steps\":{steps},\"time\":{time:.4},\"seconds\":{:.3}}}",
+                t0.elapsed().as_secs_f64()
+            )
+}
+
+/// a 2d blast initial condition: an over-pressured disc in quiet air.
+fn blast_ic2d(g: &Grid2d, gamma: f64) -> ConservedState2d {
+    let n = g.nx * g.ny;
+    let (cx, cy, r0) = (0.5, 0.5, 0.2);
+    let (rho, mut p) = (vec![1.0; n], vec![1.0; n]);
+    for j in 0..g.ny {
+        for i in 0..g.nx {
+            let k = j * g.nx + i;
+            let dx = g.centers_x[k] - cx;
+            let dy = g.centers_y[k] - cy;
+            if dx * dx + dy * dy < r0 * r0 {
+                p[k] = 10.0;
+            }
+        }
+    }
+    let (u, v) = (vec![0.0; n], vec![0.0; n]);
+    let et: Vec<f64> = p
+        .iter()
+        .zip(&rho)
+        .map(|(pp, r)| pp / (r * (gamma - 1.0)))
+        .collect();
+    let (mx, my, e) = prim_to_cons2d(&rho, &u, &v, &et).unwrap();
+    ConservedState2d { rho, mx, my, e }
+}
+
+/// a 3d blast initial condition: an over-pressured sphere in quiet air.
+fn blast_ic3d(g: &nufor_core::Grid3d, gamma: f64) -> ConservedState3d {
+    let n = g.nx * g.ny * g.nz;
+    let (cx, cy, cz, r0) = (0.5, 0.5, 0.5, 0.2);
+    let (rho, mut p) = (vec![1.0; n], vec![1.0; n]);
+    for (k, pk) in p.iter_mut().enumerate() {
+        let dx = g.centers_x[k] - cx;
+        let dy = g.centers_y[k] - cy;
+        let dz = g.centers_z[k] - cz;
+        if dx * dx + dy * dy + dz * dz < r0 * r0 {
+            *pk = 10.0;
+        }
+    }
+    let (u, v, w) = (vec![0.0; n], vec![0.0; n], vec![0.0; n]);
+    let et: Vec<f64> = p
+        .iter()
+        .zip(&rho)
+        .map(|(pp, r)| pp / (r * (gamma - 1.0)))
+        .collect();
+    let (mx, my, mz, e) = prim_to_cons3d(&rho, &u, &v, &w, &et).unwrap();
+    ConservedState3d { rho, mx, my, mz, e }
 }
 
 fn arr_json(key: &str, v: &[f64]) -> String {
@@ -585,6 +698,20 @@ pub fn handle_request(path: &str, server: &mut Server) -> (String, &'static str,
             let (lo, hi) = if field == "p" { (1.0, 5.0) } else { (1.0, 2.6) };
             let body = render_png(&data, n, lo, hi).unwrap();
             ("200 OK".to_string(), "image/png", body)
+        }
+        "/api/run-case" => {
+            let dim = get("dim").map(String::as_str).unwrap_or("2d");
+            let n = get("n").and_then(|s| s.parse().ok()).unwrap_or(96);
+            let t = get("t").and_then(|s| s.parse().ok()).unwrap_or(0.15);
+            let cfl = get("cfl").and_then(|s| s.parse().ok()).unwrap_or(0.4);
+            let name = get("name")
+                .cloned()
+                .unwrap_or_else(|| format!("{dim}-{:03}", n));
+            respond(
+                "200 OK",
+                "application/json",
+                run_case_json(dim, n, t, cfl, &name),
+            )
         }
         "/api/probe" => {
             let n = get("n").and_then(|s| s.parse().ok()).unwrap_or(128);

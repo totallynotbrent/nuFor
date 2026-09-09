@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 nufor-core = { path = "../nufor-core" }
+nufor-config = { path = "../nufor-config" }
 
 [lints]
 workspace = true
