@@ -3,6 +3,37 @@
 All notable changes to nuFor are tracked here. This project follows a
 graduated, verification-first release cadence.
 
+## [1.1.0] - 2026-09-09
+
+A feature release focused on the way nuFor is looked at: the web UI is now a
+single CFD-style workspace rather than a page of tabs, and it can show 3D
+fields.
+
+### Web UI
+
+- Rebuilt as one workspace like ParaView/Tecplot: a central flow viewport
+  with a data/display sidebar on the left and a diagnostics dock below. No
+  per-feature tabs.
+- Viewport shows the solved flow field with an optional toggleable cartesian
+  mesh overlay, a pinned colorbar, and live play/scrub over the blast time.
+- 3D mode: slice planes through a resolved 3D sphere-blast, with the
+  coordinate axis and slice position selectable.
+- Left sidebar holds the simulation controls (case, cells, t, gamma, cfl,
+  run) and display controls (dimension, field, layers, mesh density,
+  playback). The dock holds the 1D monitor, line probes, the comparison
+  overlay, and run history.
+- The visualization scales to the window; it is served on `0.0.0.0` so it is
+  reachable over LAN or Tailscale.
+
+### Running the web UI
+
+```
+cargo run --release -- serve 8060
+```
+
+then open `http://<host>:8060`. Use the release binary — the flow solves are
+orders of magnitude faster than the debug build.
+
 ## [1.0.0] - 2026-09-05
 
 The first stable public release. The solver covers the 1D, 2D, and 3D Euler

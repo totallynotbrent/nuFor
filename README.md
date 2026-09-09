@@ -71,11 +71,29 @@ cmake -S fortran -B build/fortran -DCMAKE_BUILD_TYPE=Release
 cmake --build build/fortran --config Release
 ```
 
+## Running the web UI
+
+```
+cargo run --release -- serve 8060
+```
+
+The server binds `0.0.0.0:8060`, so open `http://<host>:8060` from the same
+machine, over LAN, or via Tailscale. Use the release build — the debug binary
+is an order of magnitude slower at the flow solves behind the UI. The page is
+a single CFD workspace: a central flow viewport (2D blast animation or 3D
+slice planes, with a toggleable mesh overlay and colorbar), a left
+data/display sidebar, and a diagnostics dock (1D monitor, line probes,
+comparison overlay, run history).
+
 ## Roadmap
 
-- Current phase: foundations, 1D Euler, verification, basic architecture, first web/CLI shell.
-- Next phase: 2D Euler, better reconstruction/fluxes, performance foundation, 2D viscous beginnings.
-- Later phases: 3D, unstructured-mesh research, turbulence foundations, stronger visualization, then RANS/thermo/propulsion workflows, MPI research, mature data formats, benchmarks, and finally integration, broad validation, documentation, and release quality.
+- Current phase: 1D→3D Euler, 2D viscous, web dashboard (single workspace,
+  mesh overlay, 3D slices), SIMD kernels, supersonic-cylinder verification —
+  v1.1.0 released.
+- Next phase: unstructured-mesh solver, turbulence foundations (Spalart-Allmaras),
+  stronger field visualization (streamlines, isosurfaces).
+- Later phases: RANS/thermo/propulsion workflows, MPI research, mature data
+  formats, cross-platform benchmarks, and broader validation and quality.
 
 ## License
 
