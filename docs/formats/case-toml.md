@@ -74,18 +74,26 @@ silently change a run.
 | `metadata.name` | string | yes | non-empty | Case name, used in logs and results. |
 | `metadata.description` | string | no | | Free text: goal, expected result. |
 | `metadata.case_revision` | int | no (default 1) | >= 1 | Revision counter for the case definition. |
-| `physics.equations` | string | yes | `euler_1d` | Equation set (2D sets later). |
+| `physics.equations` | string | yes | `euler_1d` \| `euler_2d` \| `euler_3d` | Equation set; the case-run wiring (`nufor run`) chooses the solver by this. |
 | `physics.gamma` | float | yes | > 1 | Ratio of specific heats. |
 | `physics.gas_constant` | float | yes | > 0 | Specific gas constant, J/(kg K) in SI. |
 | `physics.unit_system` | string | no (default `si`) | `si` \| `nondim` | Unit convention for reported fields. |
 | `physics.reference` | table | no | rho, p, l > 0 | Nondimensionalization reference state. |
-| `mesh.nx` | int | yes | >= 2 | Number of cells. |
+| `mesh.nx` | int | yes | >= 2 | Number of cells (x for 2D/3D). |
 | `mesh.x0` | float | yes | | Left domain edge. |
 | `mesh.x1` | float | yes | > x0 | Right domain edge. |
-| `mesh.source` | string | no (default `uniform`) | | How the mesh is produced; a file path once external meshes exist. |
-| `initial_condition.type` | string | yes | `uniform` \| `two_state` | IC shape. |
+| `mesh.ny` | int | no | >= 1 | Cells in y (required for euler_2d/3d; defaults to `nx`). |
+| `mesh.y0` | float | no | | Lower y edge (defaults to `x0`). |
+| `mesh.y1` | float | no | > y0 | Upper y edge (defaults to `x1`). |
+| `mesh.nz` | int | no | >= 1 | Cells in z (required for euler_3d; defaults to `nx`). |
+| `mesh.z0` | float | no | | Lower z edge (defaults to `x0`). |
+| `mesh.z1` | float | no | > z0 | Upper z edge (defaults to `x1`). |
+| `mesh.source` | string | no (default `uniform`) | `uniform` \| `file` | `uniform` builds a grid from nx/x0/x1; `file` loads a list of cell-center coordinates from `mesh.path` (1D only, must be uniformly spaced). |
+| `mesh.path` | string | no | | Cell-center mesh file read when `source = "file"`. |
+| `initial_condition.type` | string | yes | `uniform` \| `two_state` \| `blast` | IC shape. |
 | `initial_condition` (uniform) | rho, u, p | yes | rho, p > 0 | Constant state. |
-| `initial_condition` (two_state) | left, right | yes | rho, p > 0 per side | Left/right constant states, e.g. a shock tube. |
+| `initial_condition` (two_state) | left, right | yes | rho, p > 0 per side | Left/right constant states, e.g. a shock tube (1D). |
+| `initial_condition` (blast) | radius, ambient, fireball | yes | radius > 0; rho, p > 0 | Over-pressured fireball in ambient surroundings; the natural 2D/3D shock-tube. |
 | `boundaries.left` | string | yes | `wall` \| `inflow` \| `outflow` \| `periodic` | Left boundary condition. |
 | `boundaries.right` | string | yes | same set | Right boundary condition. |
 | `numerics.flux` | string | yes | `hll` \| `hllc` | Riemann solver / approximate flux. |

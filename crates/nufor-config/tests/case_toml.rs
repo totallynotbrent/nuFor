@@ -102,3 +102,105 @@ fn invalid_case_reports_all_problems() {
         other => panic!("expected Invalid, got {other:?}"),
     }
 }
+
+#[test]
+fn loads_and_validates_a_2d_blast_case() {
+    let toml = r#"
+schema_version = 1
+[metadata]
+name = "blast-2d"
+[physics]
+equations = "euler_2d"
+gamma = 1.4
+gas_constant = 287.0
+[mesh]
+nx = 80
+ny = 80
+x0 = 0.0
+x1 = 1.0
+y0 = 0.0
+y1 = 1.0
+[initial_condition]
+type = "blast"
+radius = 0.2
+ambient = { rho = 1.0, u = 0.0, p = 1.0 }
+fireball = { rho = 1.0, u = 0.0, p = 10.0 }
+[boundaries]
+left = "wall"
+right = "wall"
+[numerics]
+flux = "hll"
+reconstruction = "muscl"
+cfl = 0.4
+[time]
+final_time = 0.15
+max_steps = 10000
+[output]
+interval_steps = 100
+formats = ["vtk"]
+fields = ["rho"]
+"#;
+    let cfg = nufor_config::parse_case_toml(toml).expect("2d blast case must parse");
+    assert_eq!(cfg.physics.equations, nufor_config::Equations::Euler2d);
+    assert_eq!(cfg.mesh.ny, Some(80));
+    match cfg.initial_condition {
+        nufor_config::InitialCondition::Blast {
+            radius, fireball, ..
+        } => {
+            assert_eq!(radius, 0.2);
+            assert_eq!(fireball.p, 10.0);
+        }
+        _ => panic!("expected a blast initial condition"),
+    }
+    let problems = cfg.validate();
+    assert!(
+        problems.is_empty(),
+        "blast case must validate: {problems:?}"
+    );
+}
+
+#[test]
+fn rejects_a_blast_ic_with_a_nonpositive_radius() {
+    let toml = r#"
+schema_version = 1
+[metadata]
+name = "reject-blast"
+[physics]
+equations = "euler_2d"
+gamma = 1.4
+gas_constant = 287.0
+[mesh]
+nx = 10
+ny = 10
+x0 = 0.0
+x1 = 1.0
+y0 = 0.0
+y1 = 1.0
+[initial_condition]
+type = "blast"
+radius = 0.0
+ambient = { rho = 1.0, u = 0.0, p = 1.0 }
+fireball = { rho = 1.0, u = 0.0, p = 10.0 }
+[boundaries]
+left = "wall"
+right = "wall"
+[numerics]
+flux = "hll"
+reconstruction = "first_order"
+cfl = 0.5
+[time]
+final_time = 0.1
+[output]
+interval_steps = 100
+formats = ["vtk"]
+fields = ["rho"]
+"#;
+    let cfg = nufor_config::parse_case_toml(toml);
+    match cfg {
+        Err(nufor_config::ConfigError::Invalid { problems }) => assert!(
+            problems.iter().any(|p| p.contains("radius")),
+            "expected a radius complaint, got {problems:?}"
+        ),
+        other => panic!("expected a validation error, got {other:?}"),
+    }
+}

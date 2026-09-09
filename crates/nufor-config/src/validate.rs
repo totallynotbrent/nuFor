@@ -56,6 +56,25 @@ impl CaseConfig {
                 check_positive(right.rho, "initial_condition.right.rho", &mut problems);
                 check_positive(right.p, "initial_condition.right.p", &mut problems);
             }
+            InitialCondition::Blast {
+                radius,
+                ambient,
+                fireball,
+            } => {
+                if *radius <= 0.0 {
+                    problems.push(format!(
+                        "initial_condition.radius must be > 0 (got {radius})"
+                    ));
+                }
+                check_positive(ambient.rho, "initial_condition.ambient.rho", &mut problems);
+                check_positive(ambient.p, "initial_condition.ambient.p", &mut problems);
+                check_positive(
+                    fireball.rho,
+                    "initial_condition.fireball.rho",
+                    &mut problems,
+                );
+                check_positive(fireball.p, "initial_condition.fireball.p", &mut problems);
+            }
         }
 
         let cfl = self.numerics.cfl;

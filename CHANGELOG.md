@@ -3,6 +3,33 @@
 All notable changes to nuFor are tracked here. This project follows a
 graduated, verification-first release cadence.
 
+## [1.2.0] - 2026-09-09
+
+Case-driven CFD workflow: write one `case.toml` and drive the solver from it,
+across all three dimensions, from the terminal or the web UI.
+
+- **Case runs across dimensions.** `nufor run <case.toml>` now dispatches on
+  `physics.equations` and solves 1D (`euler_1d`), 2D (`euler_2d`), or 3D
+  (`euler_3d`) from a single case file, writing results (csv/vtk and a PNG for
+  2D) next to the case and printing a summary.
+- **Own your mesh.** `[mesh]` adds the 2D/3D edges (`ny/y0/y1`, `nz/z0/z1`),
+  and `source = "file"` + `path` loads a list of cell-center coordinates from a
+  file (validated to be uniformly spaced — non-uniform meshes are refused with
+  a clear message rather than silently miscalculated).
+- **New initial condition.** `blast` (an over-pressured fireball in ambient
+  surroundings) is the natural shock-tube for 2D/3D; `uniform` and `two_state`
+  remain for 1D. `nufor init` writes a runnable template, and validation
+  rejects a non-positive blast radius.
+- **Structured-output writers.** `write_vtk2d` / `write_vtk3d` emit
+  ParaView-readable `STRUCTURED_POINTS` blocks (density/pressure/energy) for
+  the 2D and 3D fields.
+- **Browser case workflow.** The web UI's Run now executes your configured
+  case — `dim` (2D/3D), cells, final time, CFL — via `/api/run-case`, solves it,
+  saves `results/<name>.vtk`, and shows the convergence summary (steps, time,
+  solve wall-clock) in the Monitor dock, alongside the existing 1D profile and
+  the field + mesh visualization in the viewport.
+- Served updates: the UI header version now reads from the crate, not a literal.
+
 ## [1.1.0] - 2026-09-09
 
 A feature release focused on the way nuFor is looked at: the web UI is now a

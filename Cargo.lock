@@ -144,14 +144,15 @@ dependencies = [
 
 [[package]]
 name = "nufor-cli"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
+ "nufor-config",
  "nufor-core",
 ]
 
 [[package]]
 name = "nufor-config"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "serde",
  "tempfile",
@@ -160,7 +161,7 @@ dependencies = [
 
 [[package]]
 name = "nufor-core"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "png",
 ]
