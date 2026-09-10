@@ -12,12 +12,15 @@ successful compile.
 
 ## Status
 
-Experimental. Foundations are in place through PLAN step 3: the mixed
-Rust/Fortran build (Cargo drives CMake via `build.rs`, FFI integration tests
-pass) and the `case.toml` case-file schema with strict validation
-(`crates/nufor-config`, schema documented in `docs/formats/case-toml.md`).
-Numerical solvers come next. See `plans/PLAN.md` for the ordered roadmap and
-current step.
+**Stable public-ready build, v1.2.0.** The core solver path is verified
+end-to-end: mixed Rust/Fortran build, 1D/2D/3D Euler, HLL/HLLC fluxes, MUSCL
+reconstruction, 2D viscous terms with channel-flow verification, CPU
+threading and AVX2 kernels, restart files, case-file driven runs, and a web
+UI with live field and 3D-slice views. 34+ test suites gate every commit.
+
+Not yet: turbulence implementation, unstructured meshes beyond the research
+prototype, thermochemistry/reacting flow, MPI, and the broad experimental
+validation database a mature solver carries.
 
 ## Repository layout
 
@@ -108,13 +111,29 @@ changes), a systemd user unit `nufor-serve.service` wraps
 
 ## Roadmap
 
-- Current phase: 1D→3D Euler, 2D viscous, web dashboard (single workspace,
-  mesh overlay, 3D slices), SIMD kernels, supersonic-cylinder verification —
-  v1.1.0 released.
-- Next phase: unstructured-mesh solver, turbulence foundations (Spalart-Allmaras),
-  stronger field visualization (streamlines, isosurfaces).
-- Later phases: RANS/thermo/propulsion workflows, MPI research, mature data
-  formats, cross-platform benchmarks, and broader validation and quality.
+Done through v1.2.0 (see CHANGELOG):
+- 1D/2D/3D structured Euler solvers with case-file–driven runs
+- 2D viscous terms, MUSCL + HLL/HLLC, positivity, CPU threading + AVX2
+- Restart files, HDF5/VTK/CSV output, line probes, comparison dashboard
+- Web UI: flow viewport, mesh overlay, 3D slice view, case runs from the page
+
+What's left, roughly in order:
+- **Viscous maturity** — laminar validation against experiment, transport-model
+  docs, verified wall boundary behavior (3D is Euler-only today)
+- **Unstructured FV** — the prototype on quads exists; a general unstructured
+  solver with real mesh import (Gmsh/VTK) does not
+- **Turbulence** — Spalart–Allmaras is at the research-note stage; needs
+  implementation, verification, wall treatment, and benchmarks
+- **Thermodynamic property expansion + reacting flow** — species, chemistry
+  source terms, high-temperature gas effects (the propulsion scope)
+- **HPC maturity** — MPI/domain decomposition, scaling studies, reproducible
+  benchmark harness (Intel + AMD), NUMA awareness
+- **Mesh ecosystem** — geometry import (STL/STEP), mesh-quality diagnostics,
+  boundary tagging
+- **Validation database** — broad experimental/benchmark comparisons beyond
+  the current verification cases
+- **Year-5 polish** — cross-platform audit, license/security audit, first
+  stable public release, published benchmarks
 
 ## License
 
