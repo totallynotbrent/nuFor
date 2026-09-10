@@ -72,8 +72,12 @@ path = "grid.vtk"     # or "coords.txt"
 
 The solver runs on this grid, and the web UI's "mesh file" field (Display →
 mesh file → load mesh) renders the imported faces — non-uniform spacing
-visible — over the field. Real unstructured meshes (Gmsh `.msh`,
-`UNSTRUCTURED_GRID`) are the next step and not yet wired to the solver.
+visible — over the field.
+
+Gmsh `.msh` (v2.2 ascii, triangles/quads) is also supported for 2D: the mesh
+is parsed, built into a cell-centered unstructured grid, and solved with the
+face-based `advance_ugrid` solver. `source = "file"` + `path = "mesh.msh"`
+routes the case to that path automatically.
 
 ## Next
 

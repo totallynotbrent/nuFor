@@ -46,10 +46,8 @@ output/
 *.h5.lock
 *.hd5
 
-# Local / scratch — never pushed
+# Local scratch and working notes
 .local/
-
-
 local-handoff.md
 worklog.md
 WORK.md
@@ -60,7 +58,7 @@ spike*
 kanban*.md
 research/scratch/
 
-# Working goals / plan / project constitution — local reference, not public
+# Working goals and plan - local reference, not public
 /goals/
 /plans/
 /nuFor_README.md

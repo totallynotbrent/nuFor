@@ -543,6 +543,58 @@ fn mesh_svg(m: &crate::mesh_io::RectMesh, axis: &str, frac: f64) -> String {
     )
 }
 
+/// render an unstructured (gmsh) mesh as a wireframe svg: draw every cell edge.
+fn mesh_svg_unstructured(m: &crate::mesh_io::MshMesh) -> String {
+    if m.nodes.is_empty() {
+        return "<svg xmlns='http://www.w3.org/2000/svg'/>".to_string();
+    }
+    let all_x: Vec<f64> = m.nodes.iter().map(|n| n.0).collect();
+    let all_y: Vec<f64> = m.nodes.iter().map(|n| n.1).collect();
+    let x0 = all_x.iter().cloned().fold(f64::INFINITY, f64::min);
+    let x1 = all_x.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let y0 = all_y.iter().cloned().fold(f64::INFINITY, f64::min);
+    let y1 = all_y.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let (w, h) = (560.0f64, 560.0f64);
+    let sx = w / (x1 - x0);
+    let sy = h / (y1 - y0);
+    let px = |v: f64| (v - x0) * sx;
+    let py = |v: f64| h - (v - y0) * sy;
+    let mut edges: Vec<(f64, f64, f64, f64)> = Vec::new();
+    for cell in &m.cells {
+        let k = cell.len();
+        for i in 0..k {
+            let a = cell[i];
+            let b = cell[(i + 1) % k];
+            edges.push((m.nodes[a].0, m.nodes[a].1, m.nodes[b].0, m.nodes[b].1));
+        }
+    }
+    // dedupe interior edges (drawn once) via an unordered-node canonical key
+    let mut seen: std::collections::HashSet<(u64, u64, u64, u64)> =
+        std::collections::HashSet::new();
+    let mut lines = String::new();
+    for (ax, ay, bx, by) in edges {
+        let (k1, k2) = if (ax, ay) <= (bx, by) {
+            ((ax.to_bits(), ay.to_bits()), (bx.to_bits(), by.to_bits()))
+        } else {
+            ((bx.to_bits(), by.to_bits()), (ax.to_bits(), ay.to_bits()))
+        };
+        let key = (k1.0, k1.1, k2.0, k2.1);
+        if !seen.insert(key) {
+            continue;
+        }
+        lines.push_str(&format!(
+            "<line x1='{:.2}' y1='{:.2}' x2='{:.2}' y2='{:.2}' stroke='#3a6ea5' stroke-width='0.7'/>",
+            px(ax),
+            py(ay),
+            px(bx),
+            py(by)
+        ));
+    }
+    format!(
+        "<svg xmlns='http://www.w3.org/2000/svg' width='{w}' height='{h}' viewBox='0 0 {w} {h}' style='background:#0b1220'>{lines}</svg>"
+    )
+}
+
 /// build a resolved 2d blast wave and extract one scalar field from it.
 ///
 /// returns (field, colormap-low, colormap-high); the field layout is row-major
@@ -775,14 +827,29 @@ pub fn handle_request(path: &str, server: &mut Server) -> (String, &'static str,
         "/api/mesh-svg" => {
             // render the imported mesh as a 2d wireframe (or a 3d slice wireframe).
             if let Some(path) = get("path") {
-                match crate::mesh_io::load_rectilinear(path) {
-                    Ok(m) => {
-                        let axis = get("axis").map(String::as_str).unwrap_or("z");
-                        let frac = get("u").and_then(|s| s.parse().ok()).unwrap_or(0.5);
-                        let svg = mesh_svg(&m, axis, frac);
-                        ("200 OK".to_string(), "image/svg+xml", svg.into_bytes())
+                if path.ends_with(".msh") {
+                    match crate::mesh_io::load_gmsh(path) {
+                        Ok(m) => (
+                            "200 OK".to_string(),
+                            "image/svg+xml",
+                            mesh_svg_unstructured(&m).into_bytes(),
+                        ),
+                        Err(e) => {
+                            respond("400 Bad Request", "application/json", format!("\"{}\"", e))
+                        }
                     }
-                    Err(e) => respond("400 Bad Request", "application/json", format!("\"{}\"", e)),
+                } else {
+                    match crate::mesh_io::load_rectilinear(path) {
+                        Ok(m) => {
+                            let axis = get("axis").map(String::as_str).unwrap_or("z");
+                            let frac = get("u").and_then(|s| s.parse().ok()).unwrap_or(0.5);
+                            let svg = mesh_svg(&m, axis, frac);
+                            ("200 OK".to_string(), "image/svg+xml", svg.into_bytes())
+                        }
+                        Err(e) => {
+                            respond("400 Bad Request", "application/json", format!("\"{}\"", e))
+                        }
+                    }
                 }
             } else {
                 respond(

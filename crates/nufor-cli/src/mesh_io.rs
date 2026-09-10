@@ -12,7 +12,183 @@
 //! both reduce to three per-axis face arrays, which `rectilinear_grid2d`/
 //! `rectilinear_grid3d` turn into a grid.
 
-use nufor_core::{rectilinear_grid2d, rectilinear_grid3d, Grid2d, Grid3d};
+use nufor_core::{rectilinear_grid2d, rectilinear_grid3d, Grid2d, Grid3d, Ugrid};
+
+/// a parsed unstructured (gmsh) mesh: nodes + triangle/quad cells.
+pub struct MshMesh {
+    pub nodes: Vec<(f64, f64)>,
+    pub cells: Vec<Vec<usize>>,
+}
+
+impl MshMesh {
+    /// build the cell-centered `Ugrid` the unstructured solver consumes.
+    pub fn ugrid(&self) -> Result<Ugrid, String> {
+        Ugrid::from_cells(&self.nodes, &self.cells)
+    }
+}
+
+/// parse a gmsh `.msh` v2.2 ascii file (2d: nodes with a z-coordinate, and
+/// triangle (2) / quad (3) surface elements).
+pub fn load_gmsh(path: &str) -> Result<MshMesh, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("could not read {path}: {e}"))?;
+    parse_gmsh(&text)
+}
+
+fn parse_gmsh(text: &str) -> Result<MshMesh, String> {
+    if !text.contains("$MeshFormat") {
+        return Err("not a gmsh .msh file (missing $MeshFormat)".into());
+    }
+    // v2.2 is the ascii 2.x format; v4 is also ascii but lays elements differently.
+    let mut nodes: Vec<(usize, (f64, f64))> = Vec::new();
+    let mut cells: Vec<Vec<usize>> = Vec::new();
+
+    let lines: Vec<&str> = text.lines().collect();
+    // find $Nodes ... $EndNodes
+    if let Some(pos) = lines.iter().position(|l| l.trim() == "$Nodes") {
+        let mut j = pos + 1;
+        // header line: count
+        let count: usize = lines
+            .get(j)
+            .and_then(|l| l.split_whitespace().next())
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        j += 1;
+        let mut read = 0;
+        while j < lines.len() && read < count {
+            let l = lines[j].trim();
+            if l == "$EndNodes" {
+                break;
+            }
+            if l.is_empty() {
+                j += 1;
+                continue;
+            }
+            let t: Vec<&str> = l.split_whitespace().collect();
+            if t.len() >= 3 {
+                // v2.2: id x y [z]
+                if let (Ok(id), Ok(x), Ok(y)) = (
+                    t[0].parse::<usize>(),
+                    t[1].parse::<f64>(),
+                    t[2].parse::<f64>(),
+                ) {
+                    nodes.push((id, (x, y)));
+                    read += 1;
+                }
+            }
+            j += 1;
+        }
+    }
+    // find $Elements ... $EndElements
+    if let Some(pos) = lines.iter().position(|l| l.trim() == "$Elements") {
+        let mut j = pos + 1;
+        let count: usize = lines
+            .get(j)
+            .and_then(|l| l.split_whitespace().next())
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        j += 1;
+        let mut read = 0;
+        while j < lines.len() && read < count {
+            let l = lines[j].trim();
+            if l == "$EndElements" {
+                break;
+            }
+            if l.is_empty() {
+                j += 1;
+                continue;
+            }
+            let t: Vec<&str> = l.split_whitespace().collect();
+            // v2.2 element: id type num-tags [tags] node-list
+            if t.len() >= 4 {
+                // detect type field: for 2.2 it's at index 1; for 4.x with fewer
+                // tags it's also index 1. parse defensively by finding the first
+                // integer after the id that is in {1..=6} (line, tri=2, quad=3...).
+                if let Some(etype) = t.get(1).and_then(|s| s.parse::<i64>().ok()) {
+                    match etype {
+                        2 | 3 | 10 | 12 | 15 | 16 | 17 => {
+                            // find node indices: for tri/quad, the last 3/4 tokens
+                            // are node ids (2.2: after 2 tag-count + tags). just take
+                            // the trailing integer tokens as the node list.
+                            let nverts = if etype == 2 {
+                                3
+                            } else if etype == 3 {
+                                4
+                            } else if etype == 10 || etype == 16 {
+                                8
+                            } else if etype == 12 || etype == 17 {
+                                27
+                            } else {
+                                15
+                            };
+                            // we only handle triangle (3) / quad (4) cells here
+                            let v: Vec<usize> = if etype == 2 || etype == 3 {
+                                // trailing nverts tokens are node ids
+                                t.iter()
+                                    .rev()
+                                    .take(nverts)
+                                    .filter_map(|s| s.parse::<usize>().ok())
+                                    .collect::<Vec<usize>>()
+                                    .into_iter()
+                                    .rev()
+                                    .collect()
+                            } else {
+                                Vec::new()
+                            };
+                            if v.len() == nverts {
+                                // map global node ids (1-based) to a densified 0-based index
+                                // build a map lazily here by deferring to the caller's
+                                // id->index via a second pass (see below)
+                                cells.push(v);
+                                read += 1;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            j += 1;
+        }
+    }
+
+    if cells.is_empty() {
+        return Err("gmsh file has no triangle/quad surface elements".into());
+    }
+
+    // densify node ids: gmsh node ids are 1-based and may be sparse.
+    let mut id_to_idx = std::collections::HashMap::new();
+    for (idx, (id, _)) in nodes.iter().enumerate() {
+        id_to_idx.insert(*id, idx);
+    }
+    let mut node_coords = Vec::with_capacity(nodes.len());
+    for (_, c) in nodes {
+        node_coords.push(c);
+    }
+    let mut cells_mapped = Vec::with_capacity(cells.len());
+    for cell in cells {
+        let mut mapped = Vec::with_capacity(cell.len());
+        let mut ok = true;
+        for &gid in &cell {
+            match id_to_idx.get(&gid) {
+                Some(&idx) => mapped.push(idx),
+                None => {
+                    ok = false;
+                    break;
+                }
+            }
+        }
+        if ok {
+            cells_mapped.push(mapped);
+        }
+    }
+    if cells_mapped.is_empty() {
+        return Err("could not map gmsh elements onto nodes".into());
+    }
+
+    Ok(MshMesh {
+        nodes: node_coords,
+        cells: cells_mapped,
+    })
+}
 
 /// a parsed rectilinear mesh: per-axis face coordinates.
 pub struct RectMesh {
@@ -222,5 +398,79 @@ mod tests {
     #[test]
     fn coordinates_mesh_needs_two_axes() {
         assert!(parse_coordinates("0.0\n0.1\n", "mem").is_err());
+    }
+
+    #[test]
+    fn parses_gmsh_v22_quads() {
+        let text = "$MeshFormat\n2.2 0 8\n$EndMeshFormat\n$Nodes\n4\n1 0 0 0\n2 1 0 0\n3 0 1 0\n4 1 1 0\n$EndNodes\n$Elements\n1\n1 3 2 99 2 1 2 4 3\n$EndElements\n";
+        let m = parse_gmsh(text).unwrap();
+        assert_eq!(m.nodes.len(), 4);
+        assert_eq!(m.cells.len(), 1);
+        assert_eq!(m.cells[0], vec![0, 1, 3, 2]); // ids 1,2,4,3 -> 0-based
+                                                  // builds a ugrid with 1 cell + 4 boundary faces
+        let g = m.ugrid().unwrap();
+        assert_eq!(g.cell_area.len(), 1);
+        assert_eq!(g.face_left.len(), 4);
+        assert!(g.face_right.iter().all(|&r| r == -1));
+    }
+
+    #[test]
+    fn gmsh_without_triangle_or_quad_fails() {
+        assert!(parse_gmsh("$MeshFormat\n2.2 0 8\n$EndMeshFormat").is_err());
+    }
+
+    #[test]
+    fn gmsh_4x4_quad_mesh_builds_and_solves() {
+        use nufor_core::{advance_ugrid, prim_to_cons2d, ConservedState2d};
+        // a 4x4 quad mesh (the same shape as /tmp test fixture), 16 cells.
+        let nx = 4u32;
+        let ny = 4u32;
+        let (w, h) = ((nx + 1) as usize, (ny + 1) as usize);
+        let mut nodes = Vec::new();
+        for j in 0..h {
+            for i in 0..w {
+                nodes.push((i as f64 / nx as f64, j as f64 / ny as f64));
+            }
+        }
+        let mut cells = Vec::new();
+        for j in 0..ny as usize {
+            for i in 0..nx as usize {
+                let a = j * w + i;
+                cells.push(vec![a, a + 1, a + w + 1, a + w]);
+            }
+        }
+        let m = MshMesh { nodes, cells };
+        let ug = m.ugrid().unwrap();
+        assert_eq!(ug.cell_area.len(), 16);
+        assert_eq!(ug.face_left.len(), 40); // 20 vertical + 20 horizontal
+                                            // blast IC on the centroid, solve a few steps, density stays positive+nfinite
+        let nc = 16;
+        let rho = vec![1.0; nc];
+        let (u, v) = (vec![0.0; nc], vec![0.0; nc]);
+        let p: Vec<f64> = (0..nc)
+            .map(|c| {
+                let (cx, cy) = (
+                    m.cells[c].iter().map(|&v| m.nodes[v].0).sum::<f64>() / 4.0,
+                    m.cells[c].iter().map(|&v| m.nodes[v].1).sum::<f64>() / 4.0,
+                );
+                let dx = cx - 0.5;
+                let dy = cy - 0.5;
+                if dx * dx + dy * dy < 0.2 * 0.2 {
+                    10.0
+                } else {
+                    1.0
+                }
+            })
+            .collect();
+        let et: Vec<f64> = p.iter().zip(&rho).map(|(pp, r)| pp / (r * 0.4)).collect();
+        let (mx, my, e) = prim_to_cons2d(&rho, &u, &v, &et).unwrap();
+        let mut st = ConservedState2d { rho, mx, my, e };
+        for _ in 0..5 {
+            advance_ugrid(&mut st, &ug, 1.4, 0.4).unwrap();
+        }
+        assert!(st.rho.iter().all(|&r| r.is_finite() && r > 0.0));
+        // the high-pressure center cell should have expanded (peak < initial 10 in p)
+        // just assert some density variation happened
+        assert!(st.rho.iter().any(|&r| r > 1.0));
     }
 }

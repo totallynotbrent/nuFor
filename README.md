@@ -105,9 +105,8 @@ To bring your own mesh, set `mesh.source = "file"` with a `path` to a list of
 cell-center coordinates (must be uniformly spaced). Schema and validation in
 `docs/formats/case-toml.md`.
 
-To keep the web UI running unattended (auto-rebuild + restart on source
-changes), a systemd user unit `nufor-serve.service` wraps
-`~/.local/scripts/nufor-serve.sh`.
+To keep the web UI running unattended, run the server under a systemd user
+unit so it stays up and auto-restarts on rebuild.
 
 ## Roadmap
 

@@ -10,10 +10,11 @@ use nufor_config::{
     load_case_config, BoundaryKind, CaseConfig, Equations, InitialCondition, Mesh, OutputFormat,
 };
 use nufor_core::{
-    advance2d_rk2, advance3d_rk2, euler_solve, grid1d, grid2d, grid3d, prim_to_cons,
+    advance2d_rk2, advance3d_rk2, advance_ugrid, euler_solve, grid1d, grid2d, grid3d, prim_to_cons,
     prim_to_cons2d, prim_to_cons3d, read_restart, render_png, write_csv, write_h5, write_restart,
     write_vtk, write_vtk2d, write_vtk3d, Boundaries2d, Boundary, Bounds3d, ConservedState,
     ConservedState2d, ConservedState3d, Error, EulerConfig, Grid1d, Grid2d, Grid3d, OutputState,
+    Ugrid,
 };
 
 mod mesh_io;
@@ -684,6 +685,13 @@ fn write_case_outputs(
 /// solve a 2d case: blast or uniform IC on a uniform or imported rectilinear mesh.
 fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     let mesh = &cfg.mesh;
+    // a gmsh .msh file drives the unstructured 2d solver instead.
+    if let (Some(mp), true) = (
+        mesh.path.as_deref(),
+        mesh.path.as_deref().unwrap_or("").ends_with(".msh"),
+    ) {
+        return run_case_2d_msh(cfg, path, mp);
+    }
     let g = match build_2d_mesh(mesh) {
         Ok(g) => g,
         Err(e) => {
@@ -734,6 +742,133 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
             t0.elapsed().as_secs_f64()
         );
         write_case_vtk2d(path, &cfg.metadata.name, &g, &st, gamma)
+    } else {
+        1
+    }
+}
+
+/// solve a 2d case on an imported gmsh (.msh) unstructured mesh: build the
+/// cell-centered grid, drop a blast IC, and advance with the face-based solver.
+fn run_case_2d_msh(cfg: &CaseConfig, path: &str, msh_path: &str) -> i32 {
+    let m = match mesh_io::load_gmsh(msh_path) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("mesh error: {e}");
+            return 2;
+        }
+    };
+    let ug: Ugrid = match m.ugrid() {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("mesh error: {e}");
+            return 2;
+        }
+    };
+    let nc = ug.cell_area.len();
+    let gamma = cfg.physics.gamma;
+    // blast IC: over-pressured disc in ambient air, centered on the node bbox.
+    let (mut rho, mut p) = (vec![1.0; nc], vec![1.0; nc]);
+    let (cx, cy, r0) = match &cfg.initial_condition {
+        InitialCondition::Blast {
+            radius, ambient, ..
+        } => {
+            let (mut xmin, mut xmax, mut ymin, mut ymax) = (
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+            );
+            for n in &m.nodes {
+                xmin = xmin.min(n.0);
+                xmax = xmax.max(n.0);
+                ymin = ymin.min(n.1);
+                ymax = ymax.max(n.1);
+            }
+            rho = vec![ambient.rho; nc];
+            p = vec![ambient.p; nc];
+            (0.5 * (xmin + xmax), 0.5 * (ymin + ymax), *radius)
+        }
+        _ => {
+            // no blast radius for uniform; center on bbox with a default radius.
+            let (mut xmin, mut xmax, mut ymin, mut ymax) = (
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+            );
+            for n in &m.nodes {
+                xmin = xmin.min(n.0);
+                xmax = xmax.max(n.0);
+                ymin = ymin.min(n.1);
+                ymax = ymax.max(n.1);
+            }
+            (0.5 * (xmin + xmax), 0.5 * (ymin + ymax), 0.15)
+        }
+    };
+    // cell centers are the ugrid centroids; compute them from faces (mean of
+    // face midpoints weighted by nothing — use the vertex centroid from the mesh).
+    // simplest: reconstruct centers from m.nodes per cell.
+    let mut centers_x = vec![0.0; nc];
+    let mut centers_y = vec![0.0; nc];
+    for (c, cell) in m.cells.iter().enumerate() {
+        let (mut sx, mut sy) = (0.0f64, 0.0f64);
+        for &v in cell {
+            sx += m.nodes[v].0;
+            sy += m.nodes[v].1;
+        }
+        centers_x[c] = sx / cell.len() as f64;
+        centers_y[c] = sy / cell.len() as f64;
+    }
+    for c in 0..nc {
+        let dx = centers_x[c] - cx;
+        let dy = centers_y[c] - cy;
+        if dx * dx + dy * dy < r0 * r0 {
+            p[c] = 10.0;
+        }
+    }
+    let (u, v) = (vec![0.0; nc], vec![0.0; nc]);
+    let et: Vec<f64> = p
+        .iter()
+        .zip(&rho)
+        .map(|(pp, r)| pp / (r * (gamma - 1.0)))
+        .collect();
+    let (mx, my, e) = prim_to_cons2d(&rho, &u, &v, &et)
+        .map_err(|e| e.to_string())
+        .unwrap();
+    let mut st = ConservedState2d { rho, mx, my, e };
+    let cfl = cfg.numerics.cfl;
+    let t_end = cfg.time.final_time;
+    let max_steps = if cfg.time.max_steps > 0 {
+        cfg.time.max_steps as usize
+    } else {
+        1_000_000
+    };
+    let t0 = Instant::now();
+    let (mut t, mut steps) = (0.0, 0usize);
+    let mut ok = true;
+    while t < t_end && steps < max_steps {
+        match advance_ugrid(&mut st, &ug, gamma, cfl) {
+            Ok((dt, _)) => t += dt,
+            Err(e) => {
+                eprintln!("solver error: {e}");
+                ok = false;
+                break;
+            }
+        }
+        steps += 1;
+    }
+    if ok {
+        println!(
+            "case {} ({})\nmesh: {} cells ({} faces)\nsteps: {}\ntime: {:.4}\nwall: {:.3}s",
+            cfg.metadata.name,
+            path,
+            nc,
+            ug.face_left.len(),
+            steps,
+            t,
+            t0.elapsed().as_secs_f64()
+        );
+        0
     } else {
         1
     }
