@@ -486,6 +486,63 @@ fn respond(status: &str, ct: &'static str, body: String) -> (String, &'static st
     (status.to_string(), ct, body.into_bytes())
 }
 
+/// serialize an imported rectilinear mesh's face coordinates as json.
+fn mesh_faces_json(m: &crate::mesh_io::RectMesh) -> String {
+    format!(
+        r#"{{"x":[{}],"y":[{}],"z":[{}]}}"#,
+        join(&m.xs),
+        join(&m.ys),
+        join(&m.zs),
+    )
+}
+
+/// render an imported rectilinear mesh as a 2d wireframe svg (for 3d, the
+/// chosen axis is collapsed to a slice at `frac`).
+fn mesh_svg(m: &crate::mesh_io::RectMesh, axis: &str, frac: f64) -> String {
+    let (xs, ys, zs) = (&m.xs, &m.ys, &m.zs);
+    let _ = frac; // slice position is not used for the wireframe (full-plane mesh)
+    let (hx, hy) = match axis {
+        // collapse z: draw x-y plane (2d mesh exactly)
+        "z" | "2" => (xs, ys),
+        // collapse x: draw z-y plane
+        "x" | "0" => (zs, ys),
+        // collapse y: draw x-z plane
+        _ => (xs, zs),
+    };
+    if hx.len() < 2 || hy.len() < 2 {
+        return "<svg xmlns='http://www.w3.org/2000/svg'/>".to_string();
+    }
+    let (w, h) = (560.0f64, 560.0f64);
+    let (x0, x1) = (hx[0], hx[hx.len() - 1]);
+    let (y0, y1) = (hy[0], hy[hy.len() - 1]);
+    let sx = w / (x1 - x0);
+    let sy = h / (y1 - y0);
+    let px = |v: f64| (v - x0) * sx;
+    let py = |v: f64| h - (v - y0) * sy;
+    let mut lines = String::new();
+    for &xv in hx {
+        lines.push_str(&format!(
+            "<line x1='{:.2}' y1='{:.2}' x2='{:.2}' y2='{:.2}' stroke='#3a6ea5' stroke-width='0.7'/>",
+            px(xv),
+            py(y0),
+            px(xv),
+            py(y1)
+        ));
+    }
+    for &yv in hy {
+        lines.push_str(&format!(
+            "<line x1='{:.2}' y1='{:.2}' x2='{:.2}' y2='{:.2}' stroke='#3a6ea5' stroke-width='0.7'/>",
+            px(x0),
+            py(yv),
+            px(x1),
+            py(yv)
+        ));
+    }
+    format!(
+        "<svg xmlns='http://www.w3.org/2000/svg' width='{w}' height='{h}' viewBox='0 0 {w} {h}' style='background:#0b1220'>{lines}</svg>"
+    )
+}
+
 /// build a resolved 2d blast wave and extract one scalar field from it.
 ///
 /// returns (field, colormap-low, colormap-high); the field layout is row-major
@@ -698,6 +755,42 @@ pub fn handle_request(path: &str, server: &mut Server) -> (String, &'static str,
             let (lo, hi) = if field == "p" { (1.0, 5.0) } else { (1.0, 2.6) };
             let body = render_png(&data, n, lo, hi).unwrap();
             ("200 OK".to_string(), "image/png", body)
+        }
+        "/api/mesh" => {
+            // the face coordinates of an imported rectilinear mesh, so the ui
+            // overlay can draw the real (possibly non-uniform) grid lines.
+            if let Some(path) = get("path").or_else(|| get("case")) {
+                match crate::mesh_io::load_rectilinear(path) {
+                    Ok(m) => respond("200 OK", "application/json", mesh_faces_json(&m)),
+                    Err(e) => respond("400 Bad Request", "application/json", format!("\"{}\"", e)),
+                }
+            } else {
+                respond(
+                    "400 Bad Request",
+                    "application/json",
+                    "\"mesh needs a path or case param\"".to_string(),
+                )
+            }
+        }
+        "/api/mesh-svg" => {
+            // render the imported mesh as a 2d wireframe (or a 3d slice wireframe).
+            if let Some(path) = get("path") {
+                match crate::mesh_io::load_rectilinear(path) {
+                    Ok(m) => {
+                        let axis = get("axis").map(String::as_str).unwrap_or("z");
+                        let frac = get("u").and_then(|s| s.parse().ok()).unwrap_or(0.5);
+                        let svg = mesh_svg(&m, axis, frac);
+                        ("200 OK".to_string(), "image/svg+xml", svg.into_bytes())
+                    }
+                    Err(e) => respond("400 Bad Request", "application/json", format!("\"{}\"", e)),
+                }
+            } else {
+                respond(
+                    "400 Bad Request",
+                    "application/json",
+                    "\"mesh-svg needs a path\"".to_string(),
+                )
+            }
         }
         "/api/run-case" => {
             let dim = get("dim").map(String::as_str).unwrap_or("2d");
