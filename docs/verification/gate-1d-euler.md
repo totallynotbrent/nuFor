@@ -11,26 +11,26 @@ hand wave.
 
 - Finite-volume solver: HLL flux with Davis wave speeds, CFL time-step control,
   reflective and transmissive ghost-cell boundaries, a residual, and a per-step
-  log. ([numerics/1d-euler](../numerics/1d-euler.md))
+  log. ([numerics/1d-euler](../numerics/1d/1d-euler.md))
 - Ideal-gas equation of state with physical-validity rejection.
-  ([numerics/eos](../numerics/eos.md))
+  ([numerics/eos](../numerics/foundations/eos.md))
 - Structured output: CSV history, VTK, HDF5 (plus a Python/h5py export) and a
-  bit-exact binary restart. ([output](../numerics/output.md),
-  [hdf5](../numerics/hdf5.md), [restart](../numerics/restart.md))
+  bit-exact binary restart. ([output](../numerics/foundations/output.md),
+  [hdf5](../numerics/foundations/hdf5.md), [restart](../numerics/foundations/restart.md))
 - A command-line driver (`nufor run | mesh | inspect | export | history |
   benchmark | serve`) and a minimal web skeleton exposing the snapshot as JSON.
-  ([web-ui](../numerics/web-ui.md))
+  ([web-ui](../numerics/tools/web-ui.md))
 - Diagnostics: explicit termination reasons and a physical-validity scan that
-  catches NaN and negative pressure mid-run. ([diagnostics](../numerics/diagnostics.md))
+  catches NaN and negative pressure mid-run. ([diagnostics](../numerics/foundations/diagnostics.md))
 
 ## Verification evidence
 
 - Exact 1D Riemann solver matches the published Sod star state.
 - Sod: L1 density error shrinks with mesh refinement (first-order),
-  positivity holds. ([sod](../numerics/sod.md))
+  positivity holds. ([sod](../numerics/1d/sod.md))
 - Lax: the stronger tube stays positive and converges.
 - Verification ladder: constant state, uniform advection, stationary shock,
-  isentropic expansion. ([verification](../numerics/verification.md))
+  isentropic expansion. ([verification](../numerics/foundations/verification.md))
 - Conservation to machine precision on a closed/reflective run.
 
 ## Performance evidence
@@ -48,6 +48,6 @@ into two dimensions.
 
 ## See also
 
-- [[numerics/verification|Verification ladder]]
-- [[numerics/1d-euler|1D Euler]]
-- [[numerics/sod|Sod verification]]
+- [[numerics/foundations/verification||Verification ladder]]
+- [[numerics/1d/1d-euler||1D Euler]]
+- [[numerics/1d/sod||Sod verification]]

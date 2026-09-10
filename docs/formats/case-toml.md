@@ -151,7 +151,7 @@ interpretable description.
 
 ## See also
 
-- [[numerics/output|Output]]
-- [[numerics/restart|Restart]]
-- [[numerics/diagnostics|Diagnostics]]
+- [[numerics/foundations/output||Output]]
+- [[numerics/foundations/restart||Restart]]
+- [[numerics/foundations/diagnostics||Diagnostics]]
 - [[operations/memory-budget|Memory budget]]
