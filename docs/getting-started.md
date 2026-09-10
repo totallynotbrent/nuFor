@@ -58,10 +58,22 @@ button solves your configured case and saves `results/<name>.vtk`.
 
 ## Bring your own mesh
 
-For 1D, `mesh.source = "file"` reads a plain list of cell-center coordinates
-(one per line, `#` comments allowed). They must be uniformly spaced — the
-solver reports non-uniform files rather than computing a wrong answer. General
-2D/3D mesh import from Gmsh/VTK is on the roadmap but not yet wired.
+For 2D/3D, set `mesh.source = "file"` with `mesh.path` pointing at a
+**structured** mesh file — an ascii VTK `RECTILINEAR_GRID`/`STRUCTURED_POINTS`
+block, or a plain `coordinates` file (one face coordinate per line, a `#` or
+blank line between the x/y[/z] groups). The spacing may be non-uniform (the
+grid is "stretched"), which the viewport's mesh overlay draws faithfully:
+
+```
+[mesh]
+source = "file"
+path = "grid.vtk"     # or "coords.txt"
+```
+
+The solver runs on this grid, and the web UI's "mesh file" field (Display →
+mesh file → load mesh) renders the imported faces — non-uniform spacing
+visible — over the field. Real unstructured meshes (Gmsh `.msh`,
+`UNSTRUCTURED_GRID`) are the next step and not yet wired to the solver.
 
 ## Next
 

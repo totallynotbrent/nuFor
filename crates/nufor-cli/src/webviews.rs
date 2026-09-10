@@ -97,6 +97,8 @@ button{cursor:pointer}
       <option value="32">32</option>
       <option value="64">64</option>
     </select></label>
+    <label><span>mesh file</span><input id="meshPath" type="text" placeholder="/path/grid.vtk" style="flex:1"></label>
+    <label style="padding-left:.5rem"><button id="meshLoad" class="runs">load mesh</button></label>
 
     <h4>Playback</h4>
     <div class="stat" id="playCtrl">
@@ -202,14 +204,37 @@ function loadFrame(t){
   document.getElementById('fimage').src='/api/image?n=128&field='+fld()+'&t='+t.toFixed(3);
   document.getElementById('viewt').textContent='t = '+t.toFixed(3);
 }
+var loadedMesh=null;
 function redrawMesh(){
   var el=document.getElementById('meshOv'),show=document.getElementById('meshOn').checked&&document.getElementById('fieldOn').checked;
   el.style.display=show?'block':'none';
   if(!show){return;}
-  var n=+document.getElementById('meshN').value,W=viz,H=viz,step=W/n,s='',i;
-  for(i=0;i<=n;i++){var p=i*step;s+='<line x1="'+p+'" y1="0" x2="'+p+'" y2="'+H+'" stroke="rgba(255,255,255,0.32)"/>';
-    s+='<line x1="0" y1="'+p+'" x2="'+W+'" y2="'+p+'" stroke="rgba(255,255,255,0.32)"/>';}
+  var W=viz,H=viz,s='',i;
+  if(loadedMesh&&loadedMesh.x&&loadedMesh.y){
+    var xmin=loadedMesh.x[0],xmax=loadedMesh.x[loadedMesh.x.length-1];
+    var ymin=loadedMesh.y[0],ymax=loadedMesh.y[loadedMesh.y.length-1];
+    var sx=W/(xmax-xmin),sy=H/(ymax-ymin);
+    var px=function(v){return(v-xmin)*sx;},py=function(v){return H-(v-ymin)*sy;};
+    for(i=0;i<loadedMesh.x.length;i++){var p=px(loadedMesh.x[i]);s+='<line x1="'+p+'" y1="0" x2="'+p+'" y2="'+H+'" stroke="rgba(120,200,255,0.6)"/>';}
+    for(i=0;i<loadedMesh.y.length;i++){var q=py(loadedMesh.y[i]);s+='<line x1="0" y1="'+q+'" x2="'+W+'" y2="'+q+'" stroke="rgba(120,200,255,0.6)"/>';}
+  }else{
+    var n=+document.getElementById('meshN').value,step=W/n;
+    for(i=0;i<=n;i++){var p=i*step;s+='<line x1="'+p+'" y1="0" x2="'+p+'" y2="'+H+'" stroke="rgba(255,255,255,0.32)"/>';
+      s+='<line x1="0" y1="'+p+'" x2="'+W+'" y2="'+p+'" stroke="rgba(255,255,255,0.32)"/>';}
+  }
   el.innerHTML='<rect width="'+W+'" height="'+H+'" fill="none"/>'+s;
+}
+async function loadImportedMesh(){
+  var p=document.getElementById('meshPath').value.trim();
+  if(!p){return;}
+  try{
+    loadedMesh=await j('/api/mesh?path='+encodeURIComponent(p));
+    document.getElementById('meshOn').checked=true;
+    document.getElementById('fieldOn').checked=false;
+    document.getElementById('fimage').style.visibility='hidden';
+    redrawMesh();
+    document.getElementById('monStat').textContent='mesh '+loadedMesh.x.length+'x'+loadedMesh.y.length+' faces loaded';
+  }catch(e){document.getElementById('monStat').textContent='mesh load failed: '+e;loadedMesh=null;}
 }
 function dim3d(){return document.getElementById('dim').value==='3d';}
 function refreshViz(){
@@ -255,6 +280,7 @@ document.getElementById('meshOn').onchange=redrawMesh;
 document.getElementById('fieldOn').onchange=function(){var f=document.getElementById('fieldOn').checked;
   document.getElementById('fimage').style.visibility=f?'visible':'hidden';redrawMesh();};
 document.getElementById('meshN').onchange=redrawMesh;
+document.getElementById('meshLoad').onclick=loadImportedMesh;
 document.getElementById('imgField').onchange=function(){colorbar(fld());refreshViz();};
 colorbar('rho');fitViz();window.addEventListener('resize',fitViz);refreshViz();
 

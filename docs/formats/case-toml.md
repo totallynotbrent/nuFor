@@ -88,8 +88,9 @@ silently change a run.
 | `mesh.nz` | int | no | >= 1 | Cells in z (required for euler_3d; defaults to `nx`). |
 | `mesh.z0` | float | no | | Lower z edge (defaults to `x0`). |
 | `mesh.z1` | float | no | > z0 | Upper z edge (defaults to `x1`). |
-| `mesh.source` | string | no (default `uniform`) | `uniform` \| `file` | `uniform` builds a grid from nx/x0/x1; `file` loads a list of cell-center coordinates from `mesh.path` (1D only, must be uniformly spaced). |
-| `mesh.path` | string | no | | Cell-center mesh file read when `source = "file"`. |
+| `mesh.source` | string | no (default `uniform`) | `uniform` \| `file` | `uniform` builds a grid from nx/x0/x1; `file` loads a structured mesh from `mesh.path`. |
+| `mesh.path` | string | no | | Mesh file read when `source = "file"`. |
+| `mesh.format` | string | no | `vtk` \| `coordinates` | Mesh-file dialect when `source = "file"`; auto-detected when absent. `vtk` reads an ascii `RECTILINEAR_GRID` or `STRUCTURED_POINTS` block; `coordinates` reads per-axis face lists (one coordinate per line, `#`/blank between axes). |
 | `initial_condition.type` | string | yes | `uniform` \| `two_state` \| `blast` | IC shape. |
 | `initial_condition` (uniform) | rho, u, p | yes | rho, p > 0 | Constant state. |
 | `initial_condition` (two_state) | left, right | yes | rho, p > 0 per side | Left/right constant states, e.g. a shock tube (1D). |
