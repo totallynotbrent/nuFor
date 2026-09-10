@@ -23,6 +23,7 @@ mod hllc2d;
 mod hllc3d;
 mod output;
 mod probe;
+mod rectilinear;
 mod render2d;
 mod restart;
 mod solver;
@@ -53,6 +54,7 @@ pub use hllc2d::{hllc_flux, FacePrim, Flux4};
 pub use hllc3d::{hllc_flux3, FacePrim3, Flux5};
 pub use output::{write_csv, write_vtk, write_vtk2d, write_vtk3d, OutputState};
 pub use probe::probe_line;
+pub use rectilinear::{rectilinear_grid2d, rectilinear_grid3d};
 pub use render2d::{colormap, render_png};
 pub use restart::{read_restart, write_restart, RestartData, RESTART_VERSION};
 pub use solver::{

@@ -21,10 +21,14 @@ pub struct Grid2d {
     pub ymin: f64,
     /// upper y bound of the domain.
     pub ymax: f64,
-    /// uniform cell width in x.
+    /// uniform cell width in x (minimum over the axis when non-uniform).
     pub dx: f64,
-    /// uniform cell width in y.
+    /// uniform cell width in y (minimum over the axis when non-uniform).
     pub dy: f64,
+    /// per-cell x widths (nx entries); equals [dx; nx] on a uniform grid.
+    pub dxs: Vec<f64>,
+    /// per-cell y widths (ny entries); equals [dy; ny] on a uniform grid.
+    pub dys: Vec<f64>,
     /// x coordinate of each cell center, flat row-major (j*nx + i).
     pub centers_x: Vec<f64>,
     /// y coordinate of each cell center, flat row-major (j*nx + i).
@@ -72,6 +76,8 @@ pub fn grid2d(
         ymax,
         dx,
         dy,
+        dxs: vec![dx; nx],
+        dys: vec![dy; ny],
         centers_x,
         centers_y,
         faces_x,

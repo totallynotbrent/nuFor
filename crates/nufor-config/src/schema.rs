@@ -115,6 +115,10 @@ pub struct Mesh {
     /// cell-center mesh file read when source = "file".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    /// mesh-file dialect when source = "file": "vtk" (rectilinear/structured
+    /// points) or "coordinates" (per-axis face lists). auto-detected when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
 }
 
 fn default_mesh_source() -> String {

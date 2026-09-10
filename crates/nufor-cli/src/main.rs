@@ -16,6 +16,7 @@ use nufor_core::{
     ConservedState2d, ConservedState3d, Error, EulerConfig, Grid1d, Grid2d, Grid3d, OutputState,
 };
 
+mod mesh_io;
 mod serve;
 mod webviews;
 
@@ -481,6 +482,50 @@ fn read_centers(path: &str) -> Result<Vec<f64>, String> {
         .collect()
 }
 
+/// build a 2d grid from a case's mesh section: uniform, or imported from a file.
+fn build_2d_mesh(mesh: &Mesh) -> Result<Grid2d, String> {
+    if mesh.source == "file" {
+        let path = mesh
+            .path
+            .as_deref()
+            .ok_or_else(|| "mesh source = file needs a `path`".to_string())?;
+        let m = mesh_io::load_rectilinear(path)?;
+        mesh_io::rect_to_grid2d(&m)
+    } else {
+        let ny = mesh.ny.unwrap_or(mesh.nx) as usize;
+        let (y0, y1) = (mesh.y0.unwrap_or(mesh.x0), mesh.y1.unwrap_or(mesh.x1));
+        grid2d(mesh.nx as usize, ny, mesh.x0, mesh.x1, y0, y1).map_err(|e| e.to_string())
+    }
+}
+
+/// build a 3d grid from a case's mesh section: uniform, or imported from a file.
+fn build_3d_mesh(mesh: &Mesh) -> Result<Grid3d, String> {
+    if mesh.source == "file" {
+        let path = mesh
+            .path
+            .as_deref()
+            .ok_or_else(|| "mesh source = file needs a `path`".to_string())?;
+        let m = mesh_io::load_rectilinear(path)?;
+        mesh_io::rect_to_grid3d(&m)
+    } else {
+        let (ny, nz) = (
+            mesh.ny.unwrap_or(mesh.nx) as usize,
+            mesh.nz.unwrap_or(mesh.nx) as usize,
+        );
+        let (y0, y1) = (mesh.y0.unwrap_or(mesh.x0), mesh.y1.unwrap_or(mesh.x1));
+        let (z0, z1) = (mesh.z0.unwrap_or(mesh.x0), mesh.z1.unwrap_or(mesh.x1));
+        let b = Bounds3d {
+            xmin: mesh.x0,
+            xmax: mesh.x1,
+            ymin: y0,
+            ymax: y1,
+            zmin: z0,
+            zmax: z1,
+        };
+        grid3d(mesh.nx as usize, ny, nz, &b).map_err(|e| e.to_string())
+    }
+}
+
 /// build a conserved 1d state from a case's initial_condition.
 fn ic_from_case(ic: &InitialCondition, n: usize, gamma: f64) -> Result<ConservedState, String> {
     let fill = |rho0: f64, u0: f64, p0: f64| -> ConservedState {
@@ -636,16 +681,10 @@ fn write_case_outputs(
     }
 }
 
-/// solve a 2d case: blast or uniform IC on a uniform cartesian mesh.
+/// solve a 2d case: blast or uniform IC on a uniform or imported rectilinear mesh.
 fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     let mesh = &cfg.mesh;
-    if mesh.source != "uniform" {
-        eprintln!("2d/3d case runs use uniform meshes for now");
-        return 2;
-    }
-    let ny = mesh.ny.unwrap_or(mesh.nx) as usize;
-    let (y0, y1) = (mesh.y0.unwrap_or(mesh.x0), mesh.y1.unwrap_or(mesh.x1));
-    let g = match grid2d(mesh.nx as usize, ny, mesh.x0, mesh.x1, y0, y1) {
+    let g = match build_2d_mesh(mesh) {
         Ok(g) => g,
         Err(e) => {
             eprintln!("mesh error: {e}");
@@ -700,28 +739,10 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     }
 }
 
-/// solve a 3d case: blast IC on a uniform cartesian mesh.
+/// solve a 3d case: blast IC on a uniform or imported rectilinear mesh.
 fn run_case_3d(cfg: &CaseConfig, path: &str) -> i32 {
     let mesh = &cfg.mesh;
-    if mesh.source != "uniform" {
-        eprintln!("2d/3d case runs use uniform meshes for now");
-        return 2;
-    }
-    let (ny, nz) = (
-        mesh.ny.unwrap_or(mesh.nx) as usize,
-        mesh.nz.unwrap_or(mesh.nx) as usize,
-    );
-    let (y0, y1) = (mesh.y0.unwrap_or(mesh.x0), mesh.y1.unwrap_or(mesh.x1));
-    let (z0, z1) = (mesh.z0.unwrap_or(mesh.x0), mesh.z1.unwrap_or(mesh.x1));
-    let b = Bounds3d {
-        xmin: mesh.x0,
-        xmax: mesh.x1,
-        ymin: y0,
-        ymax: y1,
-        zmin: z0,
-        zmax: z1,
-    };
-    let g = match grid3d(mesh.nx as usize, ny, nz, &b) {
+    let g = match build_3d_mesh(mesh) {
         Ok(g) => g,
         Err(e) => {
             eprintln!("mesh error: {e}");
