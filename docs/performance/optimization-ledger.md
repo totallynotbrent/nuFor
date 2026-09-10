@@ -84,6 +84,6 @@ and the 8-thread backslide is hyper-threading oversubscription. Threading buys
 
 ## See also
 
-- [[numerics/threading|Threading]]
-- [[numerics/memory-layout|Memory layout]]
-- [[numerics/3d-solver|3D solver]]
+- [[numerics/parallel/threading||Threading]]
+- [[numerics/foundations/memory-layout||Memory layout]]
+- [[numerics/3d/3d-solver||3D solver]]

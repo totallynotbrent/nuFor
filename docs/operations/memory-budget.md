@@ -42,6 +42,6 @@ flagged as needing the distributed-memory path (or accepting a coarser grid).
 
 ## See also
 
-- [[numerics/3d-solver|3D solver]]
-- [[numerics/memory-layout|Memory layout]]
-- [[numerics/3d|3D foundations]]
+- [[numerics/3d/3d-solver||3D solver]]
+- [[numerics/foundations/memory-layout||Memory layout]]
+- [[numerics/3d/3d||3D foundations]]

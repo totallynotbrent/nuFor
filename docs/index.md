@@ -2,89 +2,53 @@
 title: nuFor
 ---
 
-nuFor is a portable, open-source, CPU-first computational fluid dynamics
-framework: finite-volume solvers for the Euler and Navier-Stokes equations in
-a Rust application layer, with Fortran numerical kernels and a Python analysis
-stack. This site documents the architecture, numerics, and internal formats.
+nuFor is a CPU-first computational fluid dynamics code: finite-volume solvers
+for the compressible Euler and Navier-Stokes equations, written as Fortran
+numerical kernels behind a Rust application layer, with Python tooling for
+verification. It runs structured cases in 1D, 2D, and 3D, from the terminal or
+a web UI, with every numerical claim backed by a verification case.
 
-## Explore
+## New here? Start with these
 
-- [Architecture](architecture.md) — system layout, tech baseline, build
-- [Formats — case.toml](formats/case-toml.md) — the reproducibility root of a run
-- [1D Euler gate record](verification/gate-1d-euler.md) — the closed milestone
+- [Getting started](getting-started.md) — install, run your first case, see a result
+- [Architecture](architecture.md) — how the Rust/Fortran/Python layers fit together
+- [Case format](formats/case-toml.md) — the `case.toml` file that drives every run
 
-### Numerics
+## Solver trajectory
 
-- [1D Euler milestone](numerics/1d-euler.md) — the finite-volume solver
-- [State and uniform grid](numerics/state-grid.md) — state layout and mesh
-- [Ideal-gas equation of state](numerics/eos.md) — thermodynamics and pressure
-- [HLL flux](numerics/flux-hll.md) — the baseline approximate solver
-- [CFL time-step control](numerics/time-step.md) — the explicit step
-- [Sod verification](numerics/sod.md) — exact-Riemann comparison
-- [Lax verification](numerics/lax.md) — the stronger shock tube
-- [Verification ladder](numerics/verification.md) — rung-by-rung checks
-- [Output (CSV/VTK)](numerics/output.md) — plain-text writers
-- [HDF5 output](numerics/hdf5.md) — self-describing binary + Python export
-- [Restart](numerics/restart.md) — bit-exact save/load
-- [Diagnostics](numerics/diagnostics.md) — termination reasons, validity scan
-- [Web UI skeleton](numerics/web-ui.md) — the data API a front end designs against
-- [Line probes](numerics/line-probes.md) — sample a 2D field along a line and chart it
-- [Comparison dashboard](numerics/comparison-dashboard.md) — overlay probes across fields and resolutions
-- [2D state and grid](numerics/2d.md) — geometry, 2D state, and thermodynamics
-- [2D Euler solver](numerics/2d-euler.md) — HLLC flux, MUSCL, van Leer limiter
-- [2D boundaries](numerics/2d-boundaries.md) — slip wall, supersonic in/out
-- [Oblique shock](numerics/oblique-shock.md) — the supersonic wedge, verified against θ-β-M
-- [Shock reflection](numerics/shock-reflection.md) — the two-shock reflection off a wall
-- [Supersonic cylinder](numerics/supersonic-cylinder.md) — the immersed body and its detached bow shock
-- [Positivity](numerics/positivity.md) — why density and pressure stay positive
-- [Viscous terms](numerics/viscous.md) — the Navier-Stokes diffusive flux
-- [Channel flow](numerics/channel-flow.md) — Poiseuille flow, the parabolic profile validated
-- [Threading](numerics/threading.md) — shared-memory parallel step and its scaling
-- [SIMD vectorization](numerics/simd.md) — runtime-dispatched AVX2 in the update
-- [Memory layout](numerics/memory-layout.md) — the structure-of-arrays state and why it stays in cache
-- [HLL vs HLLC](numerics/hll-vs-hllc.md) — when the contact wave pays for its extra state
-- [3D foundations](numerics/3d.md) — the 3D grid, state, and ideal-gas EOS
-- [3D solver](numerics/3d-solver.md) — the 3D HLLC step, verified against the Sod tube
-- [Memory budget](operations/memory-budget.md) — the 3D footprint and the 8 GB solve ceiling
-- [Unstructured meshes](numerics/unstructured-mesh.md) — the research note steering the FV mesh path
-- [Unstructured FV](numerics/unstructured-fv.md) — the cell-centered prototype, verified on a quad mesh
-- [Spalart-Allmaras](numerics/spalart-allmaras.md) — the research note scoping nuFor's first turbulence model
-- [Regression suite](verification/regression-suite.md) — the automated gate every change must pass
+**1D Euler** → **2D (Euler + viscous)** → **3D Euler**, then the unstructured
+prototype and turbulence research. Follow the progression:
 
-### Performance
+- [1D Euler](numerics/1d/1d-euler.md) — the finite-volume core: HLL flux, CFL, boundaries
+- [2D Euler](numerics/2d/2d-euler.md) — HLLC, MUSCL reconstruction, the van Leer limiter
+- [Viscous terms](numerics/2d/viscous.md) — the Navier-Stokes diffusive flux
+- [3D solver](numerics/3d/3d-solver.md) — the structured 3D HLLC step
+- [Unstructured FV](numerics/unstructured/unstructured-fv.md) — the research prototype
 
-- [Optimization ledger](performance/optimization-ledger.md) — measured baselines
+## Verification
+
+Every milestone closes against an analytical or benchmark case:
+
+- [Sod](numerics/1d/sod.md) and [Lax](numerics/1d/lax.md) — 1D shock tubes vs the exact Riemann solution
+- [Oblique shock](numerics/2d/oblique-shock.md) — supersonic wedge vs θ-β-M theory
+- [Shock reflection](numerics/2d/shock-reflection.md) — two-shock reflection off a wall
+- [Channel flow](numerics/2d/channel-flow.md) — Poiseuille's parabolic profile
+- [Supersonic cylinder](numerics/2d/supersonic-cylinder.md) — the detached bow shock
+- [Regression suite](verification/regression-suite.md) — the automated gate on every change
+
+## Reference
+
+- [Equation of state](numerics/foundations/eos.md)
+- [HLL flux](numerics/fluxes/flux-hll.md) · [HLL vs HLLC](numerics/fluxes/hll-vs-hllc.md)
+- [State and grid](numerics/foundations/state-grid.md) · [Time step](numerics/foundations/time-step.md)
+- [Restart](numerics/foundations/restart.md) · [HDF5 output](numerics/foundations/hdf5.md)
+- [Threading](numerics/parallel/threading.md) · [SIMD](numerics/parallel/simd.md)
 
 ## Status
 
-The 1D Euler milestone is complete: the finite-volume solver (HLL flux, CFL
-time-step control, reflective and transmissive boundaries, residual and log),
-verification against the exact Riemann solution (Sod, Lax, and the four-rung
-ladder), structured output (CSV, VTK, HDF5 + a Python export), bit-exact
-restart, a command-line driver, a minimal web skeleton, and run diagnostics
-(termination reasons and a physical-validity scan) are all landed and tested.
-A measured performance baseline is recorded in the optimization ledger.
-
-From there the solver grew in two directions. The 2D extension added the
-state, grid, HLLC flux with MUSCL reconstruction and the van Leer limiter,
-slip-wall and supersonic inflow/outflow boundaries, the viscous
-Navier-Stokes terms, and Poiseuille-channel validation — featured on the
-oblique-shock and shock-reflection cases, verified against θ-β-M and
-two-shock theory. The 3D extension added the structured grid, state, and
-ideal-gas EOS with a 3D HLLC step, verified against the Sod tube, and a
-memory-budget analysis that anchors the largest full solve the 8 GB box can
-carry.
-
-The current push is the unstructured path: a research note steers the
-cell-centered finite-volume prototype, verified on a quad mesh, and a
-Spalart-Allmaras research note scopes nuFor's first turbulence model.
-
-## 1.0.0 release
-
-v1.0.0 is the first stable public release (2026-09-05). On top of the solver
-trajectory above, it adds a web dashboard with line probes and a comparison
-dashboard, runtime-dispatched SIMD in the conservation update, a
-supersonic-cylinder immersed boundary with a verified detached bow shock,
-and this Quartz documentation site. Cross-platform CI and the full
-verification suite reproduce the milestone results from a clean checkout; see
-the changelog for the complete list.
+v1.2.0 (2026-09-09) is the current build: 1D/2D/3D structured Euler, 2D
+viscous terms, CPU threading and AVX2 kernels, case-driven runs, and a web UI
+with live field views. Open work — turbulence implementation, a general
+unstructured solver, thermochemistry, MPI, and broad experimental validation —
+is tracked in the repository README's roadmap. See the
+[full changelog](https://github.com/totallynotbrent/nuFor/blob/main/CHANGELOG.md).
