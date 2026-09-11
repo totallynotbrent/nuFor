@@ -2,28 +2,29 @@
 
 ## Supported versions
 
-nuFor is in active development and has not published a stable release. As of
-now only the current state of `main` receives security fixes. This policy will
-be revised once tagged releases exist.
+nuFor is in active development and has not published a tagged stable release,
+so only the current `main` branch receives security fixes. This will be
+revised once tagged releases exist.
 
 ## Reporting a vulnerability
 
-Please report security issues privately rather than in public issues. Report by
-opening a GitHub issue with the `security` label if you are comfortable, or
-reach out directly to the maintainers through a private channel listed on the
-repository.
+Report security issues privately, not in public issues. Use GitHub's private
+vulnerability reporting: open the repository's Security tab and choose
+"Report a vulnerability". That opens a private advisory with the maintainer
+instead of a public thread.
 
-Please include:
+Include as much of this as you can:
 
-- The component and file involved
-- A minimal description of the issue
-- Reproduction steps where possible
-- Impact, if known
+- the component and file involved
+- a short description of the issue
+- reproduction steps where possible
+- likely impact, if known
 
-We aim to respond to reports promptly and will acknowledge receipt.
+Reports are acknowledged promptly and taken to resolution.
 
 ## Scope
 
-Rust and Fortran runtimes, the CLI and web layer, and any code that reads
-untrusted input (case files, meshes, restart files) are in scope for security
-review. Do not commit secrets, API keys, or credentials to the repository.
+Anything that reads untrusted input is in scope: case files, mesh and restart
+files, and the CLI and web layer, across the Rust and Fortran code alike.
+Secrets, API keys, and credentials must not be committed to the repository;
+they belong in environment variables or an ignored `.env` file.

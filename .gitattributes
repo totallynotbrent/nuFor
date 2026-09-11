@@ -1,4 +1,4 @@
-# Normalize all text to LF; never commit CRLF (AGENT_README rule 6).
+# Normalize all text to LF; never commit CRLF.
 * text=auto eol=lf
 
 # Explicitly force LF on common text types.
