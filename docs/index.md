@@ -2,6 +2,15 @@
 title: nuFor
 ---
 
+> **Work in progress.** nuFor is not complete. Right now it can simulate a
+> fixed set of cases through the web UI: the 1D Sod and Lax shock tubes, and
+> the 2D and 3D spherical blast problem, with density / mach / pressure
+> visualization, line probes, resolution comparison, and CSV / VTK / HDF5
+> export. Full mesh upload (solve-on-imported-mesh), arbitrary boundary
+> conditions, and general case setup from the browser are still under
+> development. Those paths are driven from the CLI today and will land in the
+> UI in later releases.
+
 nuFor is a CPU-first computational fluid dynamics code: finite-volume solvers
 for the compressible Euler and Navier-Stokes equations, written as Fortran
 numerical kernels behind a Rust application layer, with Python tooling for
