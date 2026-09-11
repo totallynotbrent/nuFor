@@ -59,7 +59,7 @@ button solves your configured case and saves `results/<name>.vtk`.
 ## Bring your own mesh
 
 For 2D/3D, set `mesh.source = "file"` with `mesh.path` pointing at a
-**structured** mesh file — an ascii VTK `RECTILINEAR_GRID`/`STRUCTURED_POINTS`
+**structured** mesh file - an ascii VTK `RECTILINEAR_GRID`/`STRUCTURED_POINTS`
 block, or a plain `coordinates` file (one face coordinate per line, a `#` or
 blank line between the x/y[/z] groups). The spacing may be non-uniform (the
 grid is "stretched"), which the viewport's mesh overlay draws faithfully:
@@ -71,8 +71,8 @@ path = "grid.vtk"     # or "coords.txt"
 ```
 
 The solver runs on this grid, and the web UI's "mesh file" field (Display →
-mesh file → load mesh) renders the imported faces — non-uniform spacing
-visible — over the field.
+mesh file → load mesh) renders the imported faces - non-uniform spacing
+visible - over the field.
 
 Gmsh `.msh` (v2.2 ascii, triangles/quads) is also supported for 2D: the mesh
 is parsed, built into a cell-centered unstructured grid, and solved with the
