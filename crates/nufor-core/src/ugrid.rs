@@ -10,6 +10,8 @@
 pub struct Ugrid {
     /// area of each cell.
     pub cell_area: Vec<f64>,
+    /// the (x, y) centroid of each cell, used by the diagnostics pass.
+    pub cell_center: Vec<(f64, f64)>,
     /// the faces belonging to each cell (indices into the face arrays).
     pub cell_faces: Vec<Vec<usize>>,
     /// the cell on the +normal side of each face.
@@ -95,6 +97,15 @@ impl Ugrid {
         }
         Ugrid {
             cell_area,
+            cell_center: {
+                let mut c = Vec::with_capacity(nx * ny);
+                for j in 0..ny {
+                    for i in 0..nx {
+                        c.push(((i as f64 + 0.5) * dx, (j as f64 + 0.5) * dy));
+                    }
+                }
+                c
+            },
             cell_faces,
             face_left,
             face_right,
@@ -233,11 +244,244 @@ impl Ugrid {
 
         Ok(Ugrid {
             cell_area,
+            cell_center: centers,
             cell_faces,
             face_left,
             face_right,
             face_dx,
             face_dy,
         })
+    }
+
+    /// run the pre-solve quality pass and return the diagnostic summary.
+    ///
+    /// checks four things: cell counts and area spread, a gauss-divergence
+    /// closure residual per cell (the sum of signed face vectors should close
+    /// to zero), whether any interior face points the wrong way across the
+    /// centroids, and whether any cell area is degenerate or negative.
+    pub fn diagnostics(&self) -> MeshDiagnostics {
+        let n_cells = self.cell_area.len();
+        let n_faces = self.face_left.len();
+        let n_boundary = self.face_right.iter().filter(|&&r| r < 0).count();
+        let n_interior = n_faces - n_boundary;
+
+        let mut area_min = f64::INFINITY;
+        let mut area_max = 0.0f64;
+        let mut area_sum = 0.0f64;
+        let mut negative = 0usize;
+        for &a in &self.cell_area {
+            area_min = area_min.min(a);
+            area_max = area_max.max(a);
+            area_sum += a;
+            if a <= 0.0 {
+                negative += 1;
+            }
+        }
+        let area_mean = if n_cells > 0 {
+            area_sum / n_cells as f64
+        } else {
+            0.0
+        };
+        let stretch = if area_min > 0.0 {
+            area_max / area_min
+        } else {
+            f64::INFINITY
+        };
+
+        // closure residual: the signed face vectors of one cell should sum to
+        // zero if its faces are consistently oriented and the cell closes.
+        let mut closure_max = 0.0f64;
+        let mut open_cells = 0usize;
+        for c in 0..n_cells {
+            let (mut sx, mut sy) = (0.0f64, 0.0f64);
+            for &f in &self.cell_faces[c] {
+                // an interior face contributes +normal for its left cell and
+                // -normal for its right cell; a boundary face only its owner.
+                let sign = if self.face_left[f] == c { 1.0 } else { -1.0 };
+                sx += sign * self.face_dx[f];
+                sy += sign * self.face_dy[f];
+            }
+            let perim = self.cell_faces[c]
+                .iter()
+                .map(|&f| {
+                    (self.face_dx[f] * self.face_dx[f] + self.face_dy[f] * self.face_dy[f]).sqrt()
+                })
+                .sum::<f64>();
+            let rel = if perim > 0.0 {
+                (sx * sx + sy * sy).sqrt() / perim
+            } else {
+                0.0
+            };
+            closure_max = closure_max.max(rel);
+            if rel > 1e-6 {
+                open_cells += 1;
+            }
+        }
+
+        // a flipped interior face points from its left cell toward its right
+        // cell, so the area vector should agree with the center-to-center step.
+        let mut flipped = 0usize;
+        for f in 0..n_faces {
+            if self.face_right[f] < 0 {
+                continue;
+            }
+            let (lx, ly) = self.cell_center[self.face_left[f]];
+            let (rx, ry) = self.cell_center[self.face_right[f] as usize];
+            let dot = self.face_dx[f] * (rx - lx) + self.face_dy[f] * (ry - ly);
+            if dot < 0.0 {
+                flipped += 1;
+            }
+        }
+
+        let valid = negative == 0 && closed(closure_max) && flipped == 0;
+        MeshDiagnostics {
+            n_cells,
+            n_faces,
+            n_interior,
+            n_boundary,
+            area_min,
+            area_mean,
+            area_max,
+            stretch,
+            negative,
+            closure_max,
+            open_cells,
+            flipped_faces: flipped,
+            valid,
+        }
+    }
+}
+
+/// a loose tolerance for the closure residual: a face-vector sum a ten
+/// thousandth of the perimeter is effectively closed.
+fn closed(rel: f64) -> bool {
+    rel <= 1e-4
+}
+
+/// the pre-solve mesh quality summary.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MeshDiagnostics {
+    /// number of cells.
+    pub n_cells: usize,
+    /// number of faces (interior + boundary).
+    pub n_faces: usize,
+    /// number of interior (shared) faces.
+    pub n_interior: usize,
+    /// number of boundary faces.
+    pub n_boundary: usize,
+    /// smallest cell area.
+    pub area_min: f64,
+    /// mean cell area.
+    pub area_mean: f64,
+    /// largest cell area.
+    pub area_max: f64,
+    /// area_max / area_min; 1.0 means every cell is the same size.
+    pub stretch: f64,
+    /// number of cells whose signed area is non-positive.
+    pub negative: usize,
+    /// largest relative closure residual over all cells (dimensionless).
+    pub closure_max: f64,
+    /// number of cells whose face vectors do not close within tolerance.
+    pub open_cells: usize,
+    /// number of interior faces that point opposite the center-to-center step.
+    pub flipped_faces: usize,
+    /// true when the mesh passes every check.
+    pub valid: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // a clean cartesian quad mesh is perfectly uniform and closed.
+    #[test]
+    fn cartesian_quads_report_clean_uniform_mesh() {
+        let g = Ugrid::cartesian_quads(8, 6);
+        let d = g.diagnostics();
+        assert_eq!(d.n_cells, 48);
+        assert!(d.negative == 0);
+        assert!(
+            d.open_cells == 0,
+            "all cells should close, got {}",
+            d.open_cells
+        );
+        assert!(d.closure_max < 1e-14);
+        assert!(d.stretch <= 1.0 + 1e-12, "uniform areas, got {}", d.stretch);
+        assert_eq!(d.flipped_faces, 0);
+        assert!(g.cell_center.len() == 48);
+        // an interior cell center sits at the cell midpoint.
+        let (cx, cy) = g.cell_center[0];
+        assert!((cx - 1.0 / 16.0).abs() < 1e-12);
+        assert!((cy - 1.0 / 12.0).abs() < 1e-12);
+        assert!(d.valid);
+    }
+
+    // face counts: 8x6 has 7 interior vertical + 2 boundary per row, etc.
+    #[test]
+    fn cartesian_face_counts() {
+        let g = Ugrid::cartesian_quads(8, 6);
+        let d = g.diagnostics();
+        // vertical: (8+1) per row * 6 rows = 54; horizontal: 8 per boundary-row * 7 = 56.
+        assert_eq!(d.n_faces, 54 + 56);
+        assert_eq!(d.n_boundary, 2 * (8 + 6));
+        assert_eq!(d.n_interior, d.n_faces - d.n_boundary);
+        assert_eq!(d.area_min, cfg_area(8, 6));
+        assert_eq!(d.area_max, 1.0 / 48.0);
+    }
+
+    // a valid nonuniform mesh is still valid: cells close, no flipped faces,
+    // but the areas differ so the stretch ratio grows.
+    #[test]
+    fn skewed_but_valid_mesh_stays_valid() {
+        // a 2x2 quad mesh with the top row stretched vertically.
+        let nodes = vec![
+            (0.0, 0.0),
+            (0.5, 0.0),
+            (1.0, 0.0),
+            (0.0, 0.5),
+            (0.5, 0.5),
+            (1.0, 0.5),
+            (0.0, 2.0),
+            (0.5, 2.0),
+            (1.0, 2.0),
+        ];
+        let cells = vec![
+            vec![0, 1, 4, 3],
+            vec![1, 2, 5, 4],
+            vec![3, 4, 7, 6],
+            vec![4, 5, 8, 7],
+        ];
+        let g = Ugrid::from_cells(&nodes, &cells).unwrap();
+        let d = g.diagnostics();
+        assert_eq!(d.n_cells, 4);
+        assert!(d.open_cells == 0, "stretched cells still close");
+        assert_eq!(d.flipped_faces, 0);
+        assert_eq!(d.negative, 0);
+        assert!(d.stretch > 1.0, "stretched mesh should have a ratio > 1");
+        assert!(d.valid);
+    }
+
+    // a zero-length edge is rejected at build time, and an inverted cell is
+    // caught by from_cells returning Err.
+    #[test]
+    fn inverted_cell_is_rejected() {
+        // clockwise quad: area is negative under the signed shoelace formula.
+        let nodes = vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)];
+        let cells = vec![vec![0, 3, 2, 1]]; // reversed winding
+        let g = Ugrid::from_cells(&nodes, &cells);
+        assert!(g.is_err(), "inverted cell should be rejected");
+    }
+
+    #[test]
+    fn degenerate_cell_is_rejected() {
+        // three collinear nodes make a zero-area triangle.
+        let nodes = vec![(0.0, 0.0), (0.5, 0.0), (1.0, 0.0)];
+        let cells = vec![vec![0, 1, 2]];
+        let g = Ugrid::from_cells(&nodes, &cells);
+        assert!(g.is_err(), "degenerate cell should be rejected");
+    }
+
+    fn cfg_area(nx: usize, ny: usize) -> f64 {
+        1.0 / (nx as f64 * ny as f64)
     }
 }

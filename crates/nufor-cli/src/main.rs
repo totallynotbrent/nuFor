@@ -35,6 +35,7 @@ fn main() {
         "version" | "--version" => version(),
         "init" => init(&args),
         "mesh" => mesh(&args),
+        "mesh-check" => mesh_check(&args),
         "run" => run(&args),
         "inspect" => inspect(&args),
         "export" => export(&args),
@@ -61,6 +62,7 @@ fn usage(prog: &str) {
          \ncommands:\n\
          \x20 init      [case.toml]       write a case to run (default case.toml)\n\
          \x20 mesh      N xmin xmax        show a computed grid\n\
+         \x20 mesh-check file.msh         run the mesh quality diagnostics\n\
          \x20 run       <case.toml> | N t [sod|lax] [rst]\n\
          \x20                        run a case file, or a shock tube to time t\n\
          \x20 inspect   file.rst           show a restart's header and min/max density\n\
@@ -251,6 +253,59 @@ fn inspect(args: &[String]) -> i32 {
         }
         Err(e) => euler_error(e),
     }
+}
+
+/// load a mesh, run the quality diagnostics, and print the summary table.
+fn mesh_check(args: &[String]) -> i32 {
+    let file = match args.get(2) {
+        Some(f) => f,
+        None => {
+            eprintln!("mesh-check needs a gmsh .msh file");
+            return 2;
+        }
+    };
+    let m = match mesh_io::load_gmsh(file) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("{e}");
+            return 1;
+        }
+    };
+    let ug = match m.ugrid() {
+        Ok(u) => u,
+        Err(e) => {
+            eprintln!("{e}");
+            return 1;
+        }
+    };
+    let d = ug.diagnostics();
+    print_mesh_stats(&d);
+    if d.valid {
+        println!("verdict: valid mesh");
+        0
+    } else {
+        println!("verdict: mesh has problems; fix before solving");
+        1
+    }
+}
+
+/// print the mesh quality table for a diagnostics summary.
+fn print_mesh_stats(d: &nufor_core::MeshDiagnostics) {
+    println!(
+        "cells: {}\nfaces: {} ({} interior, {} boundary)\narea min/mean/max: {:.4} / {:.4} / {:.4}\narea stretch (max/min): {:.2}\nnegative cells: {}\nlargest closure residual: {:.2e}\nopen cells: {}\nflipped interior faces: {}",
+        d.n_cells,
+        d.n_faces,
+        d.n_interior,
+        d.n_boundary,
+        d.area_min,
+        d.area_mean,
+        d.area_max,
+        d.stretch,
+        d.negative,
+        d.closure_max,
+        d.open_cells,
+        d.flipped_faces,
+    );
 }
 
 fn export(args: &[String]) -> i32 {

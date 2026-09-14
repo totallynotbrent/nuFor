@@ -496,6 +496,26 @@ fn mesh_faces_json(m: &crate::mesh_io::RectMesh) -> String {
     )
 }
 
+/// serialize the mesh quality summary as json for the web ui.
+fn mesh_stats_json(d: &nufor_core::MeshDiagnostics) -> String {
+    format!(
+        "{{\"cells\":{},\"faces\":{},\"interior\":{},\"boundary\":{},\"area_min\":{:.4},\"area_mean\":{:.4},\"area_max\":{:.4},\"stretch\":{:.2},\"negative\":{},\"closure_max\":{:.2e},\"open_cells\":{},\"flipped\":{},\"valid\":{}}}",
+        d.n_cells,
+        d.n_faces,
+        d.n_interior,
+        d.n_boundary,
+        d.area_min,
+        d.area_mean,
+        d.area_max,
+        d.stretch,
+        d.negative,
+        d.closure_max,
+        d.open_cells,
+        d.flipped_faces,
+        d.valid
+    )
+}
+
 /// render an imported rectilinear mesh as a 2d wireframe svg (for 3d, the
 /// chosen axis is collapsed to a slice at `frac`).
 fn mesh_svg(m: &crate::mesh_io::RectMesh, axis: &str, frac: f64) -> String {
@@ -821,6 +841,30 @@ pub fn handle_request(path: &str, server: &mut Server) -> (String, &'static str,
                     "400 Bad Request",
                     "application/json",
                     "\"mesh needs a path or case param\"".to_string(),
+                )
+            }
+        }
+        "/api/mesh-stats" => {
+            // the mesh quality summary for an imported mesh, so the ui can
+            // show a pre-solve validation verdict.
+            if let Some(path) = get("path") {
+                match crate::mesh_io::load_gmsh(path) {
+                    Ok(m) => match m.ugrid() {
+                        Ok(ug) => {
+                            let d = ug.diagnostics();
+                            respond("200 OK", "application/json", mesh_stats_json(&d))
+                        }
+                        Err(e) => {
+                            respond("400 Bad Request", "application/json", format!("\"{e}\""))
+                        }
+                    },
+                    Err(e) => respond("400 Bad Request", "application/json", format!("\"{e}\"")),
+                }
+            } else {
+                respond(
+                    "400 Bad Request",
+                    "application/json",
+                    "\"mesh-stats needs a path param\"".to_string(),
                 )
             }
         }
@@ -1173,5 +1217,34 @@ mod tests {
         assert!(resp.starts_with("HTTP/1.1 200 OK"));
         assert!(resp.contains("\"rho\":["));
         assert!(resp.contains("\"mach\":["));
+    }
+
+    #[test]
+    fn mesh_stats_endpoint_checks_a_loaded_gmsh_mesh() {
+        use std::io::Write;
+        // write a small quad mesh to a temp file, then ask the endpoint.
+        let mut dir = std::env::temp_dir();
+        dir.push("nufor-mesh-stats-test.msh");
+        let mut f = std::fs::File::create(&dir).unwrap();
+        write!(
+            f,
+            "$MeshFormat\n2.2 0 8\n$EndMeshFormat\n$Nodes\n9\n\
+             1 0 0 0\n2 0.5 0 0\n3 1 0 0\n4 0 0.5 0\n5 0.5 0.5 0\n6 1 0.5 0\n\
+             7 0 1 0\n8 0.5 1 0\n9 1 1 0\n$EndNodes\n$Elements\n4\n\
+             1 3 2 0 1 1 2 5 4\n2 3 2 0 2 2 3 6 5\n3 3 2 0 3 4 5 8 7\n4 3 2 0 4 5 6 9 8\n\
+             $EndElements\n"
+        )
+        .unwrap();
+        drop(f);
+        let q = format!("/api/mesh-stats?path={}", dir.to_str().unwrap());
+        let mut s = server();
+        let (st, ct, b) = handle_request(&q, &mut s);
+        assert_eq!(st, "200 OK");
+        assert_eq!(ct, "application/json");
+        let t = body(&b);
+        assert!(t.contains("\"cells\":4"));
+        assert!(t.contains("\"valid\":true"));
+        assert!(t.contains("\"stretch\":"));
+        let _ = std::fs::remove_file(&dir);
     }
 }

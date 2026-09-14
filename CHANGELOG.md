@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.3.0] - 2026-09-14
+
+Mesh diagnostics: `nufor mesh-check case.msh` validates an imported
+unstructured mesh before solving. It reports cell/face counts, area
+min/mean/max and the stretch ratio, a per-cell closure residual, flipped
+interior faces, and negative or degenerate volumes, then gives a verdict.
+The same summary is available at `GET /api/mesh-stats?path=...` for tooling.
+
+`Ugrid` now stores cell centroids, which feeds the orientation and closure
+checks.
+
 ## [1.2.0] - 2026-09-09
 
 `nufor run <case.toml>` now dispatches on `physics.equations` and solves 1D
