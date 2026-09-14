@@ -69,7 +69,7 @@ pub use state2d::{
     check_physical2d, cons_to_prim2d, prim_to_cons2d, ConservedState2d, PhysicalCheck2d,
 };
 pub use state3d::{cons_to_prim3d, prim_to_cons3d, ConservedState3d};
-pub use ugrid::Ugrid;
+pub use ugrid::{MeshDiagnostics, Ugrid};
 pub use vectorize::{apply_divergence, simd_capability};
 pub use viscous2d::{add_viscous, advance2d_visc_rk2, sutherland_mu, ViscParams};
 
