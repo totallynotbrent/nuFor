@@ -26,6 +26,7 @@ mod probe;
 mod rectilinear;
 mod render2d;
 mod restart;
+mod sa;
 mod solver;
 mod solver2d;
 mod solver3d;
@@ -33,10 +34,12 @@ mod solver_u;
 mod state;
 mod state2d;
 mod state3d;
+mod turb2d;
 mod ugrid;
 mod util;
 mod vectorize;
 mod viscous2d;
+mod wall_dist;
 
 pub use body::{apply_solid, SolidBody};
 pub use cfl::{cfl_dt, CflStep};
@@ -57,6 +60,10 @@ pub use probe::probe_line;
 pub use rectilinear::{rectilinear_grid2d, rectilinear_grid3d};
 pub use render2d::{colormap, render_png};
 pub use restart::{read_restart, write_restart, RestartData, RESTART_VERSION};
+pub use sa::{
+    chi, eddy_viscosity, fv1, fv2, fw, g_func, r_func, source, stilde, C_B1, C_B2, C_V1, C_W1,
+    C_W2, C_W3, KAPPA, SIGMA,
+};
 pub use solver::{
     advance, check_physical, euler_solve, Boundary, ConservedState, EulerConfig, EulerLog,
     EulerResult, PhysicalCheck, TerminationReason,
@@ -69,9 +76,14 @@ pub use state2d::{
     check_physical2d, cons_to_prim2d, prim_to_cons2d, ConservedState2d, PhysicalCheck2d,
 };
 pub use state3d::{cons_to_prim3d, prim_to_cons3d, ConservedState3d};
+pub use turb2d::{advance_turb, SaParams, TurbState};
 pub use ugrid::{MeshDiagnostics, Ugrid};
 pub use vectorize::{apply_divergence, simd_capability};
-pub use viscous2d::{add_viscous, advance2d_visc_rk2, sutherland_mu, ViscParams};
+pub use viscous2d::{
+    add_viscous, add_viscous_bc, add_viscous_cells, advance2d_sa_rk2, advance2d_visc_rk2,
+    sa_dt_cap, sutherland_mu, TurbCtx, ViscParams,
+};
+pub use wall_dist::wall_distance2d;
 
 use error::{codes, from_code};
 

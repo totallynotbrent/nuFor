@@ -34,6 +34,28 @@ impl CaseConfig {
             check_positive(reference.p, "physics.reference.p", &mut problems);
             check_positive(reference.l, "physics.reference.l", &mut problems);
         }
+        if let Some(mu) = self.physics.mu {
+            check_positive(mu, "physics.mu", &mut problems);
+        }
+        check_positive(self.physics.pr, "physics.pr", &mut problems);
+        if self.physics.equations == super::schema::Equations::Rans2dSa {
+            match &self.physics.turbulence {
+                None => problems.push(
+                    "physics.turbulence is required when equations = \"rans_2d_sa\"".to_owned(),
+                ),
+                Some(t) => {
+                    check_positive(
+                        t.nu_tilde_inf,
+                        "physics.turbulence.nu_tilde_inf",
+                        &mut problems,
+                    );
+                    check_positive(t.pr_t, "physics.turbulence.pr_t", &mut problems);
+                }
+            }
+            if self.physics.mu.is_none() {
+                problems.push("physics.mu is required when equations = \"rans_2d_sa\"".to_owned());
+            }
+        }
 
         if self.mesh.nx < 2 {
             problems.push(format!("mesh.nx must be >= 2 (got {})", self.mesh.nx));
@@ -332,5 +354,54 @@ fields = ["rho", "u", "p"]
         let config = parse_case_toml(&toml).expect("defaults should fill omitted fields");
         assert_eq!(config.metadata.case_revision, 1);
         assert_eq!(config.physics.unit_system, super::super::UnitSystem::Si);
+    }
+
+    fn sa_case() -> String {
+        valid_case()
+            .replace("equations = \"euler_1d\"", "equations = \"rans_2d_sa\"")
+            .replace("gamma = 1.4\n", "gamma = 1.4\nmu = 0.05\npr = 0.72\n")
+            .replace("[mesh]\nnx = 100\n", "[mesh]\nnx = 32\nny = 32\n")
+            + "\n[physics.turbulence]\nnu_tilde_inf = 0.15\npr_t = 0.9\n"
+    }
+
+    #[test]
+    fn rans_case_parses_and_validates() {
+        let config = parse_case_toml(&sa_case()).expect("rans case should parse");
+        assert_eq!(config.physics.equations, super::super::Equations::Rans2dSa);
+        assert!((config.physics.mu.unwrap() - 0.05).abs() < 1e-12);
+        assert!((config.physics.turbulence.unwrap().nu_tilde_inf - 0.15).abs() < 1e-12);
+        assert!(config.validate().is_empty(), "{:?}", config.validate());
+    }
+
+    #[test]
+    fn rans_case_requires_turbulence_block_and_mu() {
+        let no_turb = sa_case().replace(
+            "[physics.turbulence]\nnu_tilde_inf = 0.15\npr_t = 0.9\n",
+            "",
+        );
+        let problems = problems_for(&no_turb);
+        assert!(
+            problems.iter().any(|p| p.contains("physics.turbulence")),
+            "got {problems:?}"
+        );
+        let no_mu = sa_case().replace("mu = 0.05\n", "");
+        let problems = problems_for(&no_mu);
+        assert!(
+            problems.iter().any(|p| p.contains("physics.mu")),
+            "got {problems:?}"
+        );
+    }
+
+    #[test]
+    fn boundary_sides_parse_for_2d() {
+        let with_sides = valid_case().replace(
+            "[boundaries]\nleft = \"wall\"\nright = \"wall\"",
+            "[boundaries]\nleft = \"wall\"\nright = \"wall\"\ntop = \"outflow\"\nbottom = \"outflow\"",
+        );
+        let config = parse_case_toml(&with_sides).expect("2d sides should parse");
+        assert_eq!(
+            config.boundaries.bottom,
+            Some(super::super::BoundaryKind::Outflow)
+        );
     }
 }

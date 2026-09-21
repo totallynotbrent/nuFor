@@ -74,11 +74,15 @@ silently change a run.
 | `metadata.name` | string | yes | non-empty | Case name, used in logs and results. |
 | `metadata.description` | string | no | | Free text: goal, expected result. |
 | `metadata.case_revision` | int | no (default 1) | >= 1 | Revision counter for the case definition. |
-| `physics.equations` | string | yes | `euler_1d` \| `euler_2d` \| `euler_3d` | Equation set; the case-run wiring (`nufor run`) chooses the solver by this. |
+| `physics.equations` | string | yes | `euler_1d` \| `euler_2d` \| `euler_3d` \| `rans_2d_sa` | Equation set; the case-run wiring (`nufor run`) chooses the solver by this. `rans_2d_sa` is the 2D Reynolds-averaged Navier-Stokes with the Spalart-Allmaras model. |
 | `physics.gamma` | float | yes | > 1 | Ratio of specific heats. |
 | `physics.gas_constant` | float | yes | > 0 | Specific gas constant, J/(kg K) in SI. |
 | `physics.unit_system` | string | no (default `si`) | `si` \| `nondim` | Unit convention for reported fields. |
 | `physics.reference` | table | no | rho, p, l > 0 | Nondimensionalization reference state. |
+| `physics.mu` | float | no | > 0 | Molecular dynamic viscosity; required for `rans_2d_sa`. |
+| `physics.pr` | float | no (default 0.72) | > 0 | Molecular Prandtl number for the heat flux. |
+| `physics.turbulence.nu_tilde_inf` | float | required with `rans_2d_sa` | > 0 | Freestream SA working variable; the usual convention is three times the molecular kinematic viscosity. |
+| `physics.turbulence.pr_t` | float | no (default 0.9) | > 0 | Turbulent Prandtl number for the eddy heat flux. |
 | `mesh.nx` | int | yes | >= 2 | Number of cells (x for 2D/3D). |
 | `mesh.x0` | float | yes | | Left domain edge. |
 | `mesh.x1` | float | yes | > x0 | Right domain edge. |
@@ -97,6 +101,8 @@ silently change a run.
 | `initial_condition` (blast) | radius, ambient, fireball | yes | radius > 0; rho, p > 0 | Over-pressured fireball in ambient surroundings; the natural 2D/3D shock-tube. |
 | `boundaries.left` | string | yes | `wall` \| `inflow` \| `outflow` \| `periodic` | Left boundary condition. |
 | `boundaries.right` | string | yes | same set | Right boundary condition. |
+| `boundaries.top` | string | no | same set | Top boundary, honored by the 2D solvers (default `outflow`). |
+| `boundaries.bottom` | string | no | same set | Bottom boundary, honored by the 2D solvers (default `outflow`). A `wall` side is no-slip, which is what the SA model expects at a solid surface. |
 | `numerics.flux` | string | yes | `hll` \| `hllc` | Riemann solver / approximate flux. |
 | `numerics.reconstruction` | string | yes | `first_order` \| `muscl` | Spatial reconstruction. |
 | `numerics.cfl` | float | yes | in (0, 1] | CFL number for the explicit time step. |
@@ -115,6 +121,8 @@ and every violation is reported at once:
 
 - name non-empty; case_revision >= 1
 - gamma > 1; gas_constant > 0; reference rho/p/l > 0 when present
+- mu > 0 and pr > 0 when present; for `rans_2d_sa`, mu and the
+  `physics.turbulence` block are required with nu_tilde_inf > 0
 - nx >= 2; x1 > x0
 - every state has rho > 0 and p > 0
 - CFL in (0, 1]
@@ -122,6 +130,58 @@ and every violation is reported at once:
 - at least one termination criterion: final_time > 0, max_steps > 0, or a
   residual_target
 - interval_steps >= 1; formats and fields non-empty
+
+A minimal `rans_2d_sa` case, a no-slip channel with the SA model:
+
+```toml
+schema_version = 1
+
+[metadata]
+name = "sa-channel"
+
+[physics]
+equations = "rans_2d_sa"
+gamma = 1.4
+gas_constant = 287.0
+mu = 0.05
+
+[physics.turbulence]
+nu_tilde_inf = 0.15
+
+[mesh]
+nx = 64
+ny = 64
+x0 = 0.0
+x1 = 1.0
+y0 = 0.0
+y1 = 1.0
+
+[initial_condition]
+type = "uniform"
+rho = 1.0
+u = 0.2
+p = 1.0
+
+[boundaries]
+left = "outflow"
+right = "outflow"
+top = "wall"
+bottom = "wall"
+
+[numerics]
+flux = "hllc"
+reconstruction = "muscl"
+cfl = 0.3
+
+[time]
+final_time = 1.0
+max_steps = 100000
+
+[output]
+interval_steps = 500
+formats = ["vtk"]
+fields = ["rho", "u", "p"]
+```
 
 ## What is not stored here
 
