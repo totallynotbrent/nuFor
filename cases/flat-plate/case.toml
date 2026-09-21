@@ -1,0 +1,54 @@
+# Zero pressure gradient flat plate with the Spalart-Allmaras model.
+# Schema documented in docs/formats/case-toml.md. The plate is the bottom
+# wall; skin friction along it is printed per station after the run.
+schema_version = 1
+
+[metadata]
+name = "sa-flat-plate"
+description = "flat plate, SA model, cf(x) reported along the wall"
+case_revision = 1
+
+[physics]
+equations = "rans_2d_sa"
+gamma = 1.4
+gas_constant = 287.0
+mu = 1.0e-5
+pr = 0.72
+
+[physics.turbulence]
+nu_tilde_inf = 3.0e-5
+pr_t = 0.9
+
+[mesh]
+nx = 160
+ny = 80
+x0 = 0.0
+x1 = 2.0
+y0 = 0.0
+y1 = 1.0
+
+[initial_condition]
+type = "uniform"
+rho = 1.0
+u = 0.2
+p = 1.0
+
+[boundaries]
+left = "inflow"
+right = "outflow"
+top = "outflow"
+bottom = "wall"
+
+[numerics]
+flux = "hllc"
+reconstruction = "muscl"
+cfl = 0.3
+
+[time]
+final_time = 40.0
+max_steps = 60000
+
+[output]
+interval_steps = 5000
+formats = ["vtk"]
+fields = ["rho", "u", "p"]

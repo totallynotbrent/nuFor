@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.4.0] - 2026-09-21
+
+Turbulence: the solver now carries the Spalart-Allmaras model. A case with
+`equations = "rans_2d_sa"` solves the 2D Navier-Stokes equations coupled to
+the transported SA variable, with the eddy viscosity feeding the momentum
+and heat fluxes. The model follows the 1994 baseline (no trip terms) with
+the standard guards, closes at `nu_tilde = 0` exactly, and reproduces the
+laminar solver bit for bit in that limit.
+
+No-slip walls now shear the flow. The viscous pass carries a
+quadratic-consistent one-sided wall flux, so a boundary layer actually
+develops against a wall; the Poiseuille hold balances to machine precision
+on the discrete stencil. `nufor run` prints skin friction along solid walls
+after an SA case, and `cases/flat-plate/case.toml` ships as the runnable
+plate example.
+
+Also new: `[boundaries]` gained `top`/`bottom` sides for the 2D solvers, and
+`[physics]` gained `mu`, `pr`, and a `[physics.turbulence]` block.
+
 ## [1.3.0] - 2026-09-14
 
 Mesh diagnostics: `nufor mesh-check case.msh` validates an imported

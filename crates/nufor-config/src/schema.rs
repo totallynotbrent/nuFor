@@ -50,6 +50,50 @@ pub struct Physics {
     /// nondimensionalization reference state.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reference: Option<ReferenceConditions>,
+    /// molecular dynamic viscosity, required by the viscous/rans equation
+    /// sets (euler ignores it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mu: Option<f64>,
+    /// molecular prandtl number for the heat flux (default 0.72, air).
+    #[serde(
+        default = "default_prandtl",
+        skip_serializing_if = "is_default_prandtl"
+    )]
+    pub pr: f64,
+    /// spalart-allmaras turbulence settings, required when equations is
+    /// rans_2d_sa.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turbulence: Option<Turbulence>,
+}
+
+/// the sa turbulence block of a rans_2d_sa case.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Turbulence {
+    /// freestream modified viscosity nu_tilde; the convention is 3*nu.
+    pub nu_tilde_inf: f64,
+    /// turbulent prandtl number for the eddy heat flux (default 0.9).
+    #[serde(
+        default = "default_prandtl_t",
+        skip_serializing_if = "is_default_prandtl_t"
+    )]
+    pub pr_t: f64,
+}
+
+fn default_prandtl() -> f64 {
+    0.72
+}
+
+fn default_prandtl_t() -> f64 {
+    0.9
+}
+
+fn is_default_prandtl(v: &f64) -> bool {
+    *v == 0.72
+}
+
+fn is_default_prandtl_t(v: &f64) -> bool {
+    *v == 0.9
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -61,6 +105,8 @@ pub enum Equations {
     Euler2d,
     #[serde(rename = "euler_3d")]
     Euler3d,
+    #[serde(rename = "rans_2d_sa")]
+    Rans2dSa,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -159,11 +205,17 @@ pub struct State {
     pub p: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Boundaries {
     pub left: BoundaryKind,
     pub right: BoundaryKind,
+    /// extra 2d sides (top/bottom aliases) honored by the 2d solvers; the
+    /// 1d runner ignores them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top: Option<BoundaryKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bottom: Option<BoundaryKind>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

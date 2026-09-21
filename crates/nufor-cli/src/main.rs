@@ -10,11 +10,12 @@ use nufor_config::{
     load_case_config, BoundaryKind, CaseConfig, Equations, InitialCondition, Mesh, OutputFormat,
 };
 use nufor_core::{
-    advance2d_rk2, advance3d_rk2, advance_ugrid, euler_solve, grid1d, grid2d, grid3d, prim_to_cons,
-    prim_to_cons2d, prim_to_cons3d, read_restart, render_png, write_csv, write_h5, write_restart,
-    write_vtk, write_vtk2d, write_vtk3d, Boundaries2d, Boundary, Bounds3d, ConservedState,
+    advance2d_rk2, advance2d_sa_rk2, advance3d_rk2, advance_ugrid, cons_to_prim2d, eos_pressure2d,
+    euler_solve, grid1d, grid2d, grid3d, prim_to_cons, prim_to_cons2d, prim_to_cons3d,
+    read_restart, render_png, wall_distance2d, write_csv, write_h5, write_restart, write_vtk,
+    write_vtk2d, write_vtk3d, Bc2d, Boundaries2d, Boundary, Bounds3d, ConservedState,
     ConservedState2d, ConservedState3d, Error, EulerConfig, Grid1d, Grid2d, Grid3d, OutputState,
-    Ugrid,
+    SaParams, TurbState, Ugrid,
 };
 
 mod mesh_io;
@@ -631,6 +632,7 @@ fn run_case(path: &str) -> i32 {
         Equations::Euler1d => run_case_1d(&cfg, path),
         Equations::Euler2d => run_case_2d(&cfg, path),
         Equations::Euler3d => run_case_3d(&cfg, path),
+        Equations::Rans2dSa => run_case_2d_sa(&cfg, path),
     }
 }
 
@@ -802,6 +804,148 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     }
 }
 
+/// solve a 2d rans case with the spalart-allmaras model: viscous mean flow
+/// coupled to the transported nu_tilde, advancing both per heun stage.
+fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
+    let g = match build_2d_mesh(&cfg.mesh) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("mesh error: {e}");
+            return 2;
+        }
+    };
+    let gamma = cfg.physics.gamma;
+    let mut st = match ic2d_from_case(&cfg.initial_condition, &g, gamma) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("initial condition error: {e}");
+            return 2;
+        }
+    };
+    let mu = cfg.physics.mu.expect("validated: physics.mu present");
+    let turb_cfg = cfg
+        .physics
+        .turbulence
+        .expect("validated: physics.turbulence present");
+    let n = g.nx * g.ny;
+    // boundary sides: wall maps to no-slip (the sa wall condition), inflow to
+    // the fixed freestream, everything else transmissive.
+    let side_bc = |k: BoundaryKind| match k {
+        BoundaryKind::Wall => Bc2d::NoSlipWall,
+        BoundaryKind::Inflow => Bc2d::SupersonicInflow {
+            rho: match &cfg.initial_condition {
+                InitialCondition::Uniform { rho, .. } => *rho,
+                InitialCondition::TwoState { left, .. } => left.rho,
+                InitialCondition::Blast { ambient, .. } => ambient.rho,
+            },
+            u: match &cfg.initial_condition {
+                InitialCondition::Uniform { u, .. } => *u,
+                InitialCondition::TwoState { left, .. } => left.u,
+                InitialCondition::Blast { .. } => 0.0,
+            },
+            v: 0.0,
+            p: match &cfg.initial_condition {
+                InitialCondition::Uniform { p, .. } => *p,
+                InitialCondition::TwoState { left, .. } => left.p,
+                InitialCondition::Blast { ambient, .. } => ambient.p,
+            },
+        },
+        BoundaryKind::Outflow | BoundaryKind::Periodic => Bc2d::Transmissive,
+    };
+    let bc = Boundaries2d {
+        west: side_bc(cfg.boundaries.left),
+        east: side_bc(cfg.boundaries.right),
+        south: side_bc(cfg.boundaries.bottom.unwrap_or(BoundaryKind::Outflow)),
+        north: side_bc(cfg.boundaries.top.unwrap_or(BoundaryKind::Outflow)),
+    };
+    let d = wall_distance2d(&g, &bc, (g.xmax - g.xmin).max(g.ymax - g.ymin));
+    let mut turb = TurbState {
+        nu_tilde: vec![turb_cfg.nu_tilde_inf; n],
+        d,
+        params: SaParams {
+            mu,
+            pr: cfg.physics.pr,
+            nu_tilde_inf: turb_cfg.nu_tilde_inf,
+            pr_t: turb_cfg.pr_t,
+        },
+    };
+    let cfl = cfg.numerics.cfl;
+    let t_end = cfg.time.final_time;
+    let max_steps = if cfg.time.max_steps > 0 {
+        cfg.time.max_steps as usize
+    } else {
+        1_000_000
+    };
+    let t0 = Instant::now();
+    let mut t = 0.0;
+    let mut steps = 0usize;
+    let mut ok = true;
+    while t < t_end && steps < max_steps {
+        match advance2d_sa_rk2(&mut st, &mut turb, &g, gamma, cfl, true, &bc) {
+            Ok(dt) => t += dt,
+            Err(e) => {
+                eprintln!("solver error: {e}");
+                ok = false;
+                break;
+            }
+        }
+        steps += 1;
+    }
+    if ok {
+        println!(
+            "case {} ({})\nthink: rans 2d sa, {}x{}\nsteps: {}\ntime: {:.4}\nwall: {:.3}s",
+            cfg.metadata.name,
+            path,
+            g.nx,
+            g.ny,
+            steps,
+            t,
+            t0.elapsed().as_secs_f64()
+        );
+        // report skin friction along the solid walls: tau_w = mu du/dy at the
+        // first cell off the wall, cf = 2 tau_w / (rho_inf u_inf^2).
+        let report_cf = |label: &str, wall_low: bool| {
+            let (u, v, et) =
+                cons_to_prim2d(&st.rho, &st.mx, &st.my, &st.e).expect("final state readable");
+            let p = eos_pressure2d(gamma, &st.rho, &et, &u, &v).expect("final pressure readable");
+            let _ = (v, p);
+            let j_wall = if wall_low { 0 } else { g.ny - 1 };
+            let j_in = if wall_low { 1 } else { g.ny - 2 };
+            let rho_inf = match &cfg.initial_condition {
+                InitialCondition::Uniform { rho, .. } => *rho,
+                InitialCondition::TwoState { left, .. } => left.rho,
+                InitialCondition::Blast { ambient, .. } => ambient.rho,
+            };
+            let u_inf = match &cfg.initial_condition {
+                InitialCondition::Uniform { u, .. } => *u,
+                InitialCondition::TwoState { left, .. } => left.u,
+                InitialCondition::Blast { .. } => 0.0,
+            };
+            if u_inf <= 0.0 || rho_inf <= 0.0 {
+                return;
+            }
+            println!("cf profile ({label}): x, cf");
+            for i in 0..g.nx {
+                // the same quadratic-consistent wall derivative the solver
+                // uses, so the report matches the flux actually applied.
+                let du = (9.0 * u[j_wall * g.nx + i] - u[j_in * g.nx + i]) / (3.0 * g.dy);
+                let tau = mu * du;
+                let cf = 2.0 * tau / (rho_inf * u_inf * u_inf);
+                println!("  {:.4} {:.6e}", g.centers_x[j_wall * g.nx + i], cf);
+            }
+        };
+        if matches!(bc.south, Bc2d::NoSlipWall) {
+            report_cf("bottom", true);
+        }
+        if matches!(bc.north, Bc2d::NoSlipWall) {
+            report_cf("top", false);
+        }
+        write_case_vtk2d(path, &cfg.metadata.name, &g, &st, gamma)
+    } else {
+        1
+    }
+}
+
 /// solve a 2d case on an imported gmsh (.msh) unstructured mesh: build the
 /// cell-centered grid, drop a blast IC, and advance with the face-based solver.
 fn run_case_2d_msh(cfg: &CaseConfig, path: &str, msh_path: &str) -> i32 {
@@ -861,7 +1005,7 @@ fn run_case_2d_msh(cfg: &CaseConfig, path: &str, msh_path: &str) -> i32 {
         }
     };
     // cell centers are the ugrid centroids; compute them from faces (mean of
-    // face midpoints weighted by nothing — use the vertex centroid from the mesh).
+    // face midpoints weighted by nothing; use the vertex centroid from the mesh).
     // simplest: reconstruct centers from m.nodes per cell.
     let mut centers_x = vec![0.0; nc];
     let mut centers_y = vec![0.0; nc];
