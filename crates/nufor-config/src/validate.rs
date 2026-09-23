@@ -66,6 +66,32 @@ impl CaseConfig {
                 self.mesh.x0, self.mesh.x1
             ));
         }
+        if self.mesh.source == "clustered" {
+            match self.mesh.first_cell {
+                Some(h) if h <= 0.0 => {
+                    problems.push("mesh.first_cell must be > 0".to_owned());
+                }
+                None => {
+                    problems
+                        .push("mesh.first_cell is required when source = \"clustered\"".to_owned());
+                }
+                _ => {}
+            }
+            if let Some(r) = self.mesh.growth {
+                if r <= 1.0 {
+                    problems.push(
+                        "mesh.growth must be > 1 (use source = \"uniform\" otherwise)".to_owned(),
+                    );
+                }
+            }
+            if let Some(mode) = &self.mesh.cluster {
+                if !matches!(mode.as_str(), "wall" | "channel" | "top") {
+                    problems.push(format!(
+                        "mesh.cluster must be \"wall\", \"channel\", or \"top\" (got \"{mode}\")"
+                    ));
+                }
+            }
+        }
 
         match &self.initial_condition {
             InitialCondition::Uniform { rho, p, .. } => {

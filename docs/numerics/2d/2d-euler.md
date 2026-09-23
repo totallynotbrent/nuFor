@@ -22,8 +22,15 @@ components.
 `face_states` reconstructs limited left/right interface values for each
 primitive with the van Leer (harmonic-mean) limiter, which is TVD and keeps the
 reconstructed value within the local data. With the limiter disabled the scheme
-falls back to piecewise-constant, first-order HLLC — the two are separated in
+falls back to piecewise-constant, first-order HLLC. The two are separated in
 the tests to show the order the limiter buys.
+
+On a non-uniform rectilinear grid the limiter acts on physical one-sided
+gradients (real distances, not index differences) and the reconstruction
+extrapolates to the true face positions, with ghost centers reflected across
+the boundary faces. Uniform axes keep the scalar fast path bit for bit, and a
+uniform grid built through the stretched generator matches the plain one
+exactly, so existing cases are untouched.
 
 ## Time stepping
 

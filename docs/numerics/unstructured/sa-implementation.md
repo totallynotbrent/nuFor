@@ -85,11 +85,14 @@ freestream behavior, not an instability.
   wall, reported per station by `nufor run` (cf rows after the summary)
 
 The flat-plate *quantitative* validation (Cf(x) against the flat-plate
-correlations at turbulent Reynolds numbers) still needs wall-normal
-clustering and an inflow that carries a boundary-layer profile; the uniform
-2D kernels and the uniform inflow state do not support those yet. Until
-then the plate case is a qualitative check: the layer grows, the reported
-Cf sits in a plausible band, and the SA field stays bounded.
+correlations at turbulent Reynolds numbers) still needs an inflow that
+carries a boundary-layer profile; the uniform inflow state does not support
+that yet. Wall-normal clustering is in: the solvers are metric-aware on
+non-uniform rectilinear grids (stretched or clustered meshes solve with the
+exact position-aware stencils, and the flat-plate case now ships with a
+clustered mesh). Until the profile inflow lands, the plate case stays
+qualitative: the layer grows, the reported Cf sits in a plausible band, and
+the SA field stays bounded.
 
 ## See also
 

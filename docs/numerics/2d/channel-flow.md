@@ -3,8 +3,8 @@ title: Laminar channel flow
 ---
 
 With viscous terms in place the solver finally models a real viscous boundary
-layer. The simplest such flow — steady, incompressible, pressure-driven flow
-between two parallel no-slip plates — has an exact parabolic solution (Poiseuille
+layer. The simplest such flow, steady incompressible pressure-driven flow
+between two parallel no-slip plates, has an exact parabolic solution (Poiseuille
 flow), so it is the natural first validation.
 
 ## The no-slip wall
@@ -35,6 +35,11 @@ the solver must hold it in place -- and it does, to better than a percent over
 the run, with density staying positive throughout. The profile error is
 dominated by the accumulated drift of the body-force-driven, mildly
 compressible flow, not by the viscous discretisation itself.
+
+The same hold runs on a wall-clustered channel (`channel_grid2d`, first cell
+hundreds of times finer than the mid-channel spacing): the position-aware
+stencils keep the balance exact there too, which is what lets boundary-layer
+cases put their resolution where the layer is.
 
 ## See also
 
