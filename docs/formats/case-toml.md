@@ -92,9 +92,12 @@ silently change a run.
 | `mesh.nz` | int | no | >= 1 | Cells in z (required for euler_3d; defaults to `nx`). |
 | `mesh.z0` | float | no | | Lower z edge (defaults to `x0`). |
 | `mesh.z1` | float | no | > z0 | Upper z edge (defaults to `x1`). |
-| `mesh.source` | string | no (default `uniform`) | `uniform` \| `file` | `uniform` builds a grid from nx/x0/x1; `file` loads a structured mesh from `mesh.path`. |
+| `mesh.source` | string | no (default `uniform`) | `uniform` \| `file` \| `clustered` | `uniform` builds a grid from nx/x0/x1; `file` loads a structured mesh from `mesh.path`; `clustered` stretches the y axis toward a wall (see `first_cell`/`growth`/`cluster`). |
 | `mesh.path` | string | no | | Mesh file read when `source = "file"`. |
 | `mesh.format` | string | no | `vtk` \| `coordinates` | Mesh-file dialect when `source = "file"`; auto-detected when absent. `vtk` reads an ascii `RECTILINEAR_GRID` or `STRUCTURED_POINTS` block; `coordinates` reads per-axis face lists (one coordinate per line, `#`/blank between axes). |
+| `mesh.first_cell` | float | yes when clustered | > 0 | First-cell height at the refined side when `source = "clustered"`. |
+| `mesh.growth` | float | no (default `1.15`) | > 1 | Geometric growth ratio of successive cells on a clustered axis. |
+| `mesh.cluster` | string | no (default `wall`) | `wall` \| `channel` \| `top` | Which side a clustered mesh refines: the bottom wall, both walls symmetric (needs an even `ny`), or the top wall. |
 | `initial_condition.type` | string | yes | `uniform` \| `two_state` \| `blast` | IC shape. |
 | `initial_condition` (uniform) | rho, u, p | yes | rho, p > 0 | Constant state. |
 | `initial_condition` (two_state) | left, right | yes | rho, p > 0 per side | Left/right constant states, e.g. a shock tube (1D). |

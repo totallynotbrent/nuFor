@@ -84,6 +84,38 @@ fn face_grad(ga: &Grads, gb: &Grads, ua: f64, ub: f64, va: f64, vb: f64) -> Face
     }
 }
 
+/// the face state on true positions: values and gradients are linearly
+/// interpolated from the two cell centers to the actual face position; on
+/// uniform spacing the face sits midway, so this is the plain average.
+#[allow(clippy::too_many_arguments)]
+fn face_grad_interp(
+    ga: &Grads,
+    gb: &Grads,
+    ua: f64,
+    ub: f64,
+    va: f64,
+    vb: f64,
+    ca: f64,
+    cb: f64,
+    face: f64,
+) -> FaceGrad {
+    if (cb - ca).abs() < 1e-14 {
+        return face_grad(ga, gb, ua, ub, va, vb);
+    }
+    let w = (face - ca) / (cb - ca);
+    let mix = |a: f64, b: f64| a + w * (b - a);
+    FaceGrad {
+        u: mix(ua, ub),
+        v: mix(va, vb),
+        gux: mix(ga.ux, gb.ux),
+        guy: mix(ga.uy, gb.uy),
+        gvx: mix(ga.vx, gb.vx),
+        gvy: mix(ga.vy, gb.vy),
+        gtx: mix(ga.tx, gb.tx),
+        gty: mix(ga.ty, gb.ty),
+    }
+}
+
 /// cell-centred velocity and temperature gradients (central differencing).
 #[derive(Clone, Copy)]
 struct Grads {
@@ -183,6 +215,155 @@ fn cell_grads(
     out
 }
 
+/// cell gradients on true positions: each cell takes the exact 3-point
+/// lagrange derivative at its center over its two neighbors (ghost centers
+/// reflected across the domain faces), quadratic-exact on any spacing and
+/// the central difference when the axis is uniform.
+fn cell_grads_metric(
+    pu: &[f64],
+    pv: &[f64],
+    pt: &[f64],
+    nx: usize,
+    ny: usize,
+    m: &MeshMetrics,
+) -> Vec<Grads> {
+    let w = nx + 2;
+    let mut out = Vec::with_capacity(nx * ny);
+    for j in 0..ny {
+        for i in 0..nx {
+            let (ip, jp) = (i + 1, j + 1);
+            let (xa, xb, xc) = m.x_nodes(i, nx);
+            let (ya, yb, yc) = m.y_nodes(j, ny);
+            let ux = quad_deriv_at(
+                pu[jp * w + i],
+                pu[jp * w + ip],
+                pu[jp * w + (i + 2)],
+                xa,
+                xb,
+                xc,
+                xb,
+            );
+            let vx = quad_deriv_at(
+                pv[jp * w + i],
+                pv[jp * w + ip],
+                pv[jp * w + (i + 2)],
+                xa,
+                xb,
+                xc,
+                xb,
+            );
+            let tx = quad_deriv_at(
+                pt[jp * w + i],
+                pt[jp * w + ip],
+                pt[jp * w + (i + 2)],
+                xa,
+                xb,
+                xc,
+                xb,
+            );
+            let uy = quad_deriv_at(
+                pu[j * w + ip],
+                pu[jp * w + ip],
+                pu[(j + 2) * w + ip],
+                ya,
+                yb,
+                yc,
+                yb,
+            );
+            let vy = quad_deriv_at(
+                pv[j * w + ip],
+                pv[jp * w + ip],
+                pv[(j + 2) * w + ip],
+                ya,
+                yb,
+                yc,
+                yb,
+            );
+            let ty = quad_deriv_at(
+                pt[j * w + ip],
+                pt[jp * w + ip],
+                pt[(j + 2) * w + ip],
+                ya,
+                yb,
+                yc,
+                yb,
+            );
+            out.push(Grads {
+                ux,
+                uy,
+                vx,
+                vy,
+                tx,
+                ty,
+            });
+        }
+    }
+    out
+}
+
+/// the per-axis coordinates the stretched stencils need: interior centers
+/// plus the ghost centers reflected beyond the domain faces.
+pub(crate) struct MeshMetrics {
+    x_c: Vec<f64>,
+    y_c: Vec<f64>,
+    x_ghost: [f64; 2],
+    y_ghost: [f64; 2],
+}
+
+impl MeshMetrics {
+    /// build from a grid; only used when an axis is non-uniform.
+    pub(crate) fn new(g: &Grid2d) -> Self {
+        let x_c: Vec<f64> = (0..g.nx).map(|i| g.centers_x[i]).collect();
+        let y_c: Vec<f64> = (0..g.ny).map(|j| g.centers_y[j * g.nx]).collect();
+        let x_ghost = [
+            2.0 * g.faces_x[0] - g.centers_x[0],
+            2.0 * g.faces_x[g.nx] - g.centers_x[g.nx - 1],
+        ];
+        let y_ghost = [
+            2.0 * g.faces_y[0] - g.centers_y[0],
+            2.0 * g.faces_y[g.ny] - g.centers_y[(g.ny - 1) * g.nx],
+        ];
+        MeshMetrics {
+            x_c,
+            y_c,
+            x_ghost,
+            y_ghost,
+        }
+    }
+
+    /// the three node positions for the x derivative of cell i.
+    fn x_nodes(&self, i: usize, nx: usize) -> (f64, f64, f64) {
+        let c = self.x_c[i];
+        let l = if i == 0 {
+            self.x_ghost[0]
+        } else {
+            self.x_c[i - 1]
+        };
+        let r = if i == nx - 1 {
+            self.x_ghost[1]
+        } else {
+            self.x_c[i + 1]
+        };
+        (l, c, r)
+    }
+
+    /// the three node positions for the y derivative of cell j.
+    fn y_nodes(&self, j: usize, ny: usize) -> (f64, f64, f64) {
+        let c = self.y_c[j];
+        let l = if j == 0 {
+            self.y_ghost[0]
+        } else {
+            self.y_c[j - 1]
+        };
+        let r = if j == ny - 1 {
+            self.y_ghost[1]
+        } else {
+            self.y_c[j + 1]
+        };
+        (l, c, r)
+    }
+}
+
 /// add one viscous (diffusive) half-step to the state using central gradients.
 pub fn add_viscous(
     state: &mut ConservedState2d,
@@ -214,10 +395,26 @@ pub fn add_viscous_bc(
     add_viscous_cells(state, g, gamma, mu, pr, Some(turb), dt)
 }
 
+/// the derivative at y_eval of the quadratic through (y0, v0), (y1, v1),
+/// (y2, v2): the exact 3-point lagrange derivative on true positions.
+fn quad_deriv_at(v0: f64, v1: f64, v2: f64, y0: f64, y1: f64, y2: f64, y_eval: f64) -> f64 {
+    let w0 = (2.0 * y_eval - y1 - y2) / ((y0 - y1) * (y0 - y2));
+    let w1 = (2.0 * y_eval - y0 - y2) / ((y1 - y0) * (y1 - y2));
+    let w2 = (2.0 * y_eval - y0 - y1) / ((y2 - y0) * (y2 - y1));
+    v0 * w0 + v1 * w1 + v2 * w2
+}
+
+/// the wall-shear derivative on true positions: the quadratic through the
+/// wall value and the first two cell centers, evaluated at the wall.
+fn wall_shear_deriv(u0: f64, u1: f64, y_wall: f64, c0: f64, c1: f64) -> f64 {
+    quad_deriv_at(0.0, u0, u1, y_wall, c0, c1, y_wall)
+}
+
 /// the wall-shear flux on one no-slip face, exact for any profile that is
 /// quadratic near the wall (so both the linear sublayer and the laminar
 /// parabola): the one-sided lagrange derivative through the wall value and
-/// the first two cell centers, du/dy|_wall = (9 u_0 - u_1) / (3 dy).
+/// the first two cell centers; on a uniform grid it reduces to
+/// du/dy|_wall = (9 u_0 - u_1) / (3 dy).
 fn wall_shear_flux(u0: f64, u1: f64, v0: f64, v1: f64, mu_f: f64, dy: f64) -> (f64, f64) {
     let k = 1.0 / (3.0 * dy);
     (mu_f * (9.0 * u0 - u1) * k, mu_f * (9.0 * v0 - v1) * k)
@@ -242,6 +439,21 @@ fn wall_cell_grad(g: &mut Grads, u0: f64, u1: f64, v0: f64, v1: f64, dy: f64, fl
     let k = 1.0 / (3.0 * dy);
     g.uy = flip * (3.0 * u0 + u1) * k;
     g.vy = flip * (3.0 * v0 + v1) * k;
+}
+
+/// the stretched wall-cell y-gradient: the true derivative of the same
+/// quadratic at the wall cell's center (the sign is physical, so unlike the
+/// uniform shorthand there is no flip).
+fn wall_cell_grad_st(
+    g: &mut Grads,
+    uv: (f64, f64),
+    uv1: (f64, f64),
+    y_wall: f64,
+    c0: f64,
+    c1: f64,
+) {
+    g.uy = quad_deriv_at(0.0, uv.0, uv1.0, y_wall, c0, c1, c0);
+    g.vy = quad_deriv_at(0.0, uv.1, uv1.1, y_wall, c0, c1, c0);
 }
 
 /// the all-transmissive boundary set a laminar (wall-agnostic) pass uses.
@@ -298,8 +510,20 @@ pub fn add_viscous_cells(
         pad2d_vel(&v, nx, ny, bc),
         pad2d(&t, nx, ny),
     );
+    // stretched axes take the exact position-aware stencils; uniform keeps
+    // the scalar fast path bit-for-bit.
+    let unif_x = (0..nx).all(|i| (g.dxs[i] - g.dxs[0]).abs() <= 1e-9 * g.dxs[0].abs().max(1e-12));
+    let unif_y = (0..ny).all(|j| (g.dys[j] - g.dys[0]).abs() <= 1e-9 * g.dys[0].abs().max(1e-12));
+    let m = if unif_x && unif_y {
+        None
+    } else {
+        Some(MeshMetrics::new(g))
+    };
     let grads = {
-        let mut grads = cell_grads(&pu, &pv, &pt, nx, ny, 2.0 * g.dx, 2.0 * g.dy);
+        let mut grads = match &m {
+            None => cell_grads(&pu, &pv, &pt, nx, ny, 2.0 * g.dx, 2.0 * g.dy),
+            Some(mm) => cell_grads_metric(&pu, &pv, &pt, nx, ny, mm),
+        };
         // near-wall y-gradients use the quadratic-consistent one-sided
         // stencil so the wall cells balance exactly with the wall flux.
         let south = matches!(bc.south, crate::solver2d::Bc2d::NoSlipWall);
@@ -307,13 +531,33 @@ pub fn add_viscous_cells(
         if south {
             for i in 0..nx {
                 let (a, b) = (idx(i, 0), idx(i, 1));
-                wall_cell_grad(&mut grads[a], u[a], u[b], v[a], v[b], g.dy, 1.0);
+                match &m {
+                    None => wall_cell_grad(&mut grads[a], u[a], u[b], v[a], v[b], g.dy, 1.0),
+                    Some(mm) => wall_cell_grad_st(
+                        &mut grads[a],
+                        (u[a], v[a]),
+                        (u[b], v[b]),
+                        g.faces_y[0],
+                        mm.y_c[0],
+                        mm.y_c[1],
+                    ),
+                }
             }
         }
         if north {
             for i in 0..nx {
                 let (a, b) = (idx(i, ny - 1), idx(i, ny - 2));
-                wall_cell_grad(&mut grads[a], u[a], u[b], v[a], v[b], g.dy, -1.0);
+                match &m {
+                    None => wall_cell_grad(&mut grads[a], u[a], u[b], v[a], v[b], g.dy, -1.0),
+                    Some(mm) => wall_cell_grad_st(
+                        &mut grads[a],
+                        (u[a], v[a]),
+                        (u[b], v[b]),
+                        g.faces_y[ny],
+                        mm.y_c[ny - 1],
+                        mm.y_c[ny - 2],
+                    ),
+                }
             }
         }
         grads
@@ -330,6 +574,7 @@ pub fn add_viscous_cells(
         gamma,
     };
     let (dtdx, dtdy) = (dt / g.dx, dt / g.dy);
+    let (dxs_w, dys_w) = (&g.dxs, &g.dys);
     // x-face viscous flux (nx+1 faces per row); domain-edge faces carry zero flux.
     let mut fxm = vec![0.0; (nx + 1) * ny];
     let mut fym = vec![0.0; (nx + 1) * ny];
@@ -337,7 +582,17 @@ pub fn add_viscous_cells(
     for j in 0..ny {
         for f in 1..nx {
             let (a, b) = (idx(f - 1, j), idx(f, j));
-            let gf = face_grad(&grads[a], &grads[b], u[a], u[b], v[a], v[b]);
+            let gf = face_grad_interp(
+                &grads[a],
+                &grads[b],
+                u[a],
+                u[b],
+                v[a],
+                v[b],
+                g.centers_x[a],
+                g.centers_x[b],
+                g.faces_x[f],
+            );
             let (txx, txy, _, qx, _) = face_flux_split(&gf, mu_lam, mu_t, a, b, &coeffs);
             let k = f * ny + j;
             fxm[k] = txx;
@@ -351,10 +606,26 @@ pub fn add_viscous_cells(
     let mut gym_x = vec![0.0; nx * (ny + 1)];
     let mut gym_y = vec![0.0; nx * (ny + 1)];
     let mut gye = vec![0.0; nx * (ny + 1)];
+    let y_c0 = g.centers_y[0];
+    let y_c1 = g.centers_y[g.nx];
+    let y_c_n = g.centers_y[(g.ny - 1) * g.nx];
+    let y_c_nm1 = g.centers_y[(g.ny - 2) * g.nx];
     for i in 0..nx {
         for f in 1..ny {
             let (a, b) = (idx(i, f - 1), idx(i, f));
-            let gf = face_grad(&grads[a], &grads[b], u[a], u[b], v[a], v[b]);
+            let cy_a = g.centers_y[a];
+            let cy_b = g.centers_y[b];
+            let gf = face_grad_interp(
+                &grads[a],
+                &grads[b],
+                u[a],
+                u[b],
+                v[a],
+                v[b],
+                cy_a,
+                cy_b,
+                g.faces_y[f],
+            );
             let (_, txy, tyy, _, qy) = face_flux_split(&gf, mu_lam, mu_t, a, b, &coeffs);
             let k = i * (ny + 1) + f;
             gym_x[k] = txy;
@@ -369,7 +640,14 @@ pub fn add_viscous_cells(
             } else {
                 mu_lam + mu_t[a]
             };
-            let (txy, tyy) = wall_shear_flux(u[a], u[b], v[a], v[b], mu_f, g.dy);
+            let (txy, tyy) = if unif_y {
+                wall_shear_flux(u[a], u[b], v[a], v[b], mu_f, g.dy)
+            } else {
+                (
+                    mu_f * wall_shear_deriv(u[a], u[b], g.faces_y[0], y_c0, y_c1),
+                    mu_f * wall_shear_deriv(v[a], v[b], g.faces_y[0], y_c0, y_c1),
+                )
+            };
             let k = i * (ny + 1);
             gym_x[k] = txy;
             gym_y[k] = tyy;
@@ -384,26 +662,37 @@ pub fn add_viscous_cells(
             } else {
                 mu_lam + mu_t[a]
             };
-            let (txy, tyy) = wall_shear_flux(u[a], u[b], v[a], v[b], mu_f, g.dy);
+            // the uniform shorthand returns the south-oriented magnitude, so
+            // the stretched branch mirrors it: negate the sign-true derivative.
+            let (txy, tyy) = if unif_y {
+                wall_shear_flux(u[a], u[b], v[a], v[b], mu_f, g.dy)
+            } else {
+                (
+                    -mu_f * wall_shear_deriv(u[a], u[b], g.faces_y[ny], y_c_n, y_c_nm1),
+                    -mu_f * wall_shear_deriv(v[a], v[b], g.faces_y[ny], y_c_n, y_c_nm1),
+                )
+            };
             let k = i * (ny + 1) + ny;
             gym_x[k] = -txy;
             gym_y[k] = -tyy;
             gye[k] = -(u[a] * txy + v[a] * tyy);
         }
     }
-    for j in 0..ny {
-        for i in 0..nx {
+    for (j, &dyw) in dys_w.iter().enumerate() {
+        for (i, &dxw) in dxs_w.iter().enumerate() {
             let c = idx(i, j);
             // x-face divergence: faces i and i+1 bound cell i.
             let (a, b) = (i * ny + j, (i + 1) * ny + j);
-            state.mx[c] += dtdx * (fxm[b] - fxm[a]);
-            state.my[c] += dtdx * (fym[b] - fym[a]);
-            state.e[c] += dtdx * (fe[b] - fe[a]);
+            let dxi = if unif_x { dtdx } else { dt / dxw };
+            state.mx[c] += dxi * (fxm[b] - fxm[a]);
+            state.my[c] += dxi * (fym[b] - fym[a]);
+            state.e[c] += dxi * (fe[b] - fe[a]);
             // y-face divergence: faces j and j+1 bound cell j.
             let (d, e) = (i * (ny + 1) + j, i * (ny + 1) + j + 1);
-            state.mx[c] += dtdy * (gym_x[e] - gym_x[d]);
-            state.my[c] += dtdy * (gym_y[e] - gym_y[d]);
-            state.e[c] += dtdy * (gye[e] - gye[d]);
+            let dyj = if unif_y { dtdy } else { dt / dyw };
+            state.mx[c] += dyj * (gym_x[e] - gym_x[d]);
+            state.my[c] += dyj * (gym_y[e] - gym_y[d]);
+            state.e[c] += dyj * (gye[e] - gye[d]);
         }
     }
     Ok(())

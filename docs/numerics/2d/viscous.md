@@ -36,6 +36,16 @@ update as the inviscid flux, but with the sign a diverging diffusive flux
 requires. The domain-edge faces carry zero viscous flux, so the viscous terms
 conserve mass and total energy exactly (no transport leaks through the sides).
 
+On a non-uniform rectilinear grid the same machinery runs metric-aware: each
+cell takes the exact three-point Lagrange derivative at its true center over
+its neighbors (quadratic-exact on any spacing, the plain central difference
+when the axis is uniform), face values interpolate to the true face
+position, and the divergence divides by the cell's own width. The wall
+treatment generalizes the same way: the one-sided quadratic through the wall
+value and the first two cell centers is evaluated on the true positions, so
+the stretched Poiseuille hold balances to machine precision. Uniform grids
+keep the original scalar fast path bit for bit.
+
 ## Stability
 
 Explicit diffusion is unstable unless the time step respects the diffusive

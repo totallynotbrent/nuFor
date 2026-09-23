@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.4.1] - 2026-09-23
+
+Stretched grids solve correctly now. The 2D Euler, viscous, and SA transport
+steps are metric-aware on any non-uniform rectilinear mesh: reconstruction
+uses the true cell centers and faces, gradients are the exact three-point
+Lagrange derivatives (the plain central difference on uniform spacing), the
+wall shear uses the true wall geometry, and the divergence divides by each
+cell's own width. Uniform grids keep the original fast path bit for bit, so
+existing cases are untouched. The stretched Poiseuille hold balances to
+machine precision and a contained bump conserves mass to roundoff on a
+clustered grid.
+
+Cases can now ask for a clustered mesh directly: `mesh.source = "clustered"`
+with `first_cell`, `growth`, and `cluster = "wall" | "channel" | "top"`. The
+flat-plate case ships with a wall-clustered grid, the piece the turbulent
+wall treatment needs.
+
+Imported non-uniform meshes were silently solved with uniform-spacing
+formulas before this; the same fix corrects them.
+
 ## [1.4.0] - 2026-09-21
 
 Turbulence: the solver now carries the Spalart-Allmaras model. A case with

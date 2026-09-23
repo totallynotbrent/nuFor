@@ -143,6 +143,15 @@ pub fn advance_turb(
     let pn = pad_scalar(&turb.nu_tilde, nx, ny, bc);
     let w = nx + 2;
     let mut new_nt = turb.nu_tilde.clone();
+    // per-cell width ratios; uniform axes keep the scalar fast path.
+    let unif_x = (0..nx).all(|i| (g.dxs[i] - g.dxs[0]).abs() <= 1e-9 * g.dxs[0].abs().max(1e-12));
+    let unif_y = (0..ny).all(|j| (g.dys[j] - g.dys[0]).abs() <= 1e-9 * g.dys[0].abs().max(1e-12));
+    let inv_xs: Vec<f64> = g.dxs.iter().map(|w| 1.0 / w).collect();
+    let inv_ys: Vec<f64> = g.dys.iter().map(|w| 1.0 / w).collect();
+    let (inv_x, inv_y) = (
+        if unif_x { 1.0 / g.dx } else { 0.0 },
+        if unif_y { 1.0 / g.dy } else { 0.0 },
+    );
 
     for j in 0..ny {
         for i in 0..nx {
@@ -182,7 +191,20 @@ pub fn advance_turb(
                 f_adv[k] = rho_f * u_f * nt_up;
                 let nt_f = 0.5 * (left + right);
                 let nu_f = mu_lam / rho_f.max(1e-12);
-                f_dif[k] = (nu_f + nt_f) / SIGMA * (right - left) / g.dx;
+                let inv = if unif_x {
+                    inv_x
+                } else {
+                    // the true center-to-center distance across face f.
+                    let dc = if f == 0 {
+                        g.centers_x[j * nx] - g.faces_x[0]
+                    } else if f == nx {
+                        g.faces_x[nx] - g.centers_x[j * nx + nx - 1]
+                    } else {
+                        g.centers_x[j * nx + f] - g.centers_x[j * nx + f - 1]
+                    };
+                    1.0 / dc
+                };
+                f_dif[k] = (nu_f + nt_f) / SIGMA * (right - left) * inv;
             }
             // y-faces: face f sits between padded rows f and f+1; cell j owns
             // faces j (bottom) and j+1 (top).
@@ -211,16 +233,83 @@ pub fn advance_turb(
                 f_adv[k + 2] = rho_f * v_f * nt_up;
                 let nt_f = 0.5 * (below + above);
                 let nu_f = mu_lam / rho_f.max(1e-12);
-                f_dif[k + 2] = (nu_f + nt_f) / SIGMA * (above - below) / g.dy;
+                let inv = if unif_y {
+                    inv_y
+                } else {
+                    // the true center-to-center distance across face f.
+                    let dc = if f == 0 {
+                        g.centers_y[i] - g.faces_y[0]
+                    } else if f == ny {
+                        g.faces_y[ny] - g.centers_y[(ny - 1) * nx + i]
+                    } else {
+                        g.centers_y[f * nx + i] - g.centers_y[(f - 1) * nx + i]
+                    };
+                    1.0 / dc
+                };
+                f_dif[k + 2] = (nu_f + nt_f) / SIGMA * (above - below) * inv;
             }
             // conservative flux differences: advection out minus in, diffusion
             // in minus out (the laplacian has a plus sign in the sa equation).
-            let adv_net = (f_adv[1] - f_adv[0]) / g.dx + (f_adv[3] - f_adv[2]) / g.dy;
-            let dif_net = (f_dif[1] - f_dif[0]) / g.dx + (f_dif[3] - f_dif[2]) / g.dy;
+            let inv_x_i = if unif_x { inv_x } else { inv_xs[i] };
+            let inv_y_j = if unif_y { inv_y } else { inv_ys[j] };
+            let adv_net = (f_adv[1] - f_adv[0]) * inv_x_i + (f_adv[3] - f_adv[2]) * inv_y_j;
+            let dif_net = (f_dif[1] - f_dif[0]) * inv_x_i + (f_dif[3] - f_dif[2]) * inv_y_j;
             // the c_b2/sigma cross term from cell-centered gradients.
             let (ip, jp) = (i + 1, j + 1);
-            let gx = (pn[jp * w + i + 2] - pn[jp * w + i]) / (2.0 * g.dx);
-            let gy = (pn[(j + 2) * w + ip] - pn[j * w + ip]) / (2.0 * g.dy);
+            let (gx, gy) = if unif_x && unif_y {
+                (
+                    (pn[jp * w + i + 2] - pn[jp * w + i]) / (2.0 * g.dx),
+                    (pn[(j + 2) * w + ip] - pn[j * w + ip]) / (2.0 * g.dy),
+                )
+            } else {
+                // lagrange derivative at the cell center on true positions
+                // (ghost centers reflected across the domain faces).
+                let xg = if i == 0 {
+                    2.0 * g.faces_x[0] - g.centers_x[c]
+                } else {
+                    g.centers_x[c - 1]
+                };
+                let xgr = if i == nx - 1 {
+                    2.0 * g.faces_x[nx] - g.centers_x[c]
+                } else {
+                    g.centers_x[c + 1]
+                };
+                let yg = if j == 0 {
+                    2.0 * g.faces_y[0] - g.centers_y[c]
+                } else {
+                    g.centers_y[c - nx]
+                };
+                let ygt = if j == ny - 1 {
+                    2.0 * g.faces_y[ny] - g.centers_y[c]
+                } else {
+                    g.centers_y[c + nx]
+                };
+                let xc = g.centers_x[c];
+                let yc = g.centers_y[c];
+                let lag = |v0: f64, v1: f64, v2: f64, a: f64, b: f64, cc: f64| {
+                    v0 * (b - cc) / ((a - b) * (a - cc))
+                        + v1 * (2.0 * b - a - cc) / ((b - a) * (b - cc))
+                        + v2 * (b - a) / ((cc - a) * (cc - b))
+                };
+                (
+                    lag(
+                        pn[jp * w + i],
+                        pn[jp * w + ip],
+                        pn[jp * w + (i + 2)],
+                        xg,
+                        xc,
+                        xgr,
+                    ),
+                    lag(
+                        pn[j * w + ip],
+                        pn[jp * w + ip],
+                        pn[(j + 2) * w + ip],
+                        yg,
+                        yc,
+                        ygt,
+                    ),
+                )
+            };
             let cb2_term = C_B2 / SIGMA * (gx * gx + gy * gy);
             let src = source(turb.nu_tilde[c], s[c], d[c], nu_c, dt, rho);
             // advection is conservative in rho*nu_tilde (divide by rho);

@@ -39,7 +39,8 @@ are written next to the case file.
 | What you want | Key fields to change |
 |---|---|
 | A 2D/3D blast | `equations = "euler_2d"` or `"euler_3d"`, add `mesh.ny`/`nz`, `initial_condition.type = "blast"` |
-| A custom mesh | `mesh.source = "file"` + `mesh.path` to a list of cell centers |
+| A custom mesh | `mesh.source = "file"` + `mesh.path` to a mesh file |
+| A wall-clustered mesh | `mesh.source = "clustered"` + `first_cell`/`growth` (`cluster = "wall"`, `"channel"`, or `"top"`) |
 | A different end time | `time.final_time` |
 | More resolution | `mesh.nx` (and `ny`/`nz`) |
 
@@ -73,6 +74,13 @@ path = "grid.vtk"     # or "coords.txt"
 The solver runs on this grid, and the web UI's "mesh file" field (Display →
 mesh file → load mesh) renders the imported faces - non-uniform spacing
 visible - over the field.
+
+A clustered mesh can also be declared inline instead of imported: set
+`mesh.source = "clustered"` with `first_cell` (the height of the first cell
+at the refined side) and `growth` (the geometric ratio of each next cell),
+optionally `cluster = "wall"`, `"channel"`, or `"top"` for which side is
+refined. The flat-plate case under `cases/` uses this for its
+boundary-layer grid.
 
 Gmsh `.msh` (v2.2 ascii, triangles/quads) is also supported for 2D: the mesh
 is parsed, built into a cell-centered unstructured grid, and solved with the

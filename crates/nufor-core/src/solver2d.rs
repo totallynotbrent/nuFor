@@ -43,6 +43,56 @@ fn face_states(p: &[f64], n: usize, muscl: bool) -> (Vec<f64>, Vec<f64>) {
     (fl, fr)
 }
 
+/// muscl face states on a non-uniform axis: the limiter acts on physical
+/// one-sided gradients and the reconstruction extrapolates to the true face
+/// positions, with ghost centers reflected across the boundary faces.
+fn face_states_axis(
+    p: &[f64],
+    n: usize,
+    muscl: bool,
+    faces: &[f64],
+    centers: &[f64],
+) -> (Vec<f64>, Vec<f64>) {
+    let xg0 = 2.0 * faces[0] - centers[0];
+    let xgn = 2.0 * faces[n] - centers[n - 1];
+    let mut d = vec![0.0; n];
+    if muscl {
+        for i in 0..n {
+            let (xl, pl) = if i == 0 {
+                (xg0, p[0])
+            } else {
+                (centers[i - 1], p[i])
+            };
+            let (xr, pr) = if i == n - 1 {
+                (xgn, p[n + 1])
+            } else {
+                (centers[i + 1], p[i + 2])
+            };
+            let gm = (p[i + 1] - pl) / (centers[i] - xl);
+            let gp = (pr - p[i + 1]) / (xr - centers[i]);
+            d[i] = van_leer(gm, gp);
+        }
+    }
+    let mut fl = vec![0.0; n + 1];
+    let mut fr = vec![0.0; n + 1];
+    fl[0] = p[0];
+    fr[0] = p[1] - d[0] * (centers[0] - faces[0]);
+    fl[n] = p[n] + d[n - 1] * (faces[n] - centers[n - 1]);
+    fr[n] = p[n + 1];
+    for f in 1..n {
+        fl[f] = p[f] + d[f - 1] * (faces[f] - centers[f - 1]);
+        fr[f] = p[f + 1] - d[f] * (centers[f] - faces[f]);
+    }
+    (fl, fr)
+}
+
+/// true when every cell width on the axis matches the first to roundoff, so
+/// the uniform-grid fast paths (and their exact float behavior) apply.
+fn axis_uniform(ws: &[f64]) -> bool {
+    let w0 = ws[0].abs().max(1e-12);
+    ws.iter().all(|w| (w - ws[0]).abs() <= 1e-9 * w0)
+}
+
 /// a boundary condition applied to one side of the 2d domain.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Bc2d {
@@ -134,6 +184,13 @@ pub(crate) fn advance2d_capped(
     let dti = cfl * g.dx.min(g.dy) / smax_of(&u, &v, &p, &state.rho, gamma, nx * ny);
     let dt = dti.min(max_dt);
 
+    // stretched-axis handling: uniform axes keep the exact scalar fast path,
+    // non-uniform ones reconstruct and diverge with the true cell metrics.
+    let unif_x = axis_uniform(&g.dxs);
+    let unif_y = axis_uniform(&g.dys);
+    let dtdxs: Vec<f64> = g.dxs.iter().map(|w| dt / w).collect();
+    let dtdys: Vec<f64> = g.dys.iter().map(|w| dt / w).collect();
+
     // vertical (x) faces: one flux per row at each of the nx+1 vertical faces.
     let mut fx = vec![
         Sweep {
@@ -162,10 +219,23 @@ pub(crate) fn advance2d_capped(
             out[1..=nx].copy_from_slice(c);
             out
         };
-        let (rl, rr) = face_states(&pad(&pr, 0), nx, muscl);
-        let (ul, ur) = face_states(&pad(&pu, 1), nx, muscl);
-        let (vl, vr) = face_states(&pad(&pv, 2), nx, muscl);
-        let (pl, prr) = face_states(&pad(&pp, 3), nx, muscl);
+        let x_centers: Vec<f64> = g.faces_x[..nx]
+            .iter()
+            .zip(g.faces_x[1..].iter())
+            .map(|(a, b)| 0.5 * (a + b))
+            .collect();
+        let row_faces_states = |c: &[f64], var: usize| -> (Vec<f64>, Vec<f64>) {
+            let padded = pad(c, var);
+            if unif_x {
+                face_states(&padded, nx, muscl)
+            } else {
+                face_states_axis(&padded, nx, muscl, &g.faces_x, &x_centers)
+            }
+        };
+        let (rl, rr) = row_faces_states(&pr, 0);
+        let (ul, ur) = row_faces_states(&pu, 1);
+        let (vl, vr) = row_faces_states(&pv, 2);
+        let (pl, prr) = row_faces_states(&pp, 3);
         for f in 0..=nx {
             let q = hllc_flux(
                 gamma,
@@ -218,10 +288,23 @@ pub(crate) fn advance2d_capped(
             out[1..=ny].copy_from_slice(c);
             out
         };
-        let (rl, rr) = face_states(&pad(&cr, 0), ny, muscl);
-        let (ul, ur) = face_states(&pad(&cu, 1), ny, muscl);
-        let (vl, vr) = face_states(&pad(&cv, 2), ny, muscl);
-        let (pl, prr) = face_states(&pad(&cp, 3), ny, muscl);
+        let y_centers: Vec<f64> = g.faces_y[..ny]
+            .iter()
+            .zip(g.faces_y[1..].iter())
+            .map(|(a, b)| 0.5 * (a + b))
+            .collect();
+        let col_faces_states = |c: &[f64], var: usize| -> (Vec<f64>, Vec<f64>) {
+            let padded = pad(c, var);
+            if unif_y {
+                face_states(&padded, ny, muscl)
+            } else {
+                face_states_axis(&padded, ny, muscl, &g.faces_y, &y_centers)
+            }
+        };
+        let (rl, rr) = col_faces_states(&cr, 0);
+        let (ul, ur) = col_faces_states(&cu, 1);
+        let (vl, vr) = col_faces_states(&cv, 2);
+        let (pl, prr) = col_faces_states(&cp, 3);
         for f in 0..=ny {
             let q = hllc_flux(
                 gamma,
@@ -250,28 +333,51 @@ pub(crate) fn advance2d_capped(
     let dtdy = dt / g.dy;
     let mut resid = 0.0f64;
     for (j, fa) in fx.iter().enumerate() {
-        // transverse (y) contribution per cell in this row, all four fields.
-        let mut yr = vec![0.0; nx];
-        let mut ym = vec![0.0; nx];
-        let mut yn = vec![0.0; nx];
-        let mut ye = vec![0.0; nx];
-        for i in 0..nx {
-            let fycol = &fy[i];
-            yr[i] = dtdy * (fycol.mass[j + 1] - fycol.mass[j]);
-            ym[i] = dtdy * (fycol.mx[j + 1] - fycol.mx[j]);
-            yn[i] = dtdy * (fycol.my[j + 1] - fycol.my[j]);
-            ye[i] = dtdy * (fycol.e[j + 1] - fycol.e[j]);
-            resid = resid
-                .max((dtdx * (fa.mass[i + 1] - fa.mass[i]) + yr[i]).abs())
-                .max((dtdx * (fa.mx[i + 1] - fa.mx[i]) + ym[i]).abs())
-                .max((dtdx * (fa.my[i + 1] - fa.my[i]) + yn[i]).abs())
-                .max((dtdx * (fa.e[i + 1] - fa.e[i]) + ye[i]).abs());
+        // per-cell y factors; the uniform value when the y axis is uniform.
+        let dyf = if unif_y { dtdy } else { dtdys[j] };
+        if unif_x {
+            // transverse (y) contribution per cell in this row, all four fields.
+            let mut yr = vec![0.0; nx];
+            let mut ym = vec![0.0; nx];
+            let mut yn = vec![0.0; nx];
+            let mut ye = vec![0.0; nx];
+            for i in 0..nx {
+                let fycol = &fy[i];
+                yr[i] = dyf * (fycol.mass[j + 1] - fycol.mass[j]);
+                ym[i] = dyf * (fycol.mx[j + 1] - fycol.mx[j]);
+                yn[i] = dyf * (fycol.my[j + 1] - fycol.my[j]);
+                ye[i] = dyf * (fycol.e[j + 1] - fycol.e[j]);
+                resid = resid
+                    .max((dtdx * (fa.mass[i + 1] - fa.mass[i]) + yr[i]).abs())
+                    .max((dtdx * (fa.mx[i + 1] - fa.mx[i]) + ym[i]).abs())
+                    .max((dtdx * (fa.my[i + 1] - fa.my[i]) + yn[i]).abs())
+                    .max((dtdx * (fa.e[i + 1] - fa.e[i]) + ye[i]).abs());
+            }
+            let off = j * nx;
+            apply_divergence(&mut state.rho[off..off + nx], &fa.mass, &yr, dtdx);
+            apply_divergence(&mut state.mx[off..off + nx], &fa.mx, &ym, dtdx);
+            apply_divergence(&mut state.my[off..off + nx], &fa.my, &yn, dtdx);
+            apply_divergence(&mut state.e[off..off + nx], &fa.e, &ye, dtdx);
+        } else {
+            // stretched x: per-cell width ratios replace the constant dtdx.
+            for i in 0..nx {
+                let fycol = &fy[i];
+                let yr = dyf * (fycol.mass[j + 1] - fycol.mass[j]);
+                let ym = dyf * (fycol.mx[j + 1] - fycol.mx[j]);
+                let yn = dyf * (fycol.my[j + 1] - fycol.my[j]);
+                let ye = dyf * (fycol.e[j + 1] - fycol.e[j]);
+                resid = resid
+                    .max((dtdxs[i] * (fa.mass[i + 1] - fa.mass[i]) + yr).abs())
+                    .max((dtdxs[i] * (fa.mx[i + 1] - fa.mx[i]) + ym).abs())
+                    .max((dtdxs[i] * (fa.my[i + 1] - fa.my[i]) + yn).abs())
+                    .max((dtdxs[i] * (fa.e[i + 1] - fa.e[i]) + ye).abs());
+                let k = j * nx + i;
+                state.rho[k] -= dtdxs[i] * (fa.mass[i + 1] - fa.mass[i]) + yr;
+                state.mx[k] -= dtdxs[i] * (fa.mx[i + 1] - fa.mx[i]) + ym;
+                state.my[k] -= dtdxs[i] * (fa.my[i + 1] - fa.my[i]) + yn;
+                state.e[k] -= dtdxs[i] * (fa.e[i + 1] - fa.e[i]) + ye;
+            }
         }
-        let off = j * nx;
-        apply_divergence(&mut state.rho[off..off + nx], &fa.mass, &yr, dtdx);
-        apply_divergence(&mut state.mx[off..off + nx], &fa.mx, &ym, dtdx);
-        apply_divergence(&mut state.my[off..off + nx], &fa.my, &yn, dtdx);
-        apply_divergence(&mut state.e[off..off + nx], &fa.e, &ye, dtdx);
     }
     Ok((dt, resid))
 }
@@ -316,8 +422,20 @@ pub fn advance2d_par(
     let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
     let p = eos_pressure2d(gamma, &state.rho, &et, &u, &v)?;
     let dt = cfl * g.dx.min(g.dy) / smax_of(&u, &v, &p, &state.rho, gamma, nx * ny);
+    let unif_x = axis_uniform(&g.dxs);
+    let unif_y = axis_uniform(&g.dys);
     // a shared reference for the read-only flux closures so they can be Sync.
     let st: &ConservedState2d = state;
+    let x_centers: Vec<f64> = g.faces_x[..nx]
+        .iter()
+        .zip(g.faces_x[1..].iter())
+        .map(|(a, b)| 0.5 * (a + b))
+        .collect();
+    let y_centers: Vec<f64> = g.faces_y[..ny]
+        .iter()
+        .zip(g.faces_y[1..].iter())
+        .map(|(a, b)| 0.5 * (a + b))
+        .collect();
     let row_flux = |j: usize| -> Sweep {
         let (mut pr, mut pu, mut pv, mut pp) =
             (vec![0.0; nx], vec![0.0; nx], vec![0.0; nx], vec![0.0; nx]);
@@ -334,10 +452,18 @@ pub fn advance2d_par(
             out[1..=nx].copy_from_slice(c);
             out
         };
-        let (rl, rr) = face_states(&pad(&pr, 0), nx, muscl);
-        let (ul, ur) = face_states(&pad(&pu, 1), nx, muscl);
-        let (vl, vr) = face_states(&pad(&pv, 2), nx, muscl);
-        let (pl, prr) = face_states(&pad(&pp, 3), nx, muscl);
+        let row_faces_states = |c: &[f64], var: usize| -> (Vec<f64>, Vec<f64>) {
+            let padded = pad(c, var);
+            if unif_x {
+                face_states(&padded, nx, muscl)
+            } else {
+                face_states_axis(&padded, nx, muscl, &g.faces_x, &x_centers)
+            }
+        };
+        let (rl, rr) = row_faces_states(&pr, 0);
+        let (ul, ur) = row_faces_states(&pu, 1);
+        let (vl, vr) = row_faces_states(&pv, 2);
+        let (pl, prr) = row_faces_states(&pp, 3);
         let mut sw = Sweep {
             mass: vec![0.0; nx + 1],
             mx: vec![0.0; nx + 1],
@@ -384,10 +510,18 @@ pub fn advance2d_par(
             out[1..=ny].copy_from_slice(c);
             out
         };
-        let (rl, rr) = face_states(&pad(&cr, 0), ny, muscl);
-        let (ul, ur) = face_states(&pad(&cu, 1), ny, muscl);
-        let (vl, vr) = face_states(&pad(&cv, 2), ny, muscl);
-        let (pl, prr) = face_states(&pad(&cp, 3), ny, muscl);
+        let col_faces_states = |c: &[f64], var: usize| -> (Vec<f64>, Vec<f64>) {
+            let padded = pad(c, var);
+            if unif_y {
+                face_states(&padded, ny, muscl)
+            } else {
+                face_states_axis(&padded, ny, muscl, &g.faces_y, &y_centers)
+            }
+        };
+        let (rl, rr) = col_faces_states(&cr, 0);
+        let (ul, ur) = col_faces_states(&cu, 1);
+        let (vl, vr) = col_faces_states(&cv, 2);
+        let (pl, prr) = col_faces_states(&cp, 3);
         let mut sw = Sweep {
             mass: vec![0.0; ny + 1],
             mx: vec![0.0; ny + 1],
@@ -443,6 +577,8 @@ pub fn advance2d_par(
     // per-cell deltas are independent; compute them in parallel, apply serially.
     let dtdx = dt / g.dx;
     let dtdy = dt / g.dy;
+    let dtdxs: Vec<f64> = g.dxs.iter().map(|w| dt / w).collect();
+    let dtdys: Vec<f64> = g.dys.iter().map(|w| dt / w).collect();
     let cells = g.nx * g.ny;
     let mut resid = 0.0f64;
     let threads = nthreads.min(cells).max(1);
@@ -464,20 +600,32 @@ pub fn advance2d_par(
                 vec![0.0; end - start],
             );
             let mut res = 0.0f64;
+            let (dtdx_i, dtdy_j) = if unif_x && unif_y {
+                (dtdx, dtdy)
+            } else {
+                (0.0f64, 0.0f64)
+            };
             for c in start..end {
                 let i = c % nx;
                 let j = c / nx;
                 let k = c - start;
                 let fxrow = &fx[j];
                 let fycol = &fy[i];
-                drl[k] = dtdx * (fxrow.mass[i + 1] - fxrow.mass[i])
-                    + dtdy * (fycol.mass[j + 1] - fycol.mass[j]);
+                let (dxi, dyj) = if unif_x && unif_y {
+                    (dtdx_i, dtdy_j)
+                } else {
+                    (
+                        if unif_x { dtdx } else { dtdxs[i] },
+                        if unif_y { dtdy } else { dtdys[j] },
+                    )
+                };
+                drl[k] = dxi * (fxrow.mass[i + 1] - fxrow.mass[i])
+                    + dyj * (fycol.mass[j + 1] - fycol.mass[j]);
                 dml[k] =
-                    dtdx * (fxrow.mx[i + 1] - fxrow.mx[i]) + dtdy * (fycol.mx[j + 1] - fycol.mx[j]);
+                    dxi * (fxrow.mx[i + 1] - fxrow.mx[i]) + dyj * (fycol.mx[j + 1] - fycol.mx[j]);
                 dnl[k] =
-                    dtdx * (fxrow.my[i + 1] - fxrow.my[i]) + dtdy * (fycol.my[j + 1] - fycol.my[j]);
-                del[k] =
-                    dtdx * (fxrow.e[i + 1] - fxrow.e[i]) + dtdy * (fycol.e[j + 1] - fycol.e[j]);
+                    dxi * (fxrow.my[i + 1] - fxrow.my[i]) + dyj * (fycol.my[j + 1] - fycol.my[j]);
+                del[k] = dxi * (fxrow.e[i + 1] - fxrow.e[i]) + dyj * (fycol.e[j + 1] - fycol.e[j]);
                 res = res
                     .max(drl[k].abs())
                     .max(dml[k].abs())

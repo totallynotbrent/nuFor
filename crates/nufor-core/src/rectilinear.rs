@@ -120,3 +120,110 @@ fn minimum(v: &[f64]) -> f64 {
 fn strictly_increasing(v: &[f64]) -> bool {
     v.iter().all(|x| x.is_finite()) && v.windows(2).all(|w| w[1] > w[0])
 }
+
+/// face coordinates for one axis with geometric clustering: cells grow from
+/// `h0` by ratio `r` while they fit, and the remainder fills with equal
+/// width cells at least as wide as the last geometric one, so the spacing
+/// never jumps downward. `r <= 1` recovers a uniform grid.
+fn clustered_faces(a0: f64, a1: f64, n: usize, h0: f64, r: f64) -> Result<Vec<f64>, Error> {
+    if n < 1 || h0 <= 0.0 || r <= 0.0 {
+        return Err(Error::InvalidArgs);
+    }
+    let span = a1 - a0;
+    if span <= 0.0 {
+        return Err(Error::InvalidArgs);
+    }
+    if n == 1 || (r - 1.0).abs() < 1e-12 {
+        let w = span / n as f64;
+        return Ok((0..=n).map(|k| a0 + k as f64 * w).collect());
+    }
+    // cumulative width of m geometrically growing cells.
+    let cum = |m: usize| h0 * (r.powi(m as i32) - 1.0) / (r - 1.0);
+    let width = |k: usize| h0 * r.powi(k as i32);
+    // the largest geometric prefix that fits and leaves tail cells no
+    // narrower than the last geometric cell (monotone spacing).
+    let mut m = 0usize;
+    for cand in 1..n {
+        if cum(cand) > span {
+            break;
+        }
+        let tail = (span - cum(cand)) / (n - cand) as f64;
+        if tail + 1e-12 >= width(cand - 1) {
+            m = cand;
+        }
+    }
+    if m == 0 {
+        let w = span / n as f64;
+        return Ok((0..=n).map(|k| a0 + k as f64 * w).collect());
+    }
+    let mut faces = Vec::with_capacity(n + 1);
+    faces.push(a0);
+    for k in 0..m {
+        faces.push(faces[k] + width(k));
+    }
+    let tail = (span - cum(m)) / (n - m) as f64;
+    for k in 0..n - m {
+        faces.push(faces[m + k] + tail);
+    }
+    faces.truncate(n + 1);
+    faces[n] = a1;
+    Ok(faces)
+}
+
+/// how one axis is clustered toward a wall: the first-cell height and the
+/// geometric growth ratio of successive cells.
+#[derive(Debug, Clone, Copy)]
+pub struct Clustering {
+    /// first-cell height at the refined side.
+    pub first_cell: f64,
+    /// growth ratio of each next cell.
+    pub growth: f64,
+}
+
+/// a wall-normal clustered 2d grid for boundary-layer work: uniform in x,
+/// y clustered toward the bottom wall (the plate).
+pub fn stretched_grid2d(
+    nx: usize,
+    x0: f64,
+    x1: f64,
+    ny: usize,
+    y0: f64,
+    y1: f64,
+    c: Clustering,
+) -> Result<Grid2d, Error> {
+    let fx: Vec<f64> = (0..=nx)
+        .map(|i| x0 + (x1 - x0) * i as f64 / nx as f64)
+        .collect();
+    let fy = clustered_faces(y0, y1, ny, c.first_cell, c.growth)?;
+    rectilinear_grid2d(&fx, &fy)
+}
+
+/// a channel grid clustered toward both walls: the half-height is clustered
+/// bottom-up and mirrored, so the first cell at each wall is `first_cell`
+/// with growth `growth`. `ny` must be even so the channel halves split cleanly.
+pub fn channel_grid2d(
+    nx: usize,
+    x0: f64,
+    x1: f64,
+    ny: usize,
+    y0: f64,
+    y1: f64,
+    c: Clustering,
+) -> Result<Grid2d, Error> {
+    if ny < 2 || ny % 2 != 0 {
+        return Err(Error::InvalidArgs);
+    }
+    let fx: Vec<f64> = (0..=nx)
+        .map(|i| x0 + (x1 - x0) * i as f64 / nx as f64)
+        .collect();
+    let half = clustered_faces(y0, 0.5 * (y0 + y1), ny / 2, c.first_cell, c.growth)?;
+    let mut fy = half.clone();
+    // mirror the half-cluster about the channel centerline.
+    let ymid = 0.5 * (y0 + y1);
+    for &y in half.iter().rev().skip(1) {
+        fy.push(2.0 * ymid - y);
+    }
+    fy.truncate(ny + 1);
+    fy[ny] = y1;
+    rectilinear_grid2d(&fx, &fy)
+}

@@ -154,8 +154,9 @@ pub struct Mesh {
     /// z-domain upper edge.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub z1: Option<f64>,
-    /// how the mesh is produced: "uniform" from nx/x0/x1, or "file" loading a
-    /// list of cell centers from `path`.
+    /// how the mesh is produced: "uniform" from nx/x0/x1, "file" loading a
+    /// list of cell centers from `path`, or "clustered" stretching the y (and
+    /// optionally x) axis toward a wall with `first_cell`/`growth`.
     #[serde(default = "default_mesh_source")]
     pub source: String,
     /// cell-center mesh file read when source = "file".
@@ -165,6 +166,16 @@ pub struct Mesh {
     /// points) or "coordinates" (per-axis face lists). auto-detected when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub format: Option<String>,
+    /// first-cell height on a clustered axis (source = "clustered").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_cell: Option<f64>,
+    /// geometric growth ratio on a clustered axis (source = "clustered").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub growth: Option<f64>,
+    /// where source = "clustered" refines: "wall" (bottom), "top", or
+    /// "channel" (both sides); defaults to "wall".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cluster: Option<String>,
 }
 
 fn default_mesh_source() -> String {

@@ -548,6 +548,48 @@ fn build_2d_mesh(mesh: &Mesh) -> Result<Grid2d, String> {
             .ok_or_else(|| "mesh source = file needs a `path`".to_string())?;
         let m = mesh_io::load_rectilinear(path)?;
         mesh_io::rect_to_grid2d(&m)
+    } else if mesh.source == "clustered" {
+        let ny = mesh.ny.unwrap_or(mesh.nx) as usize;
+        let (y0, y1) = (mesh.y0.unwrap_or(mesh.x0), mesh.y1.unwrap_or(mesh.x1));
+        let h0 = mesh
+            .first_cell
+            .ok_or_else(|| "clustered mesh needs `first_cell`".to_string())?;
+        let cl = nufor_core::Clustering {
+            first_cell: h0,
+            growth: mesh.growth.unwrap_or(1.15),
+        };
+        let mode = mesh.cluster.as_deref().unwrap_or("wall");
+        match mode {
+            "wall" => {
+                nufor_core::stretched_grid2d(mesh.nx as usize, mesh.x0, mesh.x1, ny, y0, y1, cl)
+                    .map_err(|e| e.to_string())
+            }
+            "channel" => {
+                nufor_core::channel_grid2d(mesh.nx as usize, mesh.x0, mesh.x1, ny, y0, y1, cl)
+                    .map_err(|e| e.to_string())
+            }
+            "top" => {
+                // cluster toward the top by mirroring a bottom-clustered axis
+                // about the domain center (no reversal: mirroring the face
+                // list about ymid automatically reverses its order).
+                let g = nufor_core::stretched_grid2d(
+                    mesh.nx as usize,
+                    mesh.x0,
+                    mesh.x1,
+                    ny,
+                    y0,
+                    y1,
+                    cl,
+                )
+                .map_err(|e| e.to_string())?;
+                let ymid = 0.5 * (y0 + y1);
+                let fy: Vec<f64> = g.faces_y.iter().map(|y| 2.0 * ymid - y).collect();
+                nufor_core::rectilinear_grid2d(&g.faces_x, &fy).map_err(|e| e.to_string())
+            }
+            _ => Err(format!(
+                "unknown cluster mode `{mode}` (wall, channel, top)"
+            )),
+        }
     } else {
         let ny = mesh.ny.unwrap_or(mesh.nx) as usize;
         let (y0, y1) = (mesh.y0.unwrap_or(mesh.x0), mesh.y1.unwrap_or(mesh.x1));
