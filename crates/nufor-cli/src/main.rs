@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use nufor_config::{
-    load_case_config, BoundaryKind, CaseConfig, Equations, InitialCondition, Mesh, OutputFormat,
+    load_case_config, BoundaryKind, CaseConfig, Equations, InflowProfileSpec, InitialCondition,
+    Mesh, OutputFormat,
 };
 use nufor_core::{
     advance2d_rk2, advance2d_sa_rk2, advance3d_rk2, advance_ugrid, cons_to_prim2d, eos_pressure2d,
@@ -539,6 +540,45 @@ fn read_centers(path: &str) -> Result<Vec<f64>, String> {
         .collect()
 }
 
+/// read a tabulated inflow profile: one `y u v` row per line, `#` comments.
+fn load_inflow_table(path: &str) -> Result<nufor_core::InflowProfile, String> {
+    let text =
+        std::fs::read_to_string(path).map_err(|e| format!("could not read profile {path}: {e}"))?;
+    let (mut ys, mut us, mut vs) = (Vec::new(), Vec::new(), Vec::new());
+    for (n, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let cols: Vec<f64> = line
+            .split_whitespace()
+            .map(|c| {
+                c.parse::<f64>()
+                    .map_err(|e| format!("bad value in {path} line {}: {c} ({e})", n + 1))
+            })
+            .collect::<Result<_, _>>()?;
+        if cols.len() < 2 || cols.len() > 3 {
+            return Err(format!(
+                "profile row in {path} line {} needs 2 or 3 columns (y u [v]), got {}",
+                n + 1,
+                cols.len()
+            ));
+        }
+        ys.push(cols[0]);
+        us.push(cols[1]);
+        vs.push(*cols.get(2).unwrap_or(&0.0));
+    }
+    if ys.len() < 2 {
+        return Err(format!("profile {path} needs at least two rows"));
+    }
+    if ys.windows(2).any(|w| w[1] <= w[0]) {
+        return Err(format!(
+            "profile {path} y column must be strictly increasing"
+        ));
+    }
+    Ok(nufor_core::InflowProfile::Table { ys, us, vs })
+}
+
 /// build a 2d grid from a case's mesh section: uniform, or imported from a file.
 fn build_2d_mesh(mesh: &Mesh) -> Result<Grid2d, String> {
     if mesh.source == "file" {
@@ -870,6 +910,40 @@ fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
         .turbulence
         .expect("validated: physics.turbulence present");
     let n = g.nx * g.ny;
+    // the profile inflow, built once and shared by any profile side.
+    let profile: Option<nufor_core::InflowProfile> = match &cfg.boundaries.inflow_profile {
+        Some(InflowProfileSpec::Blasius { leading_edge }) => {
+            let rho_inf = match &cfg.initial_condition {
+                InitialCondition::Uniform { rho, .. } => *rho,
+                InitialCondition::TwoState { left, .. } => left.rho,
+                InitialCondition::Blast { ambient, .. } => ambient.rho,
+            };
+            let u_inf = match &cfg.initial_condition {
+                InitialCondition::Uniform { u, .. } => *u,
+                InitialCondition::TwoState { left, .. } => left.u,
+                InitialCondition::Blast { .. } => 0.0,
+            };
+            match nufor_core::BlasiusProfile::new(u_inf, mu / rho_inf.max(1e-12), *leading_edge) {
+                Ok(b) => {
+                    // the inflow plane sits at the west face: anchor the
+                    // layer's evaluation station there.
+                    Some(nufor_core::InflowProfile::Blasius(b.anchored_at(g.xmin)))
+                }
+                Err(e) => {
+                    eprintln!("inflow profile error: {e}");
+                    return 2;
+                }
+            }
+        }
+        Some(InflowProfileSpec::Table { path }) => match load_inflow_table(path) {
+            Ok(t) => Some(t),
+            Err(e) => {
+                eprintln!("inflow profile error: {e}");
+                return 2;
+            }
+        },
+        None => None,
+    };
     // boundary sides: wall maps to no-slip (the sa wall condition), inflow to
     // the fixed freestream, everything else transmissive.
     let side_bc = |k: BoundaryKind| match k {
@@ -891,6 +965,22 @@ fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
                 InitialCondition::TwoState { left, .. } => left.p,
                 InitialCondition::Blast { ambient, .. } => ambient.p,
             },
+        },
+        BoundaryKind::ProfileInflow => match &profile {
+            Some(p) => Bc2d::ProfileInflow {
+                profile: std::sync::Arc::new(p.clone()),
+                rho: match &cfg.initial_condition {
+                    InitialCondition::Uniform { rho, .. } => *rho,
+                    InitialCondition::TwoState { left, .. } => left.rho,
+                    InitialCondition::Blast { ambient, .. } => ambient.rho,
+                },
+                p: match &cfg.initial_condition {
+                    InitialCondition::Uniform { p, .. } => *p,
+                    InitialCondition::TwoState { left, .. } => left.p,
+                    InitialCondition::Blast { ambient, .. } => ambient.p,
+                },
+            },
+            None => Bc2d::Transmissive,
         },
         BoundaryKind::Outflow | BoundaryKind::Periodic => Bc2d::Transmissive,
     };
@@ -969,8 +1059,15 @@ fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
             println!("cf profile ({label}): x, cf");
             for i in 0..g.nx {
                 // the same quadratic-consistent wall derivative the solver
-                // uses, so the report matches the flux actually applied.
-                let du = (9.0 * u[j_wall * g.nx + i] - u[j_in * g.nx + i]) / (3.0 * g.dy);
+                // uses, evaluated at the true wall geometry so the report is
+                // right on a clustered mesh (on uniform spacing it reduces
+                // to (9 u0 - u1)/(3 dy)).
+                let (y0, y1) = (g.centers_y[j_wall * g.nx + i], g.centers_y[j_in * g.nx + i]);
+                let y_wall = if wall_low { g.ymin } else { g.ymax };
+                let (u0, u1) = (u[j_wall * g.nx + i], u[j_in * g.nx + i]);
+                let w0 = (y_wall - y1) / ((y0 - y_wall) * (y0 - y1));
+                let w1 = (y_wall - y0) / ((y1 - y_wall) * (y1 - y0));
+                let du = u0 * w0 + u1 * w1;
                 let tau = mu * du;
                 let cf = 2.0 * tau / (rho_inf * u_inf * u_inf);
                 println!("  {:.4} {:.6e}", g.centers_x[j_wall * g.nx + i], cf);

@@ -6,10 +6,11 @@
 use std::ffi::c_char;
 use std::os::raw::c_int;
 
+mod blasius;
 mod body;
 mod cfl;
 mod eos;
-mod eos2d;
+pub mod eos2d;
 mod eos3d;
 mod error;
 mod exact;
@@ -41,6 +42,7 @@ mod vectorize;
 mod viscous2d;
 mod wall_dist;
 
+pub use blasius::{BlasiusProfile, BlasiusTable, CF_CONST};
 pub use body::{apply_solid, SolidBody};
 pub use cfl::{cfl_dt, CflStep};
 pub use eos::{eos_mach, eos_pressure, eos_sound_speed, eos_temperature};
@@ -70,7 +72,7 @@ pub use solver::{
     advance, check_physical, euler_solve, Boundary, ConservedState, EulerConfig, EulerLog,
     EulerResult, PhysicalCheck, TerminationReason,
 };
-pub use solver2d::{advance2d, advance2d_par, advance2d_rk2, Bc2d, Boundaries2d};
+pub use solver2d::{advance2d, advance2d_par, advance2d_rk2, Bc2d, Boundaries2d, InflowProfile};
 pub use solver3d::{advance3d, advance3d_rk2};
 pub use solver_u::advance_ugrid;
 pub use state::{cons_to_prim, prim_to_cons};

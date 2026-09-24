@@ -84,15 +84,15 @@ freestream behavior, not an instability.
 - a flat-plate run develops a positive skin-friction distribution along the
   wall, reported per station by `nufor run` (cf rows after the summary)
 
-The flat-plate *quantitative* validation (Cf(x) against the flat-plate
-correlations at turbulent Reynolds numbers) still needs an inflow that
-carries a boundary-layer profile; the uniform inflow state does not support
-that yet. Wall-normal clustering is in: the solvers are metric-aware on
-non-uniform rectilinear grids (stretched or clustered meshes solve with the
-exact position-aware stencils, and the flat-plate case now ships with a
-clustered mesh). Until the profile inflow lands, the plate case stays
-qualitative: the layer grows, the reported Cf sits in a plausible band, and
-the SA field stays bounded.
+The flat-plate *quantitative* validation at turbulent Reynolds numbers (Cf(x)
+against the flat-plate correlations and the NASA TMR table) is the remaining
+milestone. The pieces it needed are now in: wall-normal clustering, the
+metric-aware solvers, and a profile-carrying inflow, validated end to end by
+the laminar Blasius hold (the layer is held to about two percent and the
+discrete Cf matches 0.664/sqrt(Re_x) within a few percent over the interior
+stations; see [[numerics/2d/blasius||the Blasius page]]). What is left is the
+turbulent run itself: pick the Reynolds number where the correlations apply,
+verify the SA freestream decay is tolerable over the run, and compare.
 
 ## See also
 

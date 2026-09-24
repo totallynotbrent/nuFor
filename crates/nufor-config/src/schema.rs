@@ -227,6 +227,26 @@ pub struct Boundaries {
     pub top: Option<BoundaryKind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bottom: Option<BoundaryKind>,
+    /// the inflow profile when a side is `profile_inflow`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inflow_profile: Option<InflowProfileSpec>,
+}
+
+/// how a profile-inflow side prescribes its boundary layer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case", tag = "type")]
+pub enum InflowProfileSpec {
+    /// the blasius laminar layer; `leading_edge` is the virtual x station
+    /// where the layer starts, upstream of or at the inflow face.
+    Blasius {
+        /// the virtual leading-edge x station (same units as mesh.x0).
+        leading_edge: f64,
+    },
+    /// a tabulated profile: y, u, v columns read from `path`.
+    Table {
+        /// the profile file: one `y u v` row per line, y strictly increasing.
+        path: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -236,6 +256,8 @@ pub enum BoundaryKind {
     Inflow,
     Outflow,
     Periodic,
+    /// inflow carrying a boundary-layer profile (see inflow_profile).
+    ProfileInflow,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

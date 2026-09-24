@@ -46,6 +46,12 @@ value and the first two cell centers is evaluated on the true positions, so
 the stretched Poiseuille hold balances to machine precision. Uniform grids
 keep the original scalar fast path bit for bit.
 
+A profile inflow side feeds the layer through this machinery too: the ghost
+velocities come from the profile at each row's true height (the Blasius
+profile or a loaded table), so the centred wall-normal gradient at the
+inflow column sees the shear the incoming layer actually carries. That is
+what keeps the Blasius hold balanced from the first cell.
+
 ## Stability
 
 Explicit diffusion is unstable unless the time step respects the diffusive

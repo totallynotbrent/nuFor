@@ -38,10 +38,14 @@ u = 0.2
 p = 1.0
 
 [boundaries]
-left = "inflow"
+left = "profile_inflow"
 right = "outflow"
 top = "outflow"
 bottom = "wall"
+
+[boundaries.inflow_profile]
+type = "blasius"
+leading_edge = 0.0
 
 [numerics]
 flux = "hllc"

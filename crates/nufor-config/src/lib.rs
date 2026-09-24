@@ -5,9 +5,9 @@ pub mod schema;
 mod validate;
 
 pub use schema::{
-    Boundaries, BoundaryKind, CaseConfig, Equations, FluxScheme, InitialCondition, Mesh, Metadata,
-    Numerics, Output, OutputFormat, Physics, Reconstruction, ReferenceConditions, State,
-    TimeControl, UnitSystem,
+    Boundaries, BoundaryKind, CaseConfig, Equations, FluxScheme, InflowProfileSpec,
+    InitialCondition, Mesh, Metadata, Numerics, Output, OutputFormat, Physics, Reconstruction,
+    ReferenceConditions, State, TimeControl, UnitSystem,
 };
 
 use std::fmt;

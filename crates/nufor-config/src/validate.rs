@@ -1,6 +1,6 @@
 //! semantic validation of a parsed case: termination criteria and physical ranges.
 
-use super::schema::{CaseConfig, InitialCondition};
+use super::schema::{BoundaryKind, CaseConfig, InitialCondition};
 
 impl CaseConfig {
     /// return every violated rule; empty means the case is valid.
@@ -91,6 +91,25 @@ impl CaseConfig {
                     ));
                 }
             }
+        }
+
+        // a profile-inflow side needs its profile spec, and a spec without a
+        // profile-inflow side would silently do nothing.
+        let is_profile = |k: &BoundaryKind| matches!(k, BoundaryKind::ProfileInflow);
+        let has_profile_side = is_profile(&self.boundaries.left)
+            || is_profile(&self.boundaries.right)
+            || self.boundaries.top.as_ref().is_some_and(is_profile)
+            || self.boundaries.bottom.as_ref().is_some_and(is_profile);
+        if has_profile_side && self.boundaries.inflow_profile.is_none() {
+            problems.push(
+                "boundaries.inflow_profile is required when a side is \"profile_inflow\""
+                    .to_owned(),
+            );
+        }
+        if !has_profile_side && self.boundaries.inflow_profile.is_some() {
+            problems.push(
+                "boundaries.inflow_profile is set but no side is \"profile_inflow\"".to_owned(),
+            );
         }
 
         match &self.initial_condition {
