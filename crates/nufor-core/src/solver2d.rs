@@ -1,5 +1,6 @@
 //! 2d euler finite-volume step: muscl reconstruction, hllc flux, conservative update.
 
+use crate::blasius::BlasiusProfile;
 use crate::eos2d::eos_pressure2d;
 use crate::grid2d::Grid2d;
 use crate::hllc2d::{hllc_flux, FacePrim};
@@ -93,14 +94,68 @@ fn axis_uniform(ws: &[f64]) -> bool {
     ws.iter().all(|w| (w - ws[0]).abs() <= 1e-9 * w0)
 }
 
+/// an inflow profile prescribing u(y)/v(y) along an inflow plane instead of
+/// one uniform state.
+#[derive(Debug, Clone, PartialEq)]
+pub enum InflowProfile {
+    /// the blasius laminar layer, evaluated at the inflow plane.
+    Blasius(BlasiusProfile),
+    /// a tabulated profile: (y, u, v) rows, linearly interpolated.
+    Table {
+        /// the station y-coordinates, strictly increasing.
+        ys: Vec<f64>,
+        /// the streamwise velocity per row.
+        us: Vec<f64>,
+        /// the wall-normal velocity per row.
+        vs: Vec<f64>,
+    },
+}
+
+impl InflowProfile {
+    /// the (u, v) prescribed at the inflow plane at height y; the plane's x
+    /// station is where the profile is anchored (for blasius, the leading
+    /// edge offset is folded in when the profile is built).
+    pub fn at(&self, y: f64) -> (f64, f64) {
+        match self {
+            InflowProfile::Blasius(b) => (b.u(b.x_in, y), b.v(b.x_in, y)),
+            InflowProfile::Table { ys, us, vs } => {
+                if ys.is_empty() {
+                    return (0.0, 0.0);
+                }
+                if y <= ys[0] {
+                    return (us[0], vs[0]);
+                }
+                if y >= *ys.last().unwrap() {
+                    let k = ys.len() - 1;
+                    return (us[k], vs[k]);
+                }
+                let i = ys.partition_point(|&v| v < y);
+                let (y0, y1) = (ys[i - 1], ys[i]);
+                let w = if y1 > y0 { (y - y0) / (y1 - y0) } else { 0.0 };
+                (
+                    us[i - 1] + w * (us[i] - us[i - 1]),
+                    vs[i - 1] + w * (vs[i] - vs[i - 1]),
+                )
+            }
+        }
+    }
+}
+
 /// a boundary condition applied to one side of the 2d domain.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum Bc2d {
     /// open end; the ghost copies the interior state so waves leave freely.
     #[default]
     Transmissive,
     /// fixed freestream primitive state, used at a supersonic inflow face.
     SupersonicInflow { rho: f64, u: f64, v: f64, p: f64 },
+    /// inflow carrying a boundary-layer profile: u(y)/v(y) from the profile,
+    /// rho/p from the freestream values.
+    ProfileInflow {
+        profile: std::sync::Arc<InflowProfile>,
+        rho: f64,
+        p: f64,
+    },
     /// the ghost copies the interior state, the usual supersonic outflow.
     SupersonicOutflow,
     /// solid wall; the ghost mirrors the normal velocity and copies the rest.
@@ -111,7 +166,7 @@ pub enum Bc2d {
 }
 
 /// the boundary condition on each of the four sides (west,east,south,north).
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Boundaries2d {
     pub west: Bc2d,
     pub east: Bc2d,
@@ -123,8 +178,10 @@ pub struct Boundaries2d {
 ///
 /// `var` is the variable index (0=rho,1=u,2=v,3=p) and `normal_var` the index of
 /// the velocity normal to the face (1 for vertical walls, 2 for horizontal), so
-/// a slip wall knows which component to reflect.
-fn ghost_value(bc: Bc2d, interior: f64, var: usize, normal_var: usize) -> f64 {
+/// a slip wall knows which component to reflect. a profile inflow additionally
+/// needs `face_pos`, the coordinate along the inflow plane where the ghost
+/// center sits (pass 0.0 when the side cannot be a profile).
+fn ghost_value(bc: &Bc2d, interior: f64, var: usize, normal_var: usize, face_pos: f64) -> f64 {
     match bc {
         Bc2d::Transmissive | Bc2d::SupersonicOutflow => interior,
         Bc2d::SlipWall => {
@@ -142,10 +199,18 @@ fn ghost_value(bc: Bc2d, interior: f64, var: usize, normal_var: usize) -> f64 {
             }
         }
         Bc2d::SupersonicInflow { rho, u, v, p } => match var {
-            0 => rho,
-            2 => v,
-            3 => p,
-            _ => u,
+            0 => *rho,
+            2 => *v,
+            3 => *p,
+            _ => *u,
+        },
+        Bc2d::ProfileInflow { profile, rho, p } => match var {
+            0 => *rho,
+            3 => *p,
+            // the ghost center sits one half-cell beyond the face; the
+            // profile is continuous, so evaluating at the true position.
+            1 => profile.at(face_pos).0,
+            _ => profile.at(face_pos).1,
         },
     }
 }
@@ -212,10 +277,13 @@ pub(crate) fn advance2d_capped(
             pv[i] = v[idx(i, j)];
             pp[i] = p[idx(i, j)];
         }
+        // the row's y coordinate: a west/east ghost cell shares it, so a
+        // profile inflow there evaluates at the row's own height.
+        let y_row = g.centers_y[j * nx];
         let pad = |c: &[f64], var: usize| -> Vec<f64> {
             let mut out = vec![0.0; nx + 2];
-            out[0] = ghost_value(bc.west, c[0], var, 1);
-            out[nx + 1] = ghost_value(bc.east, c[nx - 1], var, 1);
+            out[0] = ghost_value(&bc.west, c[0], var, 1, y_row);
+            out[nx + 1] = ghost_value(&bc.east, c[nx - 1], var, 1, y_row);
             out[1..=nx].copy_from_slice(c);
             out
         };
@@ -281,10 +349,15 @@ pub(crate) fn advance2d_capped(
             cv[j] = v[idx(i, j)];
             cp[j] = p[idx(i, j)];
         }
+        // the column's x coordinate and the reflected ghost-center x the
+        // profile inflow would evaluate at beyond a horizontal face.
+        let x_col = g.centers_x[i];
+        let x_ghost_s = 2.0 * g.faces_x[0] - x_col;
+        let x_ghost_n = 2.0 * g.faces_x[nx] - x_col;
         let pad = |c: &[f64], var: usize| -> Vec<f64> {
             let mut out = vec![0.0; ny + 2];
-            out[0] = ghost_value(bc.south, c[0], var, 2);
-            out[ny + 1] = ghost_value(bc.north, c[ny - 1], var, 2);
+            out[0] = ghost_value(&bc.south, c[0], var, 2, x_ghost_s);
+            out[ny + 1] = ghost_value(&bc.north, c[ny - 1], var, 2, x_ghost_n);
             out[1..=ny].copy_from_slice(c);
             out
         };
@@ -445,10 +518,11 @@ pub fn advance2d_par(
             pv[i] = v[idx(i, j)];
             pp[i] = p[idx(i, j)];
         }
+        let y_row = g.centers_y[j * nx];
         let pad = |c: &[f64], var: usize| -> Vec<f64> {
             let mut out = vec![0.0; nx + 2];
-            out[0] = ghost_value(bc.west, c[0], var, 1);
-            out[nx + 1] = ghost_value(bc.east, c[nx - 1], var, 1);
+            out[0] = ghost_value(&bc.west, c[0], var, 1, y_row);
+            out[nx + 1] = ghost_value(&bc.east, c[nx - 1], var, 1, y_row);
             out[1..=nx].copy_from_slice(c);
             out
         };
@@ -503,10 +577,13 @@ pub fn advance2d_par(
             cv[j] = v[idx(i, j)];
             cp[j] = p[idx(i, j)];
         }
+        let x_col = g.centers_x[i];
+        let x_ghost_s = 2.0 * g.faces_x[0] - x_col;
+        let x_ghost_n = 2.0 * g.faces_x[nx] - x_col;
         let pad = |c: &[f64], var: usize| -> Vec<f64> {
             let mut out = vec![0.0; ny + 2];
-            out[0] = ghost_value(bc.south, c[0], var, 2);
-            out[ny + 1] = ghost_value(bc.north, c[ny - 1], var, 2);
+            out[0] = ghost_value(&bc.south, c[0], var, 2, x_ghost_s);
+            out[ny + 1] = ghost_value(&bc.north, c[ny - 1], var, 2, x_ghost_n);
             out[1..=ny].copy_from_slice(c);
             out
         };

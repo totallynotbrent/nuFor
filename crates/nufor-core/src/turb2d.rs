@@ -43,8 +43,12 @@ pub struct SaParams {
 }
 
 /// vorticity magnitude s = sqrt(2 omega_ij omega_ij) from centered velocity
-/// gradients; in 2d this is |dv/dx - du/dy|.
-fn vorticity(u: &[f64], v: &[f64], nx: usize, ny: usize, dx: f64, dy: f64) -> Vec<f64> {
+/// gradients; in 2d this is |dv/dx - du/dy|. on stretched axes the
+/// derivatives use the true neighbor distances (the plain central
+/// difference when uniform).
+fn vorticity(u: &[f64], v: &[f64], g: &Grid2d, unif_x: bool, unif_y: bool) -> Vec<f64> {
+    let (dx, dy) = (g.dx, g.dy);
+    let (nx, ny) = (g.nx, g.ny);
     let w = nx + 2;
     let pad = |f: &[f64]| -> Vec<f64> {
         let mut out = vec![0.0; w * (ny + 2)];
@@ -69,16 +73,51 @@ fn vorticity(u: &[f64], v: &[f64], nx: usize, ny: usize, dx: f64, dy: f64) -> Ve
     for j in 0..ny {
         for i in 0..nx {
             let (ip, jp) = (i + 1, j + 1);
-            let dvdx = (pv[jp * w + (i + 2)] - pv[jp * w + i]) / (2.0 * dx);
-            let dudy = (pu[(j + 2) * w + ip] - pu[j * w + ip]) / (2.0 * dy);
-            out[j * nx + i] = (dvdx - dudy).abs();
+            let c = j * nx + i;
+            let dvdx = if unif_x {
+                (pv[jp * w + (i + 2)] - pv[jp * w + i]) / (2.0 * dx)
+            } else {
+                // the 3-point lagrange derivative at the cell center over
+                // its neighbors, on their true positions.
+                let (xl, xr) = if i == 0 {
+                    (2.0 * g.faces_x[0] - g.faces_x[1], g.faces_x[1])
+                } else if i == nx - 1 {
+                    (g.faces_x[nx - 1], 2.0 * g.faces_x[nx] - g.faces_x[nx - 1])
+                } else {
+                    (g.faces_x[i], g.faces_x[i + 1])
+                };
+                let xc = 0.5 * (g.faces_x[i] + g.faces_x[i + 1]);
+                let (vl, vc, vr) = (pv[jp * w + i], pv[jp * w + ip], pv[jp * w + (i + 2)]);
+                let w_l = (xc - xr) / ((xl - xc) * (xl - xr));
+                let w_c = (2.0 * xc - xl - xr) / ((xc - xl) * (xc - xr));
+                let w_r = (xc - xl) / ((xr - xl) * (xr - xc));
+                vl * w_l + vc * w_c + vr * w_r
+            };
+            let dudy = if unif_y {
+                (pu[(j + 2) * w + ip] - pu[j * w + ip]) / (2.0 * dy)
+            } else {
+                let (yl, yu) = if j == 0 {
+                    (2.0 * g.faces_y[0] - g.faces_y[1], g.faces_y[1])
+                } else if j == ny - 1 {
+                    (g.faces_y[ny - 1], 2.0 * g.faces_y[ny] - g.faces_y[ny - 1])
+                } else {
+                    (g.faces_y[j], g.faces_y[j + 1])
+                };
+                let yc = 0.5 * (g.faces_y[j] + g.faces_y[j + 1]);
+                let (vl, vc, vu) = (pu[j * w + ip], pu[jp * w + ip], pu[(j + 2) * w + ip]);
+                let w_l = (yc - yu) / ((yl - yc) * (yl - yu));
+                let w_c = (2.0 * yc - yl - yu) / ((yc - yl) * (yc - yu));
+                let w_u = (yc - yl) / ((yu - yl) * (yu - yc));
+                vl * w_l + vc * w_c + vu * w_u
+            };
+            out[c] = (dvdx - dudy).abs();
         }
     }
     out
 }
 
 /// true when a boundary side is a solid wall (sa zeroes nu_tilde there).
-fn is_wall(bc: crate::solver2d::Bc2d) -> bool {
+fn is_wall(bc: &crate::solver2d::Bc2d) -> bool {
     matches!(
         bc,
         crate::solver2d::Bc2d::SlipWall | crate::solver2d::Bc2d::NoSlipWall
@@ -95,20 +134,20 @@ fn pad_scalar(nt: &[f64], nx: usize, ny: usize, bc: &Boundaries2d) -> Vec<f64> {
         }
     }
     for j in 0..ny {
-        out[(j + 1) * w] = if is_wall(bc.west) {
+        out[(j + 1) * w] = if is_wall(&bc.west) {
             0.0
         } else {
             out[(j + 1) * w + 1]
         };
-        out[(j + 1) * w + nx + 1] = if is_wall(bc.east) {
+        out[(j + 1) * w + nx + 1] = if is_wall(&bc.east) {
             0.0
         } else {
             out[(j + 1) * w + nx]
         };
     }
     for i in 0..w {
-        out[i] = if is_wall(bc.south) { 0.0 } else { out[i + w] };
-        out[(ny + 1) * w + i] = if is_wall(bc.north) {
+        out[i] = if is_wall(&bc.south) { 0.0 } else { out[i + w] };
+        out[(ny + 1) * w + i] = if is_wall(&bc.north) {
             0.0
         } else {
             out[ny * w + i]
@@ -139,13 +178,13 @@ pub fn advance_turb(
         return Ok(());
     }
     let (u, v, _et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
-    let s = vorticity(&u, &v, nx, ny, g.dx, g.dy);
-    let pn = pad_scalar(&turb.nu_tilde, nx, ny, bc);
-    let w = nx + 2;
-    let mut new_nt = turb.nu_tilde.clone();
     // per-cell width ratios; uniform axes keep the scalar fast path.
     let unif_x = (0..nx).all(|i| (g.dxs[i] - g.dxs[0]).abs() <= 1e-9 * g.dxs[0].abs().max(1e-12));
     let unif_y = (0..ny).all(|j| (g.dys[j] - g.dys[0]).abs() <= 1e-9 * g.dys[0].abs().max(1e-12));
+    let s = vorticity(&u, &v, g, unif_x, unif_y);
+    let pn = pad_scalar(&turb.nu_tilde, nx, ny, bc);
+    let w = nx + 2;
+    let mut new_nt = turb.nu_tilde.clone();
     let inv_xs: Vec<f64> = g.dxs.iter().map(|w| 1.0 / w).collect();
     let inv_ys: Vec<f64> = g.dys.iter().map(|w| 1.0 / w).collect();
     let (inv_x, inv_y) = (

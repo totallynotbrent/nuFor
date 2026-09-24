@@ -41,6 +41,7 @@ are written next to the case file.
 | A 2D/3D blast | `equations = "euler_2d"` or `"euler_3d"`, add `mesh.ny`/`nz`, `initial_condition.type = "blast"` |
 | A custom mesh | `mesh.source = "file"` + `mesh.path` to a mesh file |
 | A wall-clustered mesh | `mesh.source = "clustered"` + `first_cell`/`growth` (`cluster = "wall"`, `"channel"`, or `"top"`) |
+| A boundary-layer inflow | `boundaries.left = "profile_inflow"` + `[boundaries.inflow_profile]` (a built-in Blasius layer or a `y u v` table) |
 | A different end time | `time.final_time` |
 | More resolution | `mesh.nx` (and `ny`/`nz`) |
 

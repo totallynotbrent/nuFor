@@ -39,8 +39,17 @@ fn pad2d(f: &[f64], nx: usize, ny: usize) -> Vec<f64> {
 
 /// the velocity pad: at a no-slip wall the ghost mirrors with a sign flip
 /// (u_ghost = -u_cell), the reflection that makes the centred gradient at
-/// the wall cell see the true wall shear; open sides copy.
-fn pad2d_vel(f: &[f64], nx: usize, ny: usize, bc: &Boundaries2d) -> Vec<f64> {
+/// the wall cell see the true wall shear; open sides copy; a profile inflow
+/// side carries the profile's value at the ghost center so the centred
+/// gradient sees the true incoming shear. `component` is 0 for u, 1 for v.
+fn pad2d_vel(
+    f: &[f64],
+    nx: usize,
+    ny: usize,
+    bc: &Boundaries2d,
+    centers_y: &[f64],
+    component: usize,
+) -> Vec<f64> {
     let w = nx + 2;
     let mut out = pad2d(f, nx, ny);
     let flip_s = matches!(bc.south, crate::solver2d::Bc2d::NoSlipWall);
@@ -53,6 +62,16 @@ fn pad2d_vel(f: &[f64], nx: usize, ny: usize, bc: &Boundaries2d) -> Vec<f64> {
     if flip_n {
         for i in 0..w {
             out[(ny + 1) * w + i] = -out[ny * w + i];
+        }
+    }
+    // a profile inflow prescribes the ghost velocity at the side; rho and p
+    // ghosts already copy (the profile holds freestream density/pressure).
+    for (side, ghost_col) in [(&bc.west, 0usize), (&bc.east, nx + 1)] {
+        if let crate::solver2d::Bc2d::ProfileInflow { profile, .. } = side {
+            for j in 0..ny {
+                let (pu, pv) = profile.at(centers_y[j]);
+                out[(j + 1) * w + ghost_col] = if component == 0 { pu } else { pv };
+            }
         }
     }
     out
@@ -87,7 +106,7 @@ fn face_grad(ga: &Grads, gb: &Grads, ua: f64, ub: f64, va: f64, vb: f64) -> Face
 /// the face state on true positions: values and gradients are linearly
 /// interpolated from the two cell centers to the actual face position; on
 /// uniform spacing the face sits midway, so this is the plain average.
-#[allow(clippy::too_many_arguments)]
+/// `pos` carries the two cell centers and the face position.
 fn face_grad_interp(
     ga: &Grads,
     gb: &Grads,
@@ -95,10 +114,9 @@ fn face_grad_interp(
     ub: f64,
     va: f64,
     vb: f64,
-    ca: f64,
-    cb: f64,
-    face: f64,
+    pos: (f64, f64, f64),
 ) -> FaceGrad {
+    let (ca, cb, face) = pos;
     if (cb - ca).abs() < 1e-14 {
         return face_grad(ga, gb, ua, ub, va, vb);
     }
@@ -505,9 +523,11 @@ pub fn add_viscous_cells(
     let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
     let p = eos_pressure2d(gamma, &state.rho, &et, &u, &v)?;
     let t: Vec<f64> = p.iter().zip(&state.rho).map(|(pp, r)| pp / r).collect();
+    // the per-row y centers the profile inflow ghosts evaluate at.
+    let centers_y: Vec<f64> = (0..ny).map(|j| g.centers_y[j * nx]).collect();
     let (pu, pv, pt) = (
-        pad2d_vel(&u, nx, ny, bc),
-        pad2d_vel(&v, nx, ny, bc),
+        pad2d_vel(&u, nx, ny, bc, &centers_y, 0),
+        pad2d_vel(&v, nx, ny, bc, &centers_y, 1),
         pad2d(&t, nx, ny),
     );
     // stretched axes take the exact position-aware stencils; uniform keeps
@@ -589,9 +609,7 @@ pub fn add_viscous_cells(
                 u[b],
                 v[a],
                 v[b],
-                g.centers_x[a],
-                g.centers_x[b],
-                g.faces_x[f],
+                (g.centers_x[a], g.centers_x[b], g.faces_x[f]),
             );
             let (txx, txy, _, qx, _) = face_flux_split(&gf, mu_lam, mu_t, a, b, &coeffs);
             let k = f * ny + j;
@@ -622,9 +640,7 @@ pub fn add_viscous_cells(
                 u[b],
                 v[a],
                 v[b],
-                cy_a,
-                cy_b,
-                g.faces_y[f],
+                (cy_a, cy_b, g.faces_y[f]),
             );
             let (_, txy, tyy, _, qy) = face_flux_split(&gf, mu_lam, mu_t, a, b, &coeffs);
             let k = i * (ny + 1) + f;

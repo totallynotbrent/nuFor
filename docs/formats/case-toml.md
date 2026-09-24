@@ -102,10 +102,13 @@ silently change a run.
 | `initial_condition` (uniform) | rho, u, p | yes | rho, p > 0 | Constant state. |
 | `initial_condition` (two_state) | left, right | yes | rho, p > 0 per side | Left/right constant states, e.g. a shock tube (1D). |
 | `initial_condition` (blast) | radius, ambient, fireball | yes | radius > 0; rho, p > 0 | Over-pressured fireball in ambient surroundings; the natural 2D/3D shock-tube. |
-| `boundaries.left` | string | yes | `wall` \| `inflow` \| `outflow` \| `periodic` | Left boundary condition. |
+| `boundaries.left` | string | yes | `wall` \| `inflow` \| `outflow` \| `periodic` \| `profile_inflow` | Left boundary condition. `profile_inflow` needs `[boundaries.inflow_profile]`. |
 | `boundaries.right` | string | yes | same set | Right boundary condition. |
 | `boundaries.top` | string | no | same set | Top boundary, honored by the 2D solvers (default `outflow`). |
 | `boundaries.bottom` | string | no | same set | Bottom boundary, honored by the 2D solvers (default `outflow`). A `wall` side is no-slip, which is what the SA model expects at a solid surface. |
+| `boundaries.inflow_profile.type` | string | with a `profile_inflow` side | `blasius` \| `table` | How the inflow profile is prescribed. |
+| `boundaries.inflow_profile.leading_edge` | float | with `type = "blasius"` | | The virtual x station where the layer starts, upstream of or at the inflow face. |
+| `boundaries.inflow_profile.path` | string | with `type = "table"` | | A profile file: one `y u v` row per line, y strictly increasing, `#` comments allowed. |
 | `numerics.flux` | string | yes | `hll` \| `hllc` | Riemann solver / approximate flux. |
 | `numerics.reconstruction` | string | yes | `first_order` \| `muscl` | Spatial reconstruction. |
 | `numerics.cfl` | float | yes | in (0, 1] | CFL number for the explicit time step. |

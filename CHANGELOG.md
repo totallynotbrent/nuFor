@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.4.2] - 2026-09-23
+
+Inflow can carry a boundary layer now. A case side set to `profile_inflow`
+prescribes u(y)/v(y) along the inflow plane instead of one uniform state,
+from either the built-in Blasius laminar layer (anchored at a virtual leading
+edge, the integrated similarity table matching the published values) or a
+tabulated `y u v` file. The inviscid ghosts, the reconstruction, and the
+viscous ghost gradients all evaluate the same profile at each row's true
+height, so the incoming layer is fed consistently from the first cell.
+
+With that, the laminar flat plate validates quantitatively: the analytic
+Blasius field laid into a clustered grid and fed by its own profile is held
+to about two percent, and the discrete skin friction matches the
+0.664/sqrt(Re_x) correlation within a few percent over the interior
+stations. The flat-plate case ships with the profile inflow.
+
+Also fixed in passing: the Cf report now differentiates at the true wall
+geometry (it was using the uniform-spacing shorthand, wrong on the shipped
+clustered mesh), and the SA vorticity uses true neighbor spacing on
+stretched grids.
+
 ## [1.4.1] - 2026-09-23
 
 Stretched grids solve correctly now. The 2D Euler, viscous, and SA transport
