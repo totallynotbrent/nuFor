@@ -51,13 +51,13 @@ fn fv2_and_r_agree_at_the_wall_limit() {
 
 #[test]
 fn fw_falls_from_one_toward_zero() {
-    // g = r + c_w2 (r^6 - r); fw = g ((1+c_w3^6)/(g^6+1+c_w3^6))^(1/6).
+    // g = r + c_w2 (r^6 - r); fw = g ((1+c_w3^6)/(g^6+c_w3^6))^(1/6).
     // canonical anchors: g(0) = 0 so fw(0) = 0 exactly; g(1) = 1 so
-    // fw(1) = (65/66)^(1/6) = 0.997459 (the log-layer value).
+    // fw(1) = (65/65)^(1/6) = 1 exactly (the log-layer equilibrium).
     assert!(g_func(0.0).abs() < EPS);
     assert!(fw(0.0).abs() < EPS);
     assert!((g_func(1.0) - 1.0).abs() < EPS);
-    assert!((fw(1.0) - 0.9974586560076582).abs() < 1e-12);
+    assert!((fw(1.0) - 1.0).abs() < 1e-12);
     // large r: g grows like c_w2 r^6 and fw rises past 1 (destruction
     // damping for the far-from-equilibrium region).
     assert!(fw(10.0) > 1.0);

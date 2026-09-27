@@ -23,7 +23,11 @@ runs, in order:
 
 It exits non-zero on the first failing group, so CI and a developer both run the
 same definition of "green". The GitHub Actions structure-check mirrors the
-hygiene part; the native job mirrors the clippy + test part.
+hygiene part; the native job mirrors the clippy + test part. One suite is
+deliberately outside the gate: the turbulent flat-plate march, a real
+boundary-layer integration that needs release mode and tens of thousands of
+steps, marked `#[ignore]` and run explicitly with
+`cargo test --release -- --ignored` when the turbulence path changes.
 
 ## What the suites anchor
 

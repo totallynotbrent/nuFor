@@ -84,8 +84,8 @@ pub use turb2d::{advance_turb, SaParams, TurbState};
 pub use ugrid::{MeshDiagnostics, Ugrid};
 pub use vectorize::{apply_divergence, simd_capability};
 pub use viscous2d::{
-    add_viscous, add_viscous_bc, add_viscous_cells, advance2d_sa_rk2, advance2d_visc_rk2,
-    sa_dt_cap, sutherland_mu, TurbCtx, ViscParams,
+    add_viscous, add_viscous_bc, add_viscous_cells, advance2d_sa_lts, advance2d_sa_rk2,
+    advance2d_visc_rk2, local_dts, sa_dt_cap, sutherland_mu, TurbCtx, ViscParams,
 };
 pub use wall_dist::wall_distance2d;
 

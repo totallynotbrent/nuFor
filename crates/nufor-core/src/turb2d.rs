@@ -165,6 +165,7 @@ pub fn advance_turb(
     g: &Grid2d,
     bc: &Boundaries2d,
     dt: f64,
+    dts: Option<&[f64]>,
 ) -> Result<(), Error> {
     let mu_lam = turb.params.mu;
     let d = &turb.d;
@@ -354,7 +355,8 @@ pub fn advance_turb(
             // advection is conservative in rho*nu_tilde (divide by rho);
             // diffusion is kinematic, acting on nu_tilde directly.
             let rhs = -adv_net / rho + dif_net + cb2_term + src;
-            new_nt[c] = turb.nu_tilde[c] + dt * rhs;
+            let dt_c = dts.map(|a| a[c]).unwrap_or(dt);
+            new_nt[c] = turb.nu_tilde[c] + dt_c * rhs;
         }
     }
     // positivity: the transported field is physically non-negative.

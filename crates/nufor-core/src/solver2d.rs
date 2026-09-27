@@ -232,15 +232,34 @@ struct Sweep {
 ///
 /// cap is infinite for pure euler; the viscous wrapper passes the diffusive
 /// stability bound so the explicit diffusion never outruns the time step.
-pub(crate) fn advance2d_capped(
+/// the step's time control: one global increment (time-accurate marching,
+/// optionally capped for explicit diffusion stability), or a per-cell
+/// increment for local time stepping toward the steady state.
+#[derive(Clone, Copy)]
+pub enum TimeControl<'a> {
+    Global(f64),
+    Local(&'a [f64]),
+}
+
+impl TimeControl<'_> {
+    /// the (cap, per-cell) pair the step body consumes.
+    pub fn parts(&self) -> (f64, Option<&[f64]>) {
+        match self {
+            Self::Global(cap) => (*cap, None),
+            Self::Local(a) => (f64::INFINITY, Some(a)),
+        }
+    }
+}
+pub(crate) fn advance2d_capped_dts(
     state: &mut ConservedState2d,
     g: &Grid2d,
     gamma: f64,
     cfl: f64,
     muscl: bool,
     bc: &Boundaries2d,
-    max_dt: f64,
+    tc: TimeControl<'_>,
 ) -> Result<(f64, f64), Error> {
+    let (max_dt, dts) = tc.parts();
     let nx = g.nx;
     let ny = g.ny;
     let idx = |i: usize, j: usize| j * nx + i;
@@ -408,6 +427,8 @@ pub(crate) fn advance2d_capped(
     for (j, fa) in fx.iter().enumerate() {
         // per-cell y factors; the uniform value when the y axis is uniform.
         let dyf = if unif_y { dtdy } else { dtdys[j] };
+        // local time stepping: each cell in this row takes its own increment.
+        let row_dts: Option<&[f64]> = dts.map(|a| &a[j * nx..(j + 1) * nx]);
         if unif_x {
             // transverse (y) contribution per cell in this row, all four fields.
             let mut yr = vec![0.0; nx];
@@ -427,10 +448,31 @@ pub(crate) fn advance2d_capped(
                     .max((dtdx * (fa.e[i + 1] - fa.e[i]) + ye[i]).abs());
             }
             let off = j * nx;
-            apply_divergence(&mut state.rho[off..off + nx], &fa.mass, &yr, dtdx);
-            apply_divergence(&mut state.mx[off..off + nx], &fa.mx, &ym, dtdx);
-            apply_divergence(&mut state.my[off..off + nx], &fa.my, &yn, dtdx);
-            apply_divergence(&mut state.e[off..off + nx], &fa.e, &ye, dtdx);
+            match row_dts {
+                None => {
+                    apply_divergence(&mut state.rho[off..off + nx], &fa.mass, &yr, dtdx);
+                    apply_divergence(&mut state.mx[off..off + nx], &fa.mx, &ym, dtdx);
+                    apply_divergence(&mut state.my[off..off + nx], &fa.my, &yn, dtdx);
+                    apply_divergence(&mut state.e[off..off + nx], &fa.e, &ye, dtdx);
+                }
+                Some(rd) => {
+                    for i in 0..nx {
+                        // x is uniform here; y takes the row's true spacing
+                        // (g.dy is only the domain average on a clustered axis).
+                        let (dxk, dyk) = (rd[i] / g.dx, rd[i] / g.dys[j]);
+                        let k = off + i;
+                        let fycol = &fy[i];
+                        let yr = dyk * (fycol.mass[j + 1] - fycol.mass[j]);
+                        let ym = dyk * (fycol.mx[j + 1] - fycol.mx[j]);
+                        let yn = dyk * (fycol.my[j + 1] - fycol.my[j]);
+                        let ye = dyk * (fycol.e[j + 1] - fycol.e[j]);
+                        state.rho[k] -= dxk * (fa.mass[i + 1] - fa.mass[i]) + yr;
+                        state.mx[k] -= dxk * (fa.mx[i + 1] - fa.mx[i]) + ym;
+                        state.my[k] -= dxk * (fa.my[i + 1] - fa.my[i]) + yn;
+                        state.e[k] -= dxk * (fa.e[i + 1] - fa.e[i]) + ye;
+                    }
+                }
+            }
         } else {
             // stretched x: per-cell width ratios replace the constant dtdx.
             for i in 0..nx {
@@ -445,14 +487,42 @@ pub(crate) fn advance2d_capped(
                     .max((dtdxs[i] * (fa.my[i + 1] - fa.my[i]) + yn).abs())
                     .max((dtdxs[i] * (fa.e[i + 1] - fa.e[i]) + ye).abs());
                 let k = j * nx + i;
-                state.rho[k] -= dtdxs[i] * (fa.mass[i + 1] - fa.mass[i]) + yr;
-                state.mx[k] -= dtdxs[i] * (fa.mx[i + 1] - fa.mx[i]) + ym;
-                state.my[k] -= dtdxs[i] * (fa.my[i + 1] - fa.my[i]) + yn;
-                state.e[k] -= dtdxs[i] * (fa.e[i + 1] - fa.e[i]) + ye;
+                match row_dts {
+                    None => {
+                        state.rho[k] -= dtdxs[i] * (fa.mass[i + 1] - fa.mass[i]) + yr;
+                        state.mx[k] -= dtdxs[i] * (fa.mx[i + 1] - fa.mx[i]) + ym;
+                        state.my[k] -= dtdxs[i] * (fa.my[i + 1] - fa.my[i]) + yn;
+                        state.e[k] -= dtdxs[i] * (fa.e[i + 1] - fa.e[i]) + ye;
+                    }
+                    Some(rd) => {
+                        let (dxk, dyk) = (rd[i] / g.dxs[i], rd[i] / g.dys[j]);
+                        state.rho[k] -= dxk * (fa.mass[i + 1] - fa.mass[i])
+                            + dyk * (fycol.mass[j + 1] - fycol.mass[j]);
+                        state.mx[k] -=
+                            dxk * (fa.mx[i + 1] - fa.mx[i]) + dyk * (fycol.mx[j + 1] - fycol.mx[j]);
+                        state.my[k] -=
+                            dxk * (fa.my[i + 1] - fa.my[i]) + dyk * (fycol.my[j + 1] - fycol.my[j]);
+                        state.e[k] -=
+                            dxk * (fa.e[i + 1] - fa.e[i]) + dyk * (fycol.e[j + 1] - fycol.e[j]);
+                    }
+                }
             }
         }
     }
     Ok((dt, resid))
+}
+
+/// the time-accurate capped step: one global increment (the original path).
+pub(crate) fn advance2d_capped(
+    state: &mut ConservedState2d,
+    g: &Grid2d,
+    gamma: f64,
+    cfl: f64,
+    muscl: bool,
+    bc: &Boundaries2d,
+    max_dt: f64,
+) -> Result<(f64, f64), Error> {
+    advance2d_capped_dts(state, g, gamma, cfl, muscl, bc, TimeControl::Global(max_dt))
 }
 
 /// the plain euler step (no time-step cap beyond the cfl bound).

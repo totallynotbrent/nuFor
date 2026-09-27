@@ -42,6 +42,8 @@ Every milestone closes against an analytical or benchmark case:
 - [Oblique shock](numerics/2d/oblique-shock.md) - supersonic wedge vs θ-β-M theory
 - [Shock reflection](numerics/2d/shock-reflection.md) - two-shock reflection off a wall
 - [Channel flow](numerics/2d/channel-flow.md) - Poiseuille's parabolic profile
+- [Blasius flat plate](numerics/2d/blasius.md) - the laminar layer held steady, skin friction vs the exact correlation
+- [Turbulent flat plate](numerics/2d/turbulent-plate.md) - the SA layer at correlation Reynolds numbers
 - [Supersonic cylinder](numerics/2d/supersonic-cylinder.md) - the detached bow shock
 - [Regression suite](verification/regression-suite.md) - the automated gate on every change
 

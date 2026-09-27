@@ -70,7 +70,8 @@ freestream behavior, not an instability.
 ## Verification
 
 - every closure is unit-tested against hand-checked anchors: `fv1(c_v1) =
-  0.5`, `g(0) = 0`, `fw(0) = 0`, `fw(1) = (65/66)^(1/6)`, the composite
+  0.5`, `g(0) = 0`, `fw(0) = 0`, `fw(1) = 1` exactly (the log-layer
+  equilibrium of the published damping function), the composite
   `c_w1`
 - `nu_tilde = 0` reproduces the laminar viscous stepper exactly, so existing
   laminar cases are provably untouched
@@ -84,15 +85,20 @@ freestream behavior, not an instability.
 - a flat-plate run develops a positive skin-friction distribution along the
   wall, reported per station by `nufor run` (cf rows after the summary)
 
-The flat-plate *quantitative* validation at turbulent Reynolds numbers (Cf(x)
-against the flat-plate correlations and the NASA TMR table) is the remaining
-milestone. The pieces it needed are now in: wall-normal clustering, the
-metric-aware solvers, and a profile-carrying inflow, validated end to end by
-the laminar Blasius hold (the layer is held to about two percent and the
-discrete Cf matches 0.664/sqrt(Re_x) within a few percent over the interior
-stations; see [[numerics/2d/blasius||the Blasius page]]). What is left is the
-turbulent run itself: pick the Reynolds number where the correlations apply,
-verify the SA freestream decay is tolerable over the run, and compare.
+The turbulent flat-plate validation is done, and it sharpened the model
+along the way: the `fw` damping function carried a stray `+1` in its
+denominator that a constant-by-constant audit against the published model
+caught, the Blasius inflow now refuses to anchor at the leading edge
+where the similarity solution is singular, and the shipped plate case
+moves its virtual leading edge upstream accordingly. The turbulent layer
+is sustained at Reynolds numbers where the flat-plate correlations apply:
+`nu_tilde` grows to hundreds of `nu`, and the discrete Cf sits 12 to 19
+percent above the power law over the interior stations, which is the same
+sign and scale as the spread between the CFL3D SA reference and the
+correlations themselves. See [[numerics/2d/turbulent-plate||the turbulent
+plate page]] for the full judgment, including what remains open (grid
+convergence, the inner-scaling log-law profile, Reynolds numbers past
+about 5e5).
 
 ## See also
 

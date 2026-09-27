@@ -42,7 +42,7 @@ fn uniform_nu_tilde_stays_uniform_in_uniform_flow() {
     let bc = Boundaries2d::default();
     // far from any wall: uniform source ~ 0 at this setup.
     let mut turb = turb_state(&g, 3.0, 1e6, 0.01);
-    advance_turb(&mut turb, &st, &g, &bc, 1e-4).unwrap();
+    advance_turb(&mut turb, &st, &g, &bc, 1e-4, None).unwrap();
     for x in &turb.nu_tilde {
         assert!((x - 3.0).abs() < 1e-9, "got {x}");
     }
@@ -56,7 +56,7 @@ fn zero_nu_tilde_is_a_fixed_point() {
     let st = uniform_state(&g, 1.0, 0.3, 0.2, 1.0);
     let bc = Boundaries2d::default();
     let mut turb = turb_state(&g, 0.0, 0.05, 0.01);
-    advance_turb(&mut turb, &st, &g, &bc, 1e-4).unwrap();
+    advance_turb(&mut turb, &st, &g, &bc, 1e-4, None).unwrap();
     for x in &turb.nu_tilde {
         assert!(x.abs() < 1e-10, "got {x}");
     }
@@ -83,7 +83,7 @@ fn wall_proximity_drives_nu_tilde_down() {
             pr_t: 0.9,
         },
     };
-    advance_turb(&mut turb, &st, &g, &bc, 1e-3).unwrap();
+    advance_turb(&mut turb, &st, &g, &bc, 1e-3, None).unwrap();
     let near = turb.nu_tilde[0]; // bottom row, closest to the "wall"
     let far = turb.nu_tilde[g.nx * (g.ny - 1)];
     assert!(near < 3.0, "near-wall nu_tilde must drop, got {near}");
@@ -114,7 +114,7 @@ fn advection_carries_a_front_left_to_right() {
             pr_t: 0.9,
         },
     };
-    advance_turb(&mut turb, &st, &g, &bc, 1e-3).unwrap();
+    advance_turb(&mut turb, &st, &g, &bc, 1e-3, None).unwrap();
     let front = g.nx / 2;
     let mid = g.ny / 2;
     let after_front = turb.nu_tilde[mid * g.nx + front];
@@ -189,7 +189,7 @@ fn diffusion_decays_a_peak_at_the_analytic_rate() {
     let dt = 3e-5;
     let steps = 200;
     for _ in 0..steps {
-        advance_turb(&mut turb, &st, &g, &bc, dt).unwrap();
+        advance_turb(&mut turb, &st, &g, &bc, dt, None).unwrap();
     }
     // constant-diffusivity reference (nu_tilde << nu so d ~ nu/sigma):
     // sigma^2(t) = sigma0^2 + 2 d t, peak = amp * sigma0 / sigma(t).

@@ -144,10 +144,15 @@ impl BlasiusProfile {
     }
 
     /// anchor the inflow-plane evaluation at x (the distance from the
-    /// virtual leading edge to the inflow face).
-    pub fn anchored_at(mut self, x_in: f64) -> Self {
+    /// virtual leading edge to the inflow face). the layer is singular at
+    /// the leading edge itself, so anchoring there is rejected: the inflow
+    /// plane must sit measurably downstream of the edge.
+    pub fn anchored_at(mut self, x_in: f64) -> Result<Self, Error> {
+        if !x_in.is_finite() || x_in <= self.x_le {
+            return Err(Error::InvalidArgs);
+        }
         self.x_in = x_in;
-        self
+        Ok(self)
     }
 
     /// the local similarity variable eta = y sqrt(u_inf/(nu (x - x_le))).

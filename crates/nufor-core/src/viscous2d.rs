@@ -391,7 +391,15 @@ pub fn add_viscous(
     pr: f64,
     dt: f64,
 ) -> Result<(), Error> {
-    add_viscous_cells(state, g, gamma, mu, pr, None, dt)
+    add_viscous_cells(
+        state,
+        g,
+        gamma,
+        mu,
+        pr,
+        None,
+        crate::solver2d::TimeControl::Global(dt),
+    )
 }
 
 /// the boundary-aware laminar form: no-slip wall faces carry the one-sided
@@ -410,7 +418,15 @@ pub fn add_viscous_bc(
         pr_t: pr,
         bc,
     };
-    add_viscous_cells(state, g, gamma, mu, pr, Some(turb), dt)
+    add_viscous_cells(
+        state,
+        g,
+        gamma,
+        mu,
+        pr,
+        Some(turb),
+        crate::solver2d::TimeControl::Global(dt),
+    )
 }
 
 /// the derivative at y_eval of the quadratic through (y0, v0), (y1, v1),
@@ -494,8 +510,9 @@ pub fn add_viscous_cells(
     mu_lam: f64,
     pr: f64,
     turb: Option<TurbCtx>,
-    dt: f64,
+    tc: crate::solver2d::TimeControl,
 ) -> Result<(), Error> {
+    let (dt, dts) = tc.parts();
     let bc = turb.map(|t| t.bc).unwrap_or(&LAMINAR_BC);
     let mu_t: &[f64] = turb.map(|t| t.mu_t).unwrap_or(&[]);
     let pr_t = turb.map(|t| t.pr_t).unwrap_or(pr);
@@ -697,15 +714,22 @@ pub fn add_viscous_cells(
     for (j, &dyw) in dys_w.iter().enumerate() {
         for (i, &dxw) in dxs_w.iter().enumerate() {
             let c = idx(i, j);
+            // local time stepping takes the cell's own increment for both
+            // divergence factors; the global path keeps the scalar ratios.
+            let (dxi, dyj) = match dts {
+                None => (
+                    if unif_x { dtdx } else { dt / dxw },
+                    if unif_y { dtdy } else { dt / dyw },
+                ),
+                Some(a) => (a[c] / dxw, a[c] / dyw),
+            };
             // x-face divergence: faces i and i+1 bound cell i.
             let (a, b) = (i * ny + j, (i + 1) * ny + j);
-            let dxi = if unif_x { dtdx } else { dt / dxw };
             state.mx[c] += dxi * (fxm[b] - fxm[a]);
             state.my[c] += dxi * (fym[b] - fym[a]);
             state.e[c] += dxi * (fe[b] - fe[a]);
             // y-face divergence: faces j and j+1 bound cell j.
             let (d, e) = (i * (ny + 1) + j, i * (ny + 1) + j + 1);
-            let dyj = if unif_y { dtdy } else { dt / dyw };
             state.mx[c] += dyj * (gym_x[e] - gym_x[d]);
             state.my[c] += dyj * (gym_y[e] - gym_y[d]);
             state.e[c] += dyj * (gye[e] - gye[d]);
@@ -786,8 +810,16 @@ pub fn advance2d_sa_rk2(
         pr_t: sa.pr_t,
         bc,
     };
-    add_viscous_cells(&mut s1, g, gamma, nu, sa.pr, Some(ctx1), dt1)?;
-    advance_turb(&mut t1, &s1, g, bc, dt1)?;
+    add_viscous_cells(
+        &mut s1,
+        g,
+        gamma,
+        nu,
+        sa.pr,
+        Some(ctx1),
+        crate::solver2d::TimeControl::Global(dt1),
+    )?;
+    advance_turb(&mut t1, &s1, g, bc, dt1, None)?;
     // stage 2 from the stage-1 state (heun's second evaluation).
     let (dt2, _) = advance2d_capped(&mut s1, g, gamma, cfl, muscl, bc, dt_cap)?;
     let mu_t1b = mu_t_of(&t1, &s1.rho);
@@ -796,8 +828,16 @@ pub fn advance2d_sa_rk2(
         pr_t: sa.pr_t,
         bc,
     };
-    add_viscous_cells(&mut s1, g, gamma, nu, sa.pr, Some(ctx2), dt2)?;
-    advance_turb(&mut t1, &s1, g, bc, dt2)?;
+    add_viscous_cells(
+        &mut s1,
+        g,
+        gamma,
+        nu,
+        sa.pr,
+        Some(ctx2),
+        crate::solver2d::TimeControl::Global(dt2),
+    )?;
+    advance_turb(&mut t1, &s1, g, bc, dt2, None)?;
     // heun average of the original and the twice-advanced state.
     for k in 0..n {
         state.rho[k] = 0.5 * state.rho[k] + 0.5 * s1.rho[k];
@@ -844,4 +884,124 @@ pub fn advance2d_visc_rk2(
         state.e[k] = 0.5 * state.e[k] + 0.5 * s1.e[k];
     }
     Ok((dt1, 0.0))
+}
+
+/// the per-cell time increment for local time stepping: the acoustic cfl
+/// bound on the cell's own spacing, capped by its local viscous and sa
+/// diffusion bounds. the global path uses the smallest of these over the
+/// whole field; taking each cell's own value accelerates steady-state
+/// convergence while every cell stays inside its explicit stability region.
+pub fn local_dts(
+    state: &ConservedState2d,
+    turb: &crate::turb2d::TurbState,
+    g: &Grid2d,
+    gamma: f64,
+    cfl: f64,
+) -> Vec<f64> {
+    use crate::sa::SIGMA;
+    let n = g.nx * g.ny;
+    let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e).unwrap();
+    let p = eos_pressure2d(gamma, &state.rho, &et, &u, &v).unwrap();
+    let mu = turb.params.mu;
+    let pr = turb.params.pr_t;
+    let kappa = gamma / ((gamma - 1.0) * pr);
+    let mut out = vec![0.0f64; n];
+    for k in 0..n {
+        let rho = state.rho[k].max(1e-6);
+        let a = (gamma * p[k].max(1e-12) / rho).sqrt();
+        let s = u[k].abs().max(v[k].abs()) + a;
+        // the smallest width touching the cell bounds the acoustic term.
+        let (i, j) = (k % g.nx, k / g.nx);
+        let h = g.dxs[i].min(g.dys[j]);
+        let dt_ac = cfl * h / s;
+        // local viscous and sa diffusion bounds, same shape as the globals.
+        let nu_t = turb.nu_tilde[k] * crate::sa::fv1(turb.nu_tilde[k] / (mu / rho).max(1e-12));
+        let dif = (mu / rho * kappa.max(1.0)) + ((mu + rho * nu_t) / rho / SIGMA);
+        let dt_dif = 0.25 * h * h / dif.max(1e-14);
+        out[k] = dt_ac.min(dt_dif);
+    }
+    out
+}
+
+/// one local-time-stepping heun sweep of the coupled mean-flow + sa system,
+/// the steady-state counterpart of advance2d_sa_rk2. not time-accurate: each
+/// cell advances by its own increment, so only the converged state (all
+/// residuals zero) is physically meaningful. returns the smallest cell
+/// increment for progress accounting.
+pub fn advance2d_sa_lts(
+    state: &mut ConservedState2d,
+    turb: &mut crate::turb2d::TurbState,
+    g: &Grid2d,
+    gamma: f64,
+    cfl: f64,
+    muscl: bool,
+    bc: &Boundaries2d,
+) -> Result<f64, Error> {
+    use crate::sa::eddy_viscosity;
+    use crate::solver2d::{advance2d_capped_dts, TimeControl};
+    use crate::turb2d::advance_turb;
+    let n = g.nx * g.ny;
+    let sa = turb.params;
+    let nu = sa.mu;
+    if turb.nu_tilde.len() != n || turb.d.len() != n {
+        return Err(Error::InvalidArgs);
+    }
+    let dts = local_dts(state, turb, g, gamma, cfl);
+    let mu_t_of = |t: &crate::turb2d::TurbState, rho: &[f64]| -> Vec<f64> {
+        t.nu_tilde
+            .iter()
+            .zip(rho)
+            .map(|(&nt, &r)| eddy_viscosity(r, nt, nu / r.max(1e-12)))
+            .collect()
+    };
+    // stage 1 from the current state, each cell at its own increment.
+    let mut s1 = state.clone();
+    let mut t1 = turb.clone();
+    let (dt1, _) =
+        advance2d_capped_dts(&mut s1, g, gamma, cfl, muscl, bc, TimeControl::Local(&dts))?;
+    let mu_t1 = mu_t_of(&t1, &s1.rho);
+    let ctx1 = TurbCtx {
+        mu_t: &mu_t1,
+        pr_t: sa.pr_t,
+        bc,
+    };
+    add_viscous_cells(
+        &mut s1,
+        g,
+        gamma,
+        nu,
+        sa.pr,
+        Some(ctx1),
+        crate::solver2d::TimeControl::Local(&dts),
+    )?;
+    advance_turb(&mut t1, &s1, g, bc, dt1, Some(&dts))?;
+    // stage 2 from the stage-1 state.
+    let dts2 = local_dts(&s1, &t1, g, gamma, cfl);
+    let (dt2, _) =
+        advance2d_capped_dts(&mut s1, g, gamma, cfl, muscl, bc, TimeControl::Local(&dts2))?;
+    let mu_t1b = mu_t_of(&t1, &s1.rho);
+    let ctx2 = TurbCtx {
+        mu_t: &mu_t1b,
+        pr_t: sa.pr_t,
+        bc,
+    };
+    add_viscous_cells(
+        &mut s1,
+        g,
+        gamma,
+        nu,
+        sa.pr,
+        Some(ctx2),
+        crate::solver2d::TimeControl::Local(&dts2),
+    )?;
+    advance_turb(&mut t1, &s1, g, bc, dt2, Some(&dts2))?;
+    // heun average of the original and the twice-advanced state.
+    for k in 0..n {
+        state.rho[k] = 0.5 * state.rho[k] + 0.5 * s1.rho[k];
+        state.mx[k] = 0.5 * state.mx[k] + 0.5 * s1.mx[k];
+        state.my[k] = 0.5 * state.my[k] + 0.5 * s1.my[k];
+        state.e[k] = 0.5 * state.e[k] + 0.5 * s1.e[k];
+        turb.nu_tilde[k] = 0.5 * turb.nu_tilde[k] + 0.5 * t1.nu_tilde[k];
+    }
+    Ok(dts.iter().cloned().fold(f64::INFINITY, f64::min))
 }

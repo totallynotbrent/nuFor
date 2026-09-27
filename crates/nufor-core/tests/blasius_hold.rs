@@ -54,7 +54,8 @@ fn blasius_layer_is_held_with_profile_inflow() {
     .unwrap();
     let p = BlasiusProfile::new(u_inf, nu, 0.0)
         .unwrap()
-        .anchored_at(0.2);
+        .anchored_at(0.2)
+        .unwrap();
     let mut st = blasius_state(&g, &p);
     let bc = Boundaries2d {
         west: Bc2d::ProfileInflow {
