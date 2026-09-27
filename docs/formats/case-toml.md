@@ -107,11 +107,12 @@ silently change a run.
 | `boundaries.top` | string | no | same set | Top boundary, honored by the 2D solvers (default `outflow`). |
 | `boundaries.bottom` | string | no | same set | Bottom boundary, honored by the 2D solvers (default `outflow`). A `wall` side is no-slip, which is what the SA model expects at a solid surface. |
 | `boundaries.inflow_profile.type` | string | with a `profile_inflow` side | `blasius` \| `table` | How the inflow profile is prescribed. |
-| `boundaries.inflow_profile.leading_edge` | float | with `type = "blasius"` | | The virtual x station where the layer starts, upstream of or at the inflow face. |
+| `boundaries.inflow_profile.leading_edge` | float | with `type = "blasius"` | | The virtual x station where the layer starts, strictly upstream of the inflow face (the similarity solution is singular at the edge itself, so an edge at or past the inflow plane is rejected). |
 | `boundaries.inflow_profile.path` | string | with `type = "table"` | | A profile file: one `y u v` row per line, y strictly increasing, `#` comments allowed. |
 | `numerics.flux` | string | yes | `hll` \| `hllc` | Riemann solver / approximate flux. |
 | `numerics.reconstruction` | string | yes | `first_order` \| `muscl` | Spatial reconstruction. |
 | `numerics.cfl` | float | yes | in (0, 1] | CFL number for the explicit time step. |
+| `numerics.local_time_stepping` | bool | no (default false) | | Experimental: each cell advances at its own stability bound instead of one global increment. A steady-state acceleration, not time-accurate; on stiff wall layers the iterator does not converge, so the default march is the validated path. |
 | `time.final_time` | float | no (default 0) | >= 0 | Stop time. |
 | `time.max_steps` | int | no (default 0) | >= 0 | Hard cap on iterations. |
 | `time.residual_target` | float | no | > 0 | Early stop when the residual drops below this. |

@@ -45,7 +45,9 @@ bottom = "wall"
 
 [boundaries.inflow_profile]
 type = "blasius"
-leading_edge = 0.0
+# the virtual leading edge sits 0.2 upstream of the inflow plane at x=0:
+# the layer is singular at the edge itself, so the plate needs headroom.
+leading_edge = -0.2
 
 [numerics]
 flux = "hllc"

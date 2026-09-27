@@ -11,12 +11,12 @@ use nufor_config::{
     Mesh, OutputFormat,
 };
 use nufor_core::{
-    advance2d_rk2, advance2d_sa_rk2, advance3d_rk2, advance_ugrid, cons_to_prim2d, eos_pressure2d,
-    euler_solve, grid1d, grid2d, grid3d, prim_to_cons, prim_to_cons2d, prim_to_cons3d,
-    read_restart, render_png, wall_distance2d, write_csv, write_h5, write_restart, write_vtk,
-    write_vtk2d, write_vtk3d, Bc2d, Boundaries2d, Boundary, Bounds3d, ConservedState,
-    ConservedState2d, ConservedState3d, Error, EulerConfig, Grid1d, Grid2d, Grid3d, OutputState,
-    SaParams, TurbState, Ugrid,
+    advance2d_rk2, advance2d_sa_lts, advance2d_sa_rk2, advance3d_rk2, advance_ugrid,
+    cons_to_prim2d, eos_pressure2d, euler_solve, grid1d, grid2d, grid3d, prim_to_cons,
+    prim_to_cons2d, prim_to_cons3d, read_restart, render_png, wall_distance2d, write_csv, write_h5,
+    write_restart, write_vtk, write_vtk2d, write_vtk3d, Bc2d, Boundaries2d, Boundary, Bounds3d,
+    ConservedState, ConservedState2d, ConservedState3d, Error, EulerConfig, Grid1d, Grid2d, Grid3d,
+    OutputState, SaParams, TurbState, Ugrid,
 };
 
 mod mesh_io;
@@ -926,8 +926,15 @@ fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
             match nufor_core::BlasiusProfile::new(u_inf, mu / rho_inf.max(1e-12), *leading_edge) {
                 Ok(b) => {
                     // the inflow plane sits at the west face: anchor the
-                    // layer's evaluation station there.
-                    Some(nufor_core::InflowProfile::Blasius(b.anchored_at(g.xmin)))
+                    // layer's evaluation station there. anchoring at the
+                    // leading edge itself is singular and rejected.
+                    match b.anchored_at(g.xmin) {
+                        Ok(a) => Some(nufor_core::InflowProfile::Blasius(a)),
+                        Err(e) => {
+                            eprintln!("inflow profile error: {e}");
+                            return 2;
+                        }
+                    }
                 }
                 Err(e) => {
                     eprintln!("inflow profile error: {e}");
@@ -1012,14 +1019,37 @@ fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
     let mut t = 0.0;
     let mut steps = 0usize;
     let mut ok = true;
+    // local time stepping trades time accuracy for convergence speed: the
+    // wall-clock budget goes to sweeps toward the steady state.
+    let lts = cfg.numerics.local_time_stepping;
     while t < t_end && steps < max_steps {
-        match advance2d_sa_rk2(&mut st, &mut turb, &g, gamma, cfl, true, &bc) {
-            Ok(dt) => t += dt,
-            Err(e) => {
-                eprintln!("solver error: {e}");
-                ok = false;
-                break;
+        let stepped = if lts {
+            match advance2d_sa_lts(&mut st, &mut turb, &g, gamma, cfl, true, &bc) {
+                Ok(dt) => {
+                    t += dt;
+                    true
+                }
+                Err(e) => {
+                    eprintln!("solver error: {e}");
+                    ok = false;
+                    break;
+                }
             }
+        } else {
+            match advance2d_sa_rk2(&mut st, &mut turb, &g, gamma, cfl, true, &bc) {
+                Ok(dt) => {
+                    t += dt;
+                    true
+                }
+                Err(e) => {
+                    eprintln!("solver error: {e}");
+                    ok = false;
+                    break;
+                }
+            }
+        };
+        if !stepped {
+            break;
         }
         steps += 1;
     }

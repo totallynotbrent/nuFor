@@ -269,6 +269,10 @@ pub struct Numerics {
     pub reconstruction: Reconstruction,
     /// CFL number for the explicit time step.
     pub cfl: f64,
+    /// advance each cell at its own stability bound instead of one global
+    /// increment: a steady-state acceleration, not time-accurate.
+    #[serde(default)]
+    pub local_time_stepping: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

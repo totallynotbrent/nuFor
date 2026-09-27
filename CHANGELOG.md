@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.5.0] - 2026-09-27
+
+The turbulent flat plate validates. The Spalart-Allmaras model carries a
+genuinely turbulent boundary layer at Reynolds numbers where the flat-plate
+correlations apply: `nu_tilde` grows to hundreds of molecular viscosity at
+mid-chord, and the discrete skin friction sits 12 to 19 percent above the
+Schlichting power law over the interior stations, the same sign and scale
+as the spread between the NASA CFL3D SA reference and the correlations
+themselves. A constant-by-constant audit against the published model fixed
+a real defect on the way: the `fw` damping function carried a stray `+1`
+in its denominator, which bent the log-layer equilibrium by a quarter
+percent everywhere. The Blasius inflow now refuses to anchor at the leading
+edge, where the similarity solution is singular, and the shipped plate case
+moves its virtual leading edge 0.2 upstream. An experimental
+`local_time_stepping` flag advances each cell at its own stability bound;
+its fixed-point algebra is verified, but the iterator does not converge on
+stiff wall layers, so the time-accurate march remains the validated path.
+
 ## [1.4.2] - 2026-09-23
 
 Inflow can carry a boundary layer now. A case side set to `profile_inflow`

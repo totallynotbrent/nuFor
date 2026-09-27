@@ -75,13 +75,14 @@ pub fn g_func(r: f64) -> f64 {
     r + C_W2 * (r6 - r)
 }
 
-/// fw = g ((1 + c_w3^6) / (g^6 + 1 + c_w3^6))^(1/6).
+/// fw = g ((1 + c_w3^6) / (g^6 + c_w3^6))^(1/6), the destruction damping
+/// function of the 1994 formulation.
 #[inline]
 pub fn fw(r: f64) -> f64 {
     let g = g_func(r);
     let g6 = g * g * g * g * g * g;
     let c36 = C_W3 * C_W3 * C_W3 * C_W3 * C_W3 * C_W3;
-    g * ((1.0 + c36) / (g6 + 1.0 + c36)).powf(1.0 / 6.0)
+    g * ((1.0 + c36) / (g6 + c36)).powf(1.0 / 6.0)
 }
 
 /// the sa source term: production minus destruction per unit volume.
