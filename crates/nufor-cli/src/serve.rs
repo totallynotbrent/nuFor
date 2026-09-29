@@ -6,17 +6,15 @@
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::Path;
 use std::time::Instant;
 
 use crate::webviews::app_html;
 
 use nufor_core::{
-    advance2d_rk2, advance3d, advance3d_rk2, cons_to_prim2d, euler_solve, grid1d, grid2d, grid3d,
-    prim_to_cons, prim_to_cons2d, prim_to_cons3d, probe_line, render_png, riemann, simd_capability,
-    write_csv, write_h5, write_vtk, write_vtk2d, write_vtk3d, Boundaries2d, Boundary, Bounds3d,
-    ConservedState, ConservedState2d, ConservedState3d, EulerConfig, Grid2d, OutputState,
-    PrimState, TerminationReason,
+    advance2d_rk2, advance3d, cons_to_prim2d, euler_solve, grid1d, grid2d, grid3d, prim_to_cons,
+    prim_to_cons2d, prim_to_cons3d, probe_line, render_png, riemann, simd_capability, write_csv,
+    write_h5, write_vtk, Boundaries2d, Boundary, Bounds3d, ConservedState, ConservedState2d,
+    ConservedState3d, EulerConfig, Grid2d, OutputState, PrimState, TerminationReason,
 };
 
 pub const DEFAULT_PORT: u16 = 8060;
@@ -99,6 +97,9 @@ pub struct Server {
     pub config: RunConfig,
     pub snap: Snapshot,
     pub history: Vec<RunInfo>,
+    pub plates: std::sync::Arc<crate::plates::PlateCache>,
+    pub runs: std::sync::Arc<crate::runstate::RunState>,
+    pub meshview: std::sync::Arc<crate::meshview::MeshViewState>,
 }
 
 /// the left/right primitive states for a case.
@@ -178,116 +179,6 @@ fn join(arr: &[f64]) -> String {
 }
 
 /// solve a blast case in the requested dimension and write a results vtk,
-/// returning a json summary for the monitor dock.
-fn run_case_json(dim: &str, n: usize, t_end: f64, cfl: f64, name: &str) -> String {
-    let _ = std::fs::create_dir_all("results");
-    let gamma = 1.4;
-    let t0 = Instant::now();
-    let (steps, time) = match dim {
-        "3d" => {
-            let b = Bounds3d {
-                xmin: 0.0,
-                xmax: 1.0,
-                ymin: 0.0,
-                ymax: 1.0,
-                zmin: 0.0,
-                zmax: 1.0,
-            };
-            if let Ok(g) = grid3d(n, n, n, &b) {
-                let mut st = blast_ic3d(&g, gamma);
-                let mut t = 0.0;
-                let mut steps = 0usize;
-                while t < t_end {
-                    if let Ok((dt, _)) = advance3d_rk2(&mut st, &g, gamma, cfl, true) {
-                        t += dt;
-                        steps += 1;
-                    } else {
-                        break;
-                    }
-                }
-                let dst = format!("results/{name}.vtk");
-                let _ = write_vtk3d(Path::new(&dst), &g, &st, gamma);
-                (steps, t)
-            } else {
-                (0, 0.0)
-            }
-        }
-        _ => {
-            if let Ok(g) = grid2d(n, n, 0.0, 1.0, 0.0, 1.0) {
-                let mut st = blast_ic2d(&g, gamma);
-                let bc = Boundaries2d::default();
-                let mut t = 0.0;
-                let mut steps = 0usize;
-                while t < t_end {
-                    if let Ok((dt, _)) = advance2d_rk2(&mut st, &g, gamma, cfl, true, &bc) {
-                        t += dt;
-                        steps += 1;
-                    } else {
-                        break;
-                    }
-                }
-                let dst = format!("results/{name}.vtk");
-                let _ = write_vtk2d(Path::new(&dst), &g, &st, gamma);
-                (steps, t)
-            } else {
-                (0, 0.0)
-            }
-        }
-    };
-    format!(
-                "{{\"dim\":\"{dim}\",\"cells\":{n},\"steps\":{steps},\"time\":{time:.4},\"seconds\":{:.3}}}",
-                t0.elapsed().as_secs_f64()
-            )
-}
-
-/// a 2d blast initial condition: an over-pressured disc in quiet air.
-fn blast_ic2d(g: &Grid2d, gamma: f64) -> ConservedState2d {
-    let n = g.nx * g.ny;
-    let (cx, cy, r0) = (0.5, 0.5, 0.2);
-    let (rho, mut p) = (vec![1.0; n], vec![1.0; n]);
-    for j in 0..g.ny {
-        for i in 0..g.nx {
-            let k = j * g.nx + i;
-            let dx = g.centers_x[k] - cx;
-            let dy = g.centers_y[k] - cy;
-            if dx * dx + dy * dy < r0 * r0 {
-                p[k] = 10.0;
-            }
-        }
-    }
-    let (u, v) = (vec![0.0; n], vec![0.0; n]);
-    let et: Vec<f64> = p
-        .iter()
-        .zip(&rho)
-        .map(|(pp, r)| pp / (r * (gamma - 1.0)))
-        .collect();
-    let (mx, my, e) = prim_to_cons2d(&rho, &u, &v, &et).unwrap();
-    ConservedState2d { rho, mx, my, e }
-}
-
-/// a 3d blast initial condition: an over-pressured sphere in quiet air.
-fn blast_ic3d(g: &nufor_core::Grid3d, gamma: f64) -> ConservedState3d {
-    let n = g.nx * g.ny * g.nz;
-    let (cx, cy, cz, r0) = (0.5, 0.5, 0.5, 0.2);
-    let (rho, mut p) = (vec![1.0; n], vec![1.0; n]);
-    for (k, pk) in p.iter_mut().enumerate() {
-        let dx = g.centers_x[k] - cx;
-        let dy = g.centers_y[k] - cy;
-        let dz = g.centers_z[k] - cz;
-        if dx * dx + dy * dy + dz * dz < r0 * r0 {
-            *pk = 10.0;
-        }
-    }
-    let (u, v, w) = (vec![0.0; n], vec![0.0; n], vec![0.0; n]);
-    let et: Vec<f64> = p
-        .iter()
-        .zip(&rho)
-        .map(|(pp, r)| pp / (r * (gamma - 1.0)))
-        .collect();
-    let (mx, my, mz, e) = prim_to_cons3d(&rho, &u, &v, &w, &et).unwrap();
-    ConservedState3d { rho, mx, my, mz, e }
-}
-
 fn arr_json(key: &str, v: &[f64]) -> String {
     format!("{key}:[{}]", join(v))
 }
@@ -615,6 +506,54 @@ fn mesh_svg_unstructured(m: &crate::mesh_io::MshMesh) -> String {
     )
 }
 
+/// a 2d blast initial condition: an over-pressured disc in quiet air.
+pub(crate) fn blast_ic2d(g: &Grid2d, gamma: f64) -> ConservedState2d {
+    let n = g.nx * g.ny;
+    let (cx, cy, r0) = (0.5, 0.5, 0.2);
+    let (rho, mut p) = (vec![1.0; n], vec![1.0; n]);
+    for j in 0..g.ny {
+        for i in 0..g.nx {
+            let k = j * g.nx + i;
+            let dx = g.centers_x[k] - cx;
+            let dy = g.centers_y[k] - cy;
+            if dx * dx + dy * dy < r0 * r0 {
+                p[k] = 10.0;
+            }
+        }
+    }
+    let (u, v) = (vec![0.0; n], vec![0.0; n]);
+    let et: Vec<f64> = p
+        .iter()
+        .zip(&rho)
+        .map(|(pp, r)| pp / (r * (gamma - 1.0)))
+        .collect();
+    let (mx, my, e) = prim_to_cons2d(&rho, &u, &v, &et).unwrap();
+    ConservedState2d { rho, mx, my, e }
+}
+
+/// a 3d blast initial condition: an over-pressured sphere in quiet air.
+pub(crate) fn blast_ic3d(g: &nufor_core::Grid3d, gamma: f64) -> ConservedState3d {
+    let n = g.nx * g.ny * g.nz;
+    let (cx, cy, cz, r0) = (0.5, 0.5, 0.5, 0.2);
+    let (rho, mut p) = (vec![1.0; n], vec![1.0; n]);
+    for (k, pk) in p.iter_mut().enumerate() {
+        let dx = g.centers_x[k] - cx;
+        let dy = g.centers_y[k] - cy;
+        let dz = g.centers_z[k] - cz;
+        if dx * dx + dy * dy + dz * dz < r0 * r0 {
+            *pk = 10.0;
+        }
+    }
+    let (u, v, w) = (vec![0.0; n], vec![0.0; n], vec![0.0; n]);
+    let et: Vec<f64> = p
+        .iter()
+        .zip(&rho)
+        .map(|(pp, r)| pp / (r * (gamma - 1.0)))
+        .collect();
+    let (mx, my, mz, e) = prim_to_cons3d(&rho, &u, &v, &w, &et).unwrap();
+    ConservedState3d { rho, mx, my, mz, e }
+}
+
 /// build a resolved 2d blast wave and extract one scalar field from it.
 ///
 /// returns (field, colormap-low, colormap-high); the field layout is row-major
@@ -904,17 +843,40 @@ pub fn handle_request(path: &str, server: &mut Server) -> (String, &'static str,
             }
         }
         "/api/run-case" => {
-            let dim = get("dim").map(String::as_str).unwrap_or("2d");
+            // async: start the background march, return immediately.
+            let dim = get("dim").map(String::as_str).unwrap_or("2d").to_string();
             let n = get("n").and_then(|s| s.parse().ok()).unwrap_or(96);
             let t = get("t").and_then(|s| s.parse().ok()).unwrap_or(0.15);
             let cfl = get("cfl").and_then(|s| s.parse().ok()).unwrap_or(0.4);
             let name = get("name")
                 .cloned()
                 .unwrap_or_else(|| format!("{dim}-{:03}", n));
+            let job = server.runs.start(&dim, n, t, cfl, &name);
+            respond("202 Accepted", "application/json", job.status_json())
+        }
+        "/api/run-status" => respond("200 OK", "application/json", server.runs.status_json()),
+        "/api/frames" => {
+            let t = get("t").and_then(|s| s.parse().ok()).unwrap_or(0.10);
+            match server.runs.frames.frame_near(t) {
+                Some((_, png)) => ("200 OK".to_string(), "image/png", png),
+                None => respond(
+                    "503 Service Unavailable",
+                    "text/plain",
+                    "frames still baking".to_string(),
+                ),
+            }
+        }
+        "/api/frames/times" => respond(
+            "200 OK",
+            "application/json",
+            server.runs.frames.times_json(),
+        ),
+        "/api/mesh-faces" => {
+            let kind = get("kind").map(String::as_str).unwrap_or("blast");
             respond(
                 "200 OK",
                 "application/json",
-                run_case_json(dim, n, t, cfl, &name),
+                crate::runstate::mesh_faces_json_for(kind),
             )
         }
         "/api/probe" => {
@@ -1007,6 +969,88 @@ pub fn handle_request(path: &str, server: &mut Server) -> (String, &'static str,
             let steps = get("steps").and_then(|s| s.parse().ok()).unwrap_or(1500);
             respond("200 OK", "application/json", benchmark_json(steps))
         }
+        "/api/plates/progress" => {
+            let pct = server
+                .plates
+                .turb_progress
+                .load(std::sync::atomic::Ordering::Relaxed);
+            respond(
+                "200 OK",
+                "application/json",
+                format!("{{\"turbulent_pct\":{pct}}}"),
+            )
+        }
+        "/api/plates/laminar/image" => {
+            let field = get("field").map(String::as_str).unwrap_or("mach");
+            let plate = crate::plates::solve_laminar(120, 56);
+            match crate::plates::plate_image(&plate, field) {
+                Ok(png) => ("200 OK".to_string(), "image/png", png),
+                Err(e) => respond("500 Internal Server Error", "text/plain", e),
+            }
+        }
+        "/api/plates/turbulent/image" => {
+            let field = get("field").map(String::as_str).unwrap_or("mach");
+            let guard = server.plates.turbulent.lock().unwrap();
+            match guard.as_ref() {
+                Some(plate) => match crate::plates::plate_image(plate, field) {
+                    Ok(png) => ("200 OK".to_string(), "image/png", png),
+                    Err(e) => respond("500 Internal Server Error", "text/plain", e),
+                },
+                None => respond(
+                    "503 Service Unavailable",
+                    "text/plain",
+                    "turbulent plate still solving".to_string(),
+                ),
+            }
+        }
+        "/api/plates/laminar/validation" => {
+            let plate = crate::plates::solve_laminar(120, 56);
+            respond(
+                "200 OK",
+                "application/json",
+                crate::plates::validation_json(&plate, false),
+            )
+        }
+        "/api/plates/turbulent/validation" => {
+            let guard = server.plates.turbulent.lock().unwrap();
+            match guard.as_ref() {
+                Some(plate) => respond(
+                    "200 OK",
+                    "application/json",
+                    crate::plates::validation_json(plate, true),
+                ),
+                None => respond(
+                    "503 Service Unavailable",
+                    "text/plain",
+                    "turbulent plate still solving".to_string(),
+                ),
+            }
+        }
+        "/api/plates/laminar/profile" => {
+            let frac = get("u").and_then(|s| s.parse().ok()).unwrap_or(0.5);
+            let plate = crate::plates::solve_laminar(120, 56);
+            respond(
+                "200 OK",
+                "application/json",
+                crate::plates::profile_json(&plate, frac, true),
+            )
+        }
+        "/api/plates/turbulent/profile" => {
+            let frac = get("u").and_then(|s| s.parse().ok()).unwrap_or(0.5);
+            let guard = server.plates.turbulent.lock().unwrap();
+            match guard.as_ref() {
+                Some(plate) => respond(
+                    "200 OK",
+                    "application/json",
+                    crate::plates::profile_json(plate, frac, false),
+                ),
+                None => respond(
+                    "503 Service Unavailable",
+                    "text/plain",
+                    "turbulent plate still solving".to_string(),
+                ),
+            }
+        }
         _ => respond(
             "404 Not Found",
             "text/plain; charset=utf-8",
@@ -1018,10 +1062,18 @@ pub fn handle_request(path: &str, server: &mut Server) -> (String, &'static str,
 /// serves requests on all interfaces (0.0.0.0:port) until the process is stopped.
 pub fn run(port: u16) -> std::io::Result<()> {
     let (snap, info) = solve(&RunConfig::default());
+    let plates = std::sync::Arc::new(crate::plates::PlateCache::new());
+    plates.spawn_warmup();
+    let runs = std::sync::Arc::new(crate::runstate::RunState::new());
+    runs.frames.spawn_bake(160, "mach");
+    let meshview = std::sync::Arc::new(crate::meshview::MeshViewState::new());
     let mut server = Server {
         config: RunConfig::default(),
         snap,
         history: vec![info],
+        plates,
+        runs,
+        meshview,
     };
     let listener = TcpListener::bind(("0.0.0.0", port))?;
     println!("serving on http://0.0.0.0:{port}/ (Ctrl-C to stop)");
@@ -1033,18 +1085,57 @@ pub fn run(port: u16) -> std::io::Result<()> {
 
 /// reads one request and writes its response.
 fn serve_one(stream: &mut TcpStream, server: &mut Server) -> std::io::Result<()> {
-    let mut buf = [0u8; 2048];
+    let mut buf = [0u8; 8192];
     let n = stream.read(&mut buf).unwrap_or(0);
     let head = String::from_utf8_lossy(&buf[..n]);
     let line = head.lines().next().unwrap_or("");
+    let method = line.split_whitespace().next().unwrap_or("GET").to_string();
     let path = line.split_whitespace().nth(1).unwrap_or("/").to_string();
+    // uploads: keep reading until the declared content-length is in hand
+    let clen: usize = head
+        .lines()
+        .find_map(|l| {
+            let (k, v) = l.split_once(':')?;
+            k.eq_ignore_ascii_case("content-length")
+                .then(|| v.trim().parse().ok())
+                .flatten()
+        })
+        .unwrap_or(0);
+    let head_end = head.find("\r\n\r\n").map(|i| i + 4).unwrap_or(n);
+    let mut body: Vec<u8> = buf[head_end..n].to_vec();
+    while body.len() < clen {
+        let m = stream.read(&mut buf).unwrap_or(0);
+        if m == 0 {
+            break;
+        }
+        body.extend_from_slice(&buf[..m]);
+    }
+    if method == "POST" {
+        if let Some((status, ctype, body)) = crate::meshview::handle(&path, &body, &server.meshview)
+        {
+            return write_response(stream, &status, &ctype, &body);
+        }
+    }
+    if let Some((status, ctype, body)) = crate::meshview::handle(&path, &[], &server.meshview) {
+        return write_response(stream, &status, &ctype, &body);
+    }
     let (status, ctype, body) = handle_request(&path, server);
+    write_response(stream, &status, ctype, &body)
+}
+
+/// write one response with the standard close headers.
+fn write_response(
+    stream: &mut TcpStream,
+    status: &str,
+    ctype: &str,
+    body: &[u8],
+) -> std::io::Result<()> {
     let head = format!(
         "HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
     );
     stream.write_all(head.as_bytes())?;
-    stream.write_all(&body)?;
+    stream.write_all(body)?;
     stream.flush()
 }
 
@@ -1058,6 +1149,9 @@ mod tests {
             config: RunConfig::default(),
             snap,
             history: vec![info],
+            plates: std::sync::Arc::new(crate::plates::PlateCache::new()),
+            runs: std::sync::Arc::new(crate::runstate::RunState::new()),
+            meshview: std::sync::Arc::new(crate::meshview::MeshViewState::new()),
         }
     }
 

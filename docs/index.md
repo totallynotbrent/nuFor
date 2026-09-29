@@ -3,13 +3,16 @@ title: nuFor
 ---
 
 > **Work in progress.** nuFor is not complete. Right now it can simulate a
-> fixed set of cases through the web UI: the 1D Sod and Lax shock tubes, and
-> the 2D and 3D spherical blast problem, with density / mach / pressure
-> visualization, line probes, resolution comparison, and CSV / VTK / HDF5
-> export. Full mesh upload (solve-on-imported-mesh), arbitrary boundary
-> conditions, and general case setup from the browser are still under
-> development. Those paths are driven from the CLI today and will land in the
-> UI in later releases.
+> fixed set of cases through the web UI: the 1D Sod and Lax shock tubes, the
+> 2D and 3D spherical blast problem, and the validated flat plates — the
+> laminar Blasius layer and the turbulent SA layer — with density / mach /
+> pressure visualization, the mesh beside the field, line probes, resolution
+> comparison, a validation view of measured skin friction against the
+> published correlations, and CSV / VTK / HDF5 export. Mesh upload works in
+> the browser for rectilinear 2D and 3D meshes (view, spin, solve a blast on
+> them); gmsh meshes render as wireframes, and solving arbitrary boundary
+> conditions or general case setups from the browser is still CLI-driven
+> today.
 
 nuFor is a CPU-first computational fluid dynamics code: finite-volume solvers
 for the compressible Euler and Navier-Stokes equations, written as Fortran
@@ -46,6 +49,7 @@ Every milestone closes against an analytical or benchmark case:
 - [Turbulent flat plate](numerics/2d/turbulent-plate.md) - the SA layer at correlation Reynolds numbers
 - [Supersonic cylinder](numerics/2d/supersonic-cylinder.md) - the detached bow shock
 - [Regression suite](verification/regression-suite.md) - the automated gate on every change
+- [Grid convergence study](verification/grid-convergence.md) - the turbulent plate refined 2x in every cell
 
 ## Reference
 

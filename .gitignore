@@ -90,3 +90,6 @@ bench.csv
 *.rgb
 # web-ui case-run results
 results/
+
+# web-ui uploaded meshes (runtime data, not source)
+uploads/

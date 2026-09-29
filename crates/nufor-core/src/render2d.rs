@@ -31,15 +31,26 @@ pub fn colormap(t: f64) -> [u8; 3] {
 
 /// render an n-by-n row-major field (j increasing upward) as a png byte vector.
 pub fn render_png(field: &[f64], n: usize, lo: f64, hi: f64) -> Result<Vec<u8>, String> {
+    render_png_rect(field, n, n, lo, hi)
+}
+
+/// render an nx-by-ny row-major field (j increasing upward) as a png.
+pub fn render_png_rect(
+    field: &[f64],
+    nx: usize,
+    ny: usize,
+    lo: f64,
+    hi: f64,
+) -> Result<Vec<u8>, String> {
     let range = (hi - lo).max(1e-30);
-    let mut px = vec![0u8; n * n * 3];
-    for j in 0..n {
+    let mut px = vec![0u8; nx * ny * 3];
+    for j in 0..ny {
         // png rows run top to bottom; the field stores j = 0 at the bottom.
-        let dst = n - 1 - j;
-        for i in 0..n {
-            let t = ((field[j * n + i] - lo) / range).clamp(0.0, 1.0);
+        let dst = ny - 1 - j;
+        for i in 0..nx {
+            let t = ((field[j * nx + i] - lo) / range).clamp(0.0, 1.0);
             let [r, g, b] = colormap(t);
-            let base = (dst * n + i) * 3;
+            let base = (dst * nx + i) * 3;
             px[base] = r;
             px[base + 1] = g;
             px[base + 2] = b;
@@ -47,7 +58,7 @@ pub fn render_png(field: &[f64], n: usize, lo: f64, hi: f64) -> Result<Vec<u8>, 
     }
     let mut bytes = Vec::new();
     {
-        let mut enc = png::Encoder::new(&mut bytes, n as u32, n as u32);
+        let mut enc = png::Encoder::new(&mut bytes, nx as u32, ny as u32);
         enc.set_color(ColorType::Rgb);
         enc.set_depth(png::BitDepth::Eight);
         let mut writer = enc.write_header().map_err(|e| format!("png header: {e}"))?;
