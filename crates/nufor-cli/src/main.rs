@@ -20,6 +20,9 @@ use nufor_core::{
 };
 
 mod mesh_io;
+mod meshview;
+mod plates;
+mod runstate;
 mod serve;
 mod webviews;
 
