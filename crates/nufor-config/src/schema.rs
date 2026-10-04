@@ -273,6 +273,10 @@ pub struct Numerics {
     /// increment: a steady-state acceleration, not time-accurate.
     #[serde(default)]
     pub local_time_stepping: bool,
+    /// worker threads for the threaded marches; 1 (the default) keeps the
+    /// serial kernels.
+    #[serde(default)]
+    pub threads: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

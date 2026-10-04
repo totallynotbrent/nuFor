@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased]
+
+Navier-Stokes in 3D. The viscous operator works on the uniform structured
+3D grid, with no-slip adiabatic walls on any of the six domain faces and
+a Heun march capped by the explicit diffusion bound. Two analytic flows
+validate it: the Poiseuille parabola held in a 3D slab (worst profile
+error about two percent of the peak) and the square-duct series solution
+on all four lateral walls (worst error under one percent). A symmetry
+contract drains a y-shear exactly like the z-shear, guarding the axis
+path the channel case cannot see. The 2D Spalart-Allmaras march also
+gained a threaded counterpart, bit-identical to the serial march at
+every thread count, worth about 1.4x on fine grids on this machine.
+
 ## [1.5.0] - 2026-09-27
 
 The turbulent flat plate validates. The Spalart-Allmaras model carries a

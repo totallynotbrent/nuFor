@@ -40,6 +40,9 @@ The headline numbers the per-case tests lock down include:
 - the oblique shock holding the exact post-shock state (the wedge),
 - the two-shock regular reflection against its analytic triple,
 - Poiseuille's parabola held by the viscous channel flow,
+- the 3D channel slab holding the same parabola across the span,
+- the square duct holding its four-wall series solution,
+- the 3D viscous operator draining a y-shear exactly like the z-shear,
 - the threaded 2D step being bit-identical to the serial one,
 - the HDF5 and restart writers round-tripping exactly.
 

@@ -18,7 +18,7 @@ pub fn sutherland_mu(mu0: f64, t: f64, t0: f64, s: f64) -> f64 {
 }
 
 /// mirror the interior field with one ghost layer so centred differences work.
-fn pad2d(f: &[f64], nx: usize, ny: usize) -> Vec<f64> {
+pub(crate) fn pad2d(f: &[f64], nx: usize, ny: usize) -> Vec<f64> {
     let w = nx + 2;
     let mut out = vec![0.0; w * (ny + 2)];
     for j in 0..ny {
@@ -42,7 +42,7 @@ fn pad2d(f: &[f64], nx: usize, ny: usize) -> Vec<f64> {
 /// the wall cell see the true wall shear; open sides copy; a profile inflow
 /// side carries the profile's value at the ghost center so the centred
 /// gradient sees the true incoming shear. `component` is 0 for u, 1 for v.
-fn pad2d_vel(
+pub(crate) fn pad2d_vel(
     f: &[f64],
     nx: usize,
     ny: usize,
@@ -78,9 +78,9 @@ fn pad2d_vel(
 }
 
 /// face-averaged primitives and their gradients on the face between two cells.
-struct FaceGrad {
-    u: f64,
-    v: f64,
+pub(crate) struct FaceGrad {
+    pub(crate) u: f64,
+    pub(crate) v: f64,
     gux: f64,
     guy: f64,
     gvx: f64,
@@ -107,7 +107,7 @@ fn face_grad(ga: &Grads, gb: &Grads, ua: f64, ub: f64, va: f64, vb: f64) -> Face
 /// interpolated from the two cell centers to the actual face position; on
 /// uniform spacing the face sits midway, so this is the plain average.
 /// `pos` carries the two cell centers and the face position.
-fn face_grad_interp(
+pub(crate) fn face_grad_interp(
     ga: &Grads,
     gb: &Grads,
     ua: f64,
@@ -136,7 +136,7 @@ fn face_grad_interp(
 
 /// cell-centred velocity and temperature gradients (central differencing).
 #[derive(Clone, Copy)]
-struct Grads {
+pub(crate) struct Grads {
     ux: f64,
     uy: f64,
     vx: f64,
@@ -167,17 +167,17 @@ fn viscous_flux(f: &FaceGrad, mu: f64, kappa: f64, gamma: f64) -> (f64, f64, f64
 /// the viscosity/heat coefficients a face flux needs: kappa for the
 /// molecular part, kappa_t for the eddy part (zero in the laminar limit).
 #[derive(Clone, Copy)]
-struct ViscCoeffs {
-    kappa: f64,
-    kappa_t: f64,
-    gamma: f64,
+pub(crate) struct ViscCoeffs {
+    pub(crate) kappa: f64,
+    pub(crate) kappa_t: f64,
+    pub(crate) gamma: f64,
 }
 
 /// the face flux with molecular and eddy viscosities contributing separately:
 /// stresses use mu_lam + mu_t (face-averaged), while the heat flux splits so
 /// each viscosity is paired with its own prandtl number (kappa for molecular,
 /// kappa_t for turbulent; a zero kappa_t is the laminar limit).
-fn face_flux_split(
+pub(crate) fn face_flux_split(
     gf: &FaceGrad,
     mu_lam: f64,
     mu_t: &[f64],
@@ -198,7 +198,7 @@ fn face_flux_split(
     (txx, txy, tyy, qx_total, qy_total)
 }
 
-fn cell_grads(
+pub(crate) fn cell_grads(
     pu: &[f64],
     pv: &[f64],
     pt: &[f64],
@@ -237,7 +237,7 @@ fn cell_grads(
 /// lagrange derivative at its center over its two neighbors (ghost centers
 /// reflected across the domain faces), quadratic-exact on any spacing and
 /// the central difference when the axis is uniform.
-fn cell_grads_metric(
+pub(crate) fn cell_grads_metric(
     pu: &[f64],
     pv: &[f64],
     pt: &[f64],
@@ -322,8 +322,8 @@ fn cell_grads_metric(
 /// the per-axis coordinates the stretched stencils need: interior centers
 /// plus the ghost centers reflected beyond the domain faces.
 pub(crate) struct MeshMetrics {
-    x_c: Vec<f64>,
-    y_c: Vec<f64>,
+    pub(crate) x_c: Vec<f64>,
+    pub(crate) y_c: Vec<f64>,
     x_ghost: [f64; 2],
     y_ghost: [f64; 2],
 }
@@ -440,7 +440,7 @@ fn quad_deriv_at(v0: f64, v1: f64, v2: f64, y0: f64, y1: f64, y2: f64, y_eval: f
 
 /// the wall-shear derivative on true positions: the quadratic through the
 /// wall value and the first two cell centers, evaluated at the wall.
-fn wall_shear_deriv(u0: f64, u1: f64, y_wall: f64, c0: f64, c1: f64) -> f64 {
+pub(crate) fn wall_shear_deriv(u0: f64, u1: f64, y_wall: f64, c0: f64, c1: f64) -> f64 {
     quad_deriv_at(0.0, u0, u1, y_wall, c0, c1, y_wall)
 }
 
@@ -449,7 +449,14 @@ fn wall_shear_deriv(u0: f64, u1: f64, y_wall: f64, c0: f64, c1: f64) -> f64 {
 /// parabola): the one-sided lagrange derivative through the wall value and
 /// the first two cell centers; on a uniform grid it reduces to
 /// du/dy|_wall = (9 u_0 - u_1) / (3 dy).
-fn wall_shear_flux(u0: f64, u1: f64, v0: f64, v1: f64, mu_f: f64, dy: f64) -> (f64, f64) {
+pub(crate) fn wall_shear_flux(
+    u0: f64,
+    u1: f64,
+    v0: f64,
+    v1: f64,
+    mu_f: f64,
+    dy: f64,
+) -> (f64, f64) {
     let k = 1.0 / (3.0 * dy);
     (mu_f * (9.0 * u0 - u1) * k, mu_f * (9.0 * v0 - v1) * k)
 }
@@ -469,7 +476,15 @@ pub struct TurbCtx<'a> {
 
 /// the wall-cell y-gradient override with the same quadratic-consistent
 /// stencil: du/dy at the wall cell = (3 u_0 + u_1) / (3 dy).
-fn wall_cell_grad(g: &mut Grads, u0: f64, u1: f64, v0: f64, v1: f64, dy: f64, flip: f64) {
+pub(crate) fn wall_cell_grad(
+    g: &mut Grads,
+    u0: f64,
+    u1: f64,
+    v0: f64,
+    v1: f64,
+    dy: f64,
+    flip: f64,
+) {
     let k = 1.0 / (3.0 * dy);
     g.uy = flip * (3.0 * u0 + u1) * k;
     g.vy = flip * (3.0 * v0 + v1) * k;
@@ -478,7 +493,7 @@ fn wall_cell_grad(g: &mut Grads, u0: f64, u1: f64, v0: f64, v1: f64, dy: f64, fl
 /// the stretched wall-cell y-gradient: the true derivative of the same
 /// quadratic at the wall cell's center (the sign is physical, so unlike the
 /// uniform shorthand there is no flip).
-fn wall_cell_grad_st(
+pub(crate) fn wall_cell_grad_st(
     g: &mut Grads,
     uv: (f64, f64),
     uv1: (f64, f64),
@@ -491,7 +506,7 @@ fn wall_cell_grad_st(
 }
 
 /// the all-transmissive boundary set a laminar (wall-agnostic) pass uses.
-static LAMINAR_BC: Boundaries2d = Boundaries2d {
+pub(crate) static LAMINAR_BC: Boundaries2d = Boundaries2d {
     west: crate::solver2d::Bc2d::Transmissive,
     east: crate::solver2d::Bc2d::Transmissive,
     south: crate::solver2d::Bc2d::Transmissive,

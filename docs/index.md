@@ -4,8 +4,8 @@ title: nuFor
 
 > **Work in progress.** nuFor is not complete. Right now it can simulate a
 > fixed set of cases through the web UI: the 1D Sod and Lax shock tubes, the
-> 2D and 3D spherical blast problem, and the validated flat plates — the
-> laminar Blasius layer and the turbulent SA layer — with density / mach /
+> 2D and 3D spherical blast problem, and the validated flat plates (the
+> laminar Blasius layer and the turbulent SA layer) with density / mach /
 > pressure visualization, the mesh beside the field, line probes, resolution
 > comparison, a validation view of measured skin friction against the
 > published correlations, and CSV / VTK / HDF5 export. Mesh upload works in
@@ -35,7 +35,11 @@ prototype and turbulence research. Follow the progression:
 - [2D Euler](numerics/2d/2d-euler.md) - HLLC, MUSCL reconstruction, the van Leer limiter
 - [Viscous terms](numerics/2d/viscous.md) - the Navier-Stokes diffusive flux
 - [3D solver](numerics/3d/3d-solver.md) - the structured 3D HLLC step
+- [3D Navier-Stokes](numerics/3d/3d-viscous.md) - the viscous operator and no-slip walls in 3D
 - [Unstructured FV](numerics/unstructured/unstructured-fv.md) - the research prototype
+
+The full ladder, with what is explicitly out of scope, lives in the
+[roadmap](roadmap.md).
 
 ## Verification
 
@@ -50,6 +54,8 @@ Every milestone closes against an analytical or benchmark case:
 - [Supersonic cylinder](numerics/2d/supersonic-cylinder.md) - the detached bow shock
 - [Regression suite](verification/regression-suite.md) - the automated gate on every change
 - [Grid convergence study](verification/grid-convergence.md) - the turbulent plate refined 2x in every cell
+- [3D channel validation](verification/viscous3d-channel.md) - the Poiseuille parabola held in a 3D slab
+- [Square duct validation](verification/viscous3d-duct.md) - the four-wall series solution held steady
 
 ## Reference
 
