@@ -53,6 +53,7 @@ leading_edge = -0.2
 flux = "hllc"
 reconstruction = "muscl"
 cfl = 0.3
+threads = 1
 
 [time]
 final_time = 40.0

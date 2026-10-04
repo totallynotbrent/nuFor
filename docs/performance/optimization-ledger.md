@@ -73,6 +73,39 @@ and the 8-thread backslide is hyper-threading oversubscription. Threading buys
 ~2x, not 4x, on this box; squeezing more means shrinking the memory footprint
 (so the working set stays in cache) before adding cores.
 
+## Entry 3 — threaded SA march
+
+**date** 2026-09-29
+
+**change** the spalart-allmaras march (`advance2d_sa_rk2`) gained a threaded
+counterpart (`advance2d_sa_rk2_par`, `threads = N` under `[numerics]`): the
+inviscid sweep, the viscous add, and the sa transport each shard their
+independent work across scoped threads and apply deltas serially, so the
+result is bit-identical to the serial march at every thread count (verified
+at 2/4/6/8 threads on 48x24 and 96x48 plates, all five fields).
+
+**platform** the same 4-core box, power-limited (fans off), under ambient
+load 3-5 from unrelated services.
+
+**method** kernel-level timing at the fine convergence grid (320x120) via
+a standalone probe, then the end-to-end medium case (160x80, 60000 steps)
+serial vs 4 threads.
+
+**measured** at 320x120, per heun stage, 4 threads vs serial: inviscid
+sweep 1.37x, sa transport 1.90x, viscous add 0.82x (thread-spawn overhead
+swamps it at this size, so the add stays serial below 20k cells). Expected
+fine-grid march speedup 1.39x — the 26.6 h convergence run would have been
+about 19 h. End-to-end on the medium case the gain is within noise (914 s
+serial vs 890 s threaded): the case is too small and the box too loaded
+for the kernel gains to surface.
+
+**verdict** PASS with a stronger caveat than entry 2. The threading is
+sound (bit-identical everywhere) and the transport kernel nearly halves,
+but this is a memory-bound kernel family on a power-limited 4-core box:
+expect ~1.4x on fine grids, ~1.0x on medium ones, and nothing at all while
+the box carries background load. Worth setting `threads = 4` only for
+long marches on the fine grids.
+
 ## Template
 
 - **date**

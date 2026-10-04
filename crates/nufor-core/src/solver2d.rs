@@ -559,12 +559,42 @@ pub fn advance2d_par(
     bc: &Boundaries2d,
     nthreads: usize,
 ) -> Result<(f64, f64), Error> {
+    advance2d_capped_par(
+        state,
+        g,
+        gamma,
+        cfl,
+        muscl,
+        bc,
+        TimeControl::Global(f64::INFINITY),
+        nthreads,
+    )
+}
+
+/// the threaded capped sweep: the same physics as advance2d_capped_dts with
+/// rows, columns, and cell updates sharded across threads.
+#[allow(clippy::too_many_arguments)] // the step surface mirrors advance2d_capped_dts plus the thread count
+pub fn advance2d_capped_par(
+    state: &mut ConservedState2d,
+    g: &Grid2d,
+    gamma: f64,
+    cfl: f64,
+    muscl: bool,
+    bc: &Boundaries2d,
+    tc: TimeControl<'_>,
+    nthreads: usize,
+) -> Result<(f64, f64), Error> {
+    if nthreads <= 1 {
+        return advance2d_capped_dts(state, g, gamma, cfl, muscl, bc, tc);
+    }
+    let (max_dt, dts) = tc.parts();
     let nx = g.nx;
     let ny = g.ny;
     let idx = |i: usize, j: usize| j * nx + i;
     let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
     let p = eos_pressure2d(gamma, &state.rho, &et, &u, &v)?;
-    let dt = cfl * g.dx.min(g.dy) / smax_of(&u, &v, &p, &state.rho, gamma, nx * ny);
+    let dti = cfl * g.dx.min(g.dy) / smax_of(&u, &v, &p, &state.rho, gamma, nx * ny);
+    let dt = dti.min(max_dt);
     let unif_x = axis_uniform(&g.dxs);
     let unif_y = axis_uniform(&g.dys);
     // a shared reference for the read-only flux closures so they can be Sync.
@@ -758,7 +788,9 @@ pub fn advance2d_par(
                 let k = c - start;
                 let fxrow = &fx[j];
                 let fycol = &fy[i];
-                let (dxi, dyj) = if unif_x && unif_y {
+                let (dxi, dyj) = if let Some(a) = dts {
+                    (a[c] / g.dxs[i], a[c] / g.dys[j])
+                } else if unif_x && unif_y {
                     (dtdx_i, dtdy_j)
                 } else {
                     (

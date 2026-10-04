@@ -40,6 +40,8 @@ mod ugrid;
 mod util;
 mod vectorize;
 mod viscous2d;
+mod viscous2d_par;
+mod viscous3d;
 mod wall_dist;
 
 pub use blasius::{BlasiusProfile, BlasiusTable, CF_CONST};
@@ -72,7 +74,10 @@ pub use solver::{
     advance, check_physical, euler_solve, Boundary, ConservedState, EulerConfig, EulerLog,
     EulerResult, PhysicalCheck, TerminationReason,
 };
-pub use solver2d::{advance2d, advance2d_par, advance2d_rk2, Bc2d, Boundaries2d, InflowProfile};
+pub use solver2d::{
+    advance2d, advance2d_capped_par, advance2d_par, advance2d_rk2, Bc2d, Boundaries2d,
+    InflowProfile, TimeControl,
+};
 pub use solver3d::{advance3d, advance3d_rk2};
 pub use solver_u::advance_ugrid;
 pub use state::{cons_to_prim, prim_to_cons};
@@ -87,6 +92,11 @@ pub use viscous2d::{
     add_viscous, add_viscous_bc, add_viscous_cells, advance2d_sa_lts, advance2d_sa_rk2,
     advance2d_visc_rk2, local_dts, sa_dt_cap, sutherland_mu, TurbCtx, ViscParams,
 };
+pub use viscous2d_par::{
+    add_viscous_cells_par, advance2d_sa_rk2_par, advance2d_visc_rk2_par, advance_turb_par,
+    StepConfig,
+};
+pub use viscous3d::{add_viscous3d, advance3d_visc_rk2, ViscParams3d, Walls3d};
 pub use wall_dist::wall_distance2d;
 
 use error::{codes, from_code};

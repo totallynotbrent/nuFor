@@ -46,7 +46,7 @@ pub struct SaParams {
 /// gradients; in 2d this is |dv/dx - du/dy|. on stretched axes the
 /// derivatives use the true neighbor distances (the plain central
 /// difference when uniform).
-fn vorticity(u: &[f64], v: &[f64], g: &Grid2d, unif_x: bool, unif_y: bool) -> Vec<f64> {
+pub(crate) fn vorticity(u: &[f64], v: &[f64], g: &Grid2d, unif_x: bool, unif_y: bool) -> Vec<f64> {
     let (dx, dy) = (g.dx, g.dy);
     let (nx, ny) = (g.nx, g.ny);
     let w = nx + 2;
@@ -125,7 +125,7 @@ fn is_wall(bc: &crate::solver2d::Bc2d) -> bool {
 }
 
 /// padded nu_tilde with wall-aware ghosts: solid sides zero, open sides copy.
-fn pad_scalar(nt: &[f64], nx: usize, ny: usize, bc: &Boundaries2d) -> Vec<f64> {
+pub(crate) fn pad_scalar(nt: &[f64], nx: usize, ny: usize, bc: &Boundaries2d) -> Vec<f64> {
     let w = nx + 2;
     let mut out = vec![0.0; w * (ny + 2)];
     for j in 0..ny {

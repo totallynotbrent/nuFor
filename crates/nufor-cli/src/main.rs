@@ -1038,6 +1038,25 @@ fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
                     break;
                 }
             }
+        } else if cfg.numerics.threads > 1 {
+            let nt = cfg.numerics.threads;
+            let step_cfg = nufor_core::StepConfig {
+                gamma,
+                cfl,
+                muscl: true,
+                nthreads: nt,
+            };
+            match nufor_core::advance2d_sa_rk2_par(&mut st, &mut turb, &g, &bc, step_cfg) {
+                Ok(dt) => {
+                    t += dt;
+                    true
+                }
+                Err(e) => {
+                    eprintln!("solver error: {e}");
+                    ok = false;
+                    break;
+                }
+            }
         } else {
             match advance2d_sa_rk2(&mut st, &mut turb, &g, gamma, cfl, true, &bc) {
                 Ok(dt) => {
