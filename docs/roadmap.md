@@ -11,21 +11,25 @@ dates. Milestones land when their gates pass.
 - 2D Euler, viscous, and RANS (Spalart-Allmaras): validated, committed.
 - Web UI: case gallery, mesh view, live runs, validation dock.
 - 3D inviscid Euler: validated, committed.
-- 3D viscous Navier-Stokes: complete, uncommitted (sessions 1-5).
+- 3D viscous Navier-Stokes: validated, committed.
+- Masked bodies (rung 2): done, validated on the cylinder bow shock and
+  the sphere-cone trade-study geometry.
+- Axisymmetric solver (rung 3): done, validated on the sphere bow shock
+  against the Ambrosio-Wortman standoff. The user's capsule ran at the
+  peak-q point, Mach 22 perfect gas: bow shock, post-shock states, and
+  the surface Cp cross-check against his modified-Newtonian numbers.
 
 ## The ladder, in order
 
-1. **3D viscous**: done, awaiting commit.
-2. **Masked bodies**: rasterize a curved body onto the Cartesian grid
-   as a solid-cell mask; mask faces carry wall boundary conditions.
-   Staircase walls are first-order at the surface but give real bow
-   shocks, standoff, and pressure distributions. This is the gate for
-   any curved geometry, including aeroshells. Validation: supersonic
-   cylinder standoff, wedge family.
-3. **Axisymmetric solver**: the 2D operator plus geometric source
-   terms and an axis boundary condition. Turns every axisymmetric body
-   (sphere-cones, capsules) into a cheap, high-resolution 2D problem.
-   Validation: cylinder bow shock, stagnation-point correlations.
+1. **3D viscous**: done.
+2. **Masked bodies**: done. The solid-cell mask answers any shape that
+   provides inside plus normal: the analytic circle, polygons, and
+   analytic signed-distance bodies. Staircase walls are first-order at
+   the surface but give real bow shocks, standoff, and pressure
+   distributions.
+3. **Axisymmetric solver**: done. The annular update carries the face
+   radii and the p/r geometric source, with the slip-wall ghost as the
+   axis condition.
 4. **3D SA/RANS**: Spalart-Allmaras in 3D with wall distance.
    Validation: law-of-the-wall channel/duct, spanwise-symmetric plate.
    Roughly 1.5-2 weeks of sessions.

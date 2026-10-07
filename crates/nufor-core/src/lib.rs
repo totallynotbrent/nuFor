@@ -6,6 +6,8 @@
 use std::ffi::c_char;
 use std::os::raw::c_int;
 
+mod aeroshell;
+mod axi;
 mod blasius;
 mod body;
 mod cfl;
@@ -44,8 +46,10 @@ mod viscous2d_par;
 mod viscous3d;
 mod wall_dist;
 
+pub use aeroshell::{SphereCone, SphereConeSdf};
+pub use axi::{advance2d_axi, advance2d_axi_rk2};
 pub use blasius::{BlasiusProfile, BlasiusTable, CF_CONST};
-pub use body::{apply_solid, SolidBody};
+pub use body::{apply_solid, apply_solid_fn, SolidBody, SolidPolygon, SolidShape};
 pub use cfl::{cfl_dt, CflStep};
 pub use eos::{eos_mach, eos_pressure, eos_sound_speed, eos_temperature};
 pub use eos2d::{eos_mach2d, eos_pressure2d, eos_sound_speed2d};

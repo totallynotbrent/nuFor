@@ -52,6 +52,9 @@ Every milestone closes against an analytical or benchmark case:
 - [Blasius flat plate](numerics/2d/blasius.md) - the laminar layer held steady, skin friction vs the exact correlation
 - [Turbulent flat plate](numerics/2d/turbulent-plate.md) - the SA layer at correlation Reynolds numbers
 - [Supersonic cylinder](numerics/2d/supersonic-cylinder.md) - the detached bow shock
+- [Axisymmetric Euler](numerics/2d/axisymmetric.md) - bodies of revolution: the annular update and its geometric source
+- [Axisymmetric sphere validation](verification/axisymmetric-sphere.md) - the bow shock standoff vs Ambrosio-Wortman
+- [Aeroshell cross-check](aeroshell.md) - the capsule at peak q: CFD vs modified Newtonian
 - [Regression suite](verification/regression-suite.md) - the automated gate on every change
 - [Grid convergence study](verification/grid-convergence.md) - the turbulent plate refined 2x in every cell
 - [3D channel validation](verification/viscous3d-channel.md) - the Poiseuille parabola held in a 3D slab
