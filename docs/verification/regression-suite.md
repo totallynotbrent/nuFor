@@ -38,6 +38,11 @@ The headline numbers the per-case tests lock down include:
 - the Lax shock tube staying positive and converging,
 - the 2D HLLC cell matching the 1D reference along a plane,
 - the oblique shock holding the exact post-shock state (the wedge),
+- the sphere-cone geometry reproducing the trade-study dimensions and
+  the polygon body reproducing the cylinder bow shock,
+- the axisymmetric sphere standoff at 1.2 percent of the
+  Ambrosio-Wortman correlation, the case that proves the geometric
+  source terms are present,
 - the two-shock regular reflection against its analytic triple,
 - Poiseuille's parabola held by the viscous channel flow,
 - the 3D channel slab holding the same parabola across the span,

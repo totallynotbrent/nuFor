@@ -89,7 +89,7 @@ fn face_states_axis(
 
 /// true when every cell width on the axis matches the first to roundoff, so
 /// the uniform-grid fast paths (and their exact float behavior) apply.
-fn axis_uniform(ws: &[f64]) -> bool {
+pub(crate) fn axis_uniform(ws: &[f64]) -> bool {
     let w0 = ws[0].abs().max(1e-12);
     ws.iter().all(|w| (w - ws[0]).abs() <= 1e-9 * w0)
 }
@@ -181,7 +181,13 @@ pub struct Boundaries2d {
 /// a slip wall knows which component to reflect. a profile inflow additionally
 /// needs `face_pos`, the coordinate along the inflow plane where the ghost
 /// center sits (pass 0.0 when the side cannot be a profile).
-fn ghost_value(bc: &Bc2d, interior: f64, var: usize, normal_var: usize, face_pos: f64) -> f64 {
+pub(crate) fn ghost_value(
+    bc: &Bc2d,
+    interior: f64,
+    var: usize,
+    normal_var: usize,
+    face_pos: f64,
+) -> f64 {
     match bc {
         Bc2d::Transmissive | Bc2d::SupersonicOutflow => interior,
         Bc2d::SlipWall => {

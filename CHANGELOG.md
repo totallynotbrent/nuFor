@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+Axisymmetric Euler solver and masked solid bodies. The 2D planar flux
+machinery now drives an annular update for bodies of revolution: radial
+faces carry the cell radii and radial momentum gains the geometric p/r
+source, with the slip-wall ghost doubling as the symmetry axis
+condition. Validated on the Mach-2 sphere bow shock: standoff within
+1.2 percent of the Ambrosio-Wortman correlation, post-shock density in
+the Rankine-Hugoniot band. The solid-cell mask generalizes to any shape
+that answers inside plus normal: the circle keeps its cylinder contract,
+a polygon body reproduces the cylinder bow shock, and an analytic
+signed-distance sphere-cone reproduces the trade-study dimensions of the
+capsule geometry exactly. The sphere-cone runs at the peak-q trajectory
+point (Mach 22, perfect gas) form a detached bow shock with
+post-shock density near the high-Mach limit, and the surface Cp
+extraction feeds an axial-force cross-check.
+
 Navier-Stokes in 3D. The viscous operator works on the uniform structured
 3D grid, with no-slip adiabatic walls on any of the six domain faces and
 a Heun march capped by the explicit diffusion bound. Two analytic flows
