@@ -140,7 +140,20 @@ pub fn write_vtk2d_model(
     let e_int: Vec<f64> = (0..n)
         .map(|k| (et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k])).max(1.0))
         .collect();
-    let p = crate::thermo::pressure(model, &st.rho, &e_int, &u, &v)?;
+    // fuse (p, t) from the table in one read when eqair is the closure.
+    // the writer needs T at the (rho, e_int) state it already holds, so
+    // going through temperature(rho, p) right after would re-bisect e.
+    let (p, temp) = match model {
+        crate::thermo::ThermoModel::EqAir => {
+            let (p_, t_, _) = crate::eqair_cea::fused_state_mu(&st.rho, &e_int, |_| 0.0);
+            (p_, t_)
+        }
+        crate::thermo::ThermoModel::Perfect { gamma } => {
+            let p_ = crate::thermo::pressure(model, &st.rho, &e_int, &u, &v)?;
+            let t_ = crate::thermo::temperature(model, &st.rho, &p_)?;
+            (p_, t_)
+        }
+    };
     let a = crate::thermo::sound_speed(model, &st.rho, &et, &u, &v)?;
     let mach: Vec<f64> = (0..n)
         .map(|k| (u[k] * u[k] + v[k] * v[k]).sqrt() / a[k].max(1e-6))
@@ -156,6 +169,7 @@ pub fn write_vtk2d_model(
     append_scalar(&mut s, "pressure", &p);
     append_scalar(&mut s, "energy", &st.e);
     append_scalar(&mut s, "mach", &mach);
+    append_scalar(&mut s, "temperature", &temp);
     write_all(path, &s)
 }
 
