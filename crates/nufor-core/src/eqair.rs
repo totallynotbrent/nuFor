@@ -355,13 +355,26 @@ pub fn pressure_from_energy(rho: &[f64], e: &[f64]) -> Result<Vec<f64>, Error> {
     }
     let mut p = Vec::with_capacity(n);
     for i in 0..n {
-        if rho[i] <= 0.0 || e[i] <= 0.0 || rho[i].is_nan() || e[i].is_nan() {
-            return Err(Error::InvalidArgs);
+        let rho_ok = rho[i].is_finite() && rho[i] > 1e-12;
+        let e_ok = e[i].is_finite() && e[i] > 1e-3;
+        if !(rho_ok && e_ok) {
+            // out-of-physical cell during a transient: clamp to a cold
+            // low-density floor so the march can keep going; the next
+            // step's fluxes will re-pressurize from real neighbors.
+            let rho_c = if rho_ok { rho[i] } else { 1e-6 };
+            let e_c = if e_ok { e[i].max(1.0e4) } else { 1.0e4 };
+            p.push(0.4 * e_c * rho_c);
+            continue;
         }
-        let y = (rho[i] / RHO0).log10();
-        let z = (e[i] / E0).log10();
+        let y = (rho[i] / RHO0).log10().clamp(-6.0, 1.0);
+        let z = (e[i] / E0).log10().clamp(0.65, 3.4);
         let (g, _, _) = gamm_and_partials(y, z);
-        p.push((g - 1.0) * e[i] * rho[i]);
+        let pv = (g - 1.0) * e[i] * rho[i];
+        if pv.is_finite() && pv > 0.0 {
+            p.push(pv);
+        } else {
+            p.push(0.4 * 1.0e4 * rho[i].max(1e-12));
+        }
     }
     Ok(p)
 }
@@ -374,17 +387,21 @@ pub fn sound_speed_from_energy(rho: &[f64], e: &[f64]) -> Result<Vec<f64>, Error
     }
     let mut a = Vec::with_capacity(n);
     for i in 0..n {
-        if rho[i] <= 0.0 || e[i] <= 0.0 || rho[i].is_nan() || e[i].is_nan() {
-            return Err(Error::InvalidArgs);
+        let rho_ok = rho[i].is_finite() && rho[i] > 1e-12;
+        let e_ok = e[i].is_finite() && e[i] > 1e-3;
+        if !(rho_ok && e_ok) {
+            a.push(200.0);
+            continue;
         }
-        let y = (rho[i] / RHO0).log10();
-        let z = (e[i] / E0).log10();
+        let y = (rho[i] / RHO0).log10().clamp(-6.0, 1.0);
+        let z = (e[i] / E0).log10().clamp(0.65, 3.4);
         let (g, gr, ge) = gamm_and_partials(y, z);
         let asq = e[i] * ((g - 1.0) * (g + ge / LN10) + gr / LN10);
-        if asq <= 0.0 {
-            return Err(Error::InvalidArgs);
-        }
-        a.push(asq.sqrt());
+        a.push(if asq.is_finite() && asq > 0.0 {
+            asq.sqrt()
+        } else {
+            200.0
+        });
     }
     Ok(a)
 }

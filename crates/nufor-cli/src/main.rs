@@ -189,10 +189,34 @@ fn run(args: &[String]) -> i32 {
         eprintln!("run needs a case file or: <N> <t> [sod|lax] [rst]");
         return 2;
     }
-    if Path::new(&args[2]).exists() && args[2].ends_with(".toml") {
-        return run_case(&args[2]);
+    // sweep "--flag value" pairs the case runners can act on.
+    let mut max_steps_override: Option<usize> = None;
+    let mut positional: Vec<&str> = Vec::new();
+    let mut i = 2;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--max-steps" => {
+                if let Some(v) = args.get(i + 1).and_then(|s| s.parse().ok()) {
+                    max_steps_override = Some(v);
+                }
+                i += 2;
+            }
+            _ => {
+                positional.push(&args[i]);
+                i += 1;
+            }
+        }
     }
-    run_shock_tube(args)
+    if let Some(p) = positional.first() {
+        if Path::new(p).exists() && p.ends_with(".toml") {
+            return run_case_with_overrides(p, max_steps_override);
+        }
+    }
+    let mut rest: Vec<String> = vec![args[0].clone(), args[1].clone()];
+    for p in positional {
+        rest.push(p.to_string());
+    }
+    run_shock_tube(&rest)
 }
 
 fn run_shock_tube(args: &[String]) -> i32 {
@@ -814,6 +838,25 @@ pub fn bc1d(kind: BoundaryKind) -> Boundary {
     }
 }
 
+fn run_case_with_overrides(path: &str, max_steps: Option<usize>) -> i32 {
+    if let Some(ms) = max_steps {
+        set_adhoc_max_steps(ms);
+    }
+    run_case(path)
+}
+
+fn set_adhoc_max_steps(v: usize) {
+    ADHOC_MAX_STEPS.with(|c| c.set(Some(v)));
+}
+
+thread_local! {
+    static ADHOC_MAX_STEPS: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+fn get_adhoc_max_steps() -> Option<usize> {
+    ADHOC_MAX_STEPS.with(|c| c.get())
+}
+
 fn run_case(path: &str) -> i32 {
     let cfg = match load_case_config(Path::new(path)) {
         Ok(c) => c,
@@ -991,7 +1034,9 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
     };
     let cfl = cfg.numerics.cfl;
     let t_end = cfg.time.final_time;
-    let max_steps = if cfg.time.max_steps > 0 {
+    let max_steps = if let Some(ms) = get_adhoc_max_steps() {
+        ms
+    } else if cfg.time.max_steps > 0 {
         cfg.time.max_steps as usize
     } else {
         1_000_000
@@ -1288,7 +1333,9 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     let bc = case_boundaries(cfg);
     let cfl = cfg.numerics.cfl;
     let t_end = cfg.time.final_time;
-    let max_steps = if cfg.time.max_steps > 0 {
+    let max_steps = if let Some(ms) = get_adhoc_max_steps() {
+        ms
+    } else if cfg.time.max_steps > 0 {
         cfg.time.max_steps as usize
     } else {
         1_000_000

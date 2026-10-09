@@ -427,7 +427,10 @@ pub fn advance2d_axi_curv(
             // velocity reflected (slip wall), which is exact for the
             // on-axis stagnation streamline.
             let (left, right) = if i == 0 {
-                let l = face_prim(model, rl, 0.0, utl, xl);
+                // seam: reflect normal velocity OUT so the riemann
+                // solver doesn't believe there is momentum entering
+                // through the body. utl stays (tangential slip).
+                let l = face_prim(model, rl, -unl, utl, xl);
                 (l, l)
             } else {
                 let l = face_prim(model, rl, unl, utl, xl);
