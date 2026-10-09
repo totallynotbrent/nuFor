@@ -8,7 +8,7 @@
 //!
 //! two shapes go through one interface: the analytic circle (the validated
 //! cylinder case) and the arbitrary closed polygon (any sketched profile,
-//! the aeroshell meridian). `inside` decides which cells are solid and
+//! an analytic meridian). `inside` decides which cells are solid and
 //! `normal` feeds the surface band, so the marching code never branches on
 //! shape.
 
@@ -285,7 +285,7 @@ impl SolidPolygon {
 ///
 /// same contract as `apply_solid`; the caller supplies `dist` (negative
 /// inside the body) plus `normal` for surface cells. used by the axisymmetric
-/// aeroshell path where the meridian is analytic.
+/// analytic-meridian path.
 pub fn apply_solid_fn(
     state: &mut ConservedState2d,
     g: &Grid2d,

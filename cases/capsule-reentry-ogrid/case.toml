@@ -1,0 +1,53 @@
+schema_version = 1
+
+[metadata]
+name = "capsule-reentry-ogrid"
+description = "M22 @ 40 km eqair capsule on the body-fitted O-grid (M1)"
+
+[physics]
+equations = "euler_axi"
+eos = "eqair"
+gamma = 1.4
+gas_constant = 287
+
+[mesh]
+nx = 192
+ny = 96
+x0 = 0
+x1 = 9.5
+y0 = 0
+y1 = 4.0
+source = "sphere-cone-o-grid"
+
+[body]
+type = "sphere_cone"
+rn = 1.9
+delta_deg = 9.5663
+rb = 2.365
+xc = 3.9
+
+[initial_condition]
+type = "uniform"
+rho = 0.004
+u = 6960.0
+p = 287.0
+
+[boundaries]
+left = "supersonic_inflow"
+right = "supersonic_outflow"
+bottom = "slip_wall"
+top = "supersonic_outflow"
+
+[numerics]
+flux = "hllc"
+reconstruction = "muscl"
+cfl = 0.4
+
+[time]
+final_time = 0.004
+max_steps = 40000
+
+[output]
+interval_steps = 200
+formats = ["vtk"]
+fields = ["rho", "u", "p"]

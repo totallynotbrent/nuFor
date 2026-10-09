@@ -26,15 +26,18 @@
 //!
 //! the march reuses the planar flux machinery unchanged (fluxes per
 //! unit area are identical in both formulations) and rewrites only the
-//! update.
+//! update. the thermodynamic closure arrives as a `ThermoModel`: the
+//! perfect-gas branch reconstructs pressure at faces (the historical
+//! behavior), the equilibrium-air branch reconstructs internal energy
+//! and evaluates the closure per face state.
 
-use crate::eos2d::eos_pressure2d;
 use crate::grid2d::Grid2d;
 use crate::hllc2d::{hllc_flux, FacePrim};
 use crate::state2d::{cons_to_prim2d, ConservedState2d};
+use crate::thermo::{self, ThermoModel};
 use crate::Error;
 
-use crate::solver2d::{ghost_value, Boundaries2d};
+use crate::solver2d::{ghost_value, Bc2d, Boundaries2d};
 
 /// the van leer limiter: the harmonic mean, zero when the slopes disagree.
 fn van_leer(dm: f64, dp: f64) -> f64 {
@@ -69,33 +72,154 @@ fn face_states(p: &[f64], n: usize, muscl: bool) -> (Vec<f64>, Vec<f64>) {
     (fl, fr)
 }
 
-/// the largest fast-characteristic speed over the cells.
-fn smax_of(u: &[f64], v: &[f64], p: &[f64], rho: &[f64], gamma: f64, n: usize) -> f64 {
-    let mut s = 0.0f64;
+/// the model-aware laminar viscous step: euler sub-steps through
+/// advance2d_model_capped and the diffusive half-steps through
+/// add_viscous_cells_mu with a per-cell sutherland viscosity from the
+/// closure temperature. wall_temperature > 0 sets the isothermal
+/// no-slip wall state; 0 means adiabatic.
+pub fn advance2d_model_visc_rk2(
+    state: &mut ConservedState2d,
+    g: &Grid2d,
+    model: ThermoModel,
+    cfl: f64,
+    muscl: bool,
+    bc: &Boundaries2d,
+    mu0: f64,
+    t0_ref: f64,
+    s_param: f64,
+    pr: f64,
+    wall_temperature: f64,
+) -> Result<(f64, f64), Error> {
+    let n = g.nx * g.ny;
+    // the diffusion bound with the max kinematic viscosity the shock
+    // layer reaches; using the reference-state mu underestimates the
+    // stiffness at hot cells, so probe the actual field.
+    let (u0, v0, et0) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
+    let mut e_int = vec![0.0; n];
     for k in 0..n {
-        let a = (gamma * p[k].max(1e-12) / rho[k]).sqrt();
-        s = s.max(u[k].abs().max(v[k].abs()) + a);
+        e_int[k] = et0[k] - 0.5 * (u0[k] * u0[k] + v0[k] * v0[k]);
     }
-    s
+    let p0 = thermo::pressure(model, &state.rho, &e_int, &u0, &v0)?;
+    let t0 = thermo::temperature(model, &state.rho, &p0)?;
+    let mut mu_cells = vec![mu0; n];
+    for k in 0..n {
+        mu_cells[k] = crate::viscous2d::sutherland_mu(mu0, t0[k].max(1.0), t0_ref, s_param);
+    }
+    let rho_min = state
+        .rho
+        .iter()
+        .cloned()
+        .fold(f64::INFINITY, f64::min)
+        .max(1e-6);
+    let mu_max = mu_cells.iter().cloned().fold(0.0f64, f64::max);
+    let nu_max = mu_max / rho_min;
+    let dt_visc = 0.25 * g.dx.min(g.dy).powi(2) / nu_max.max(1e-12);
+    let mut s1 = state.clone();
+    let (dt1, _) = advance2d_model_capped(&mut s1, g, model, cfl, muscl, bc, dt_visc)?;
+    crate::viscous2d::add_viscous_cells_mu(
+        &mut s1,
+        g,
+        match model {
+            ThermoModel::Perfect { gamma } => gamma,
+            ThermoModel::EqAir => 1.4,
+        },
+        mu0,
+        &mu_cells,
+        pr,
+        Some(crate::viscous2d::TurbCtx {
+            mu_t: &[],
+            pr_t: pr,
+            bc,
+        }),
+        crate::solver2d::TimeControl::Global(dt1),
+        Some(model),
+        wall_temperature,
+    )?;
+    let (dt2, _) = advance2d_model_capped(&mut s1, g, model, cfl, muscl, bc, dt_visc)?;
+    crate::viscous2d::add_viscous_cells_mu(
+        &mut s1,
+        g,
+        match model {
+            ThermoModel::Perfect { gamma } => gamma,
+            ThermoModel::EqAir => 1.4,
+        },
+        mu0,
+        &mu_cells,
+        pr,
+        Some(crate::viscous2d::TurbCtx {
+            mu_t: &[],
+            pr_t: pr,
+            bc,
+        }),
+        crate::solver2d::TimeControl::Global(dt2),
+        Some(model),
+        wall_temperature,
+    )?;
+    for k in 0..n {
+        state.rho[k] = 0.5 * state.rho[k] + 0.5 * s1.rho[k];
+        state.mx[k] = 0.5 * state.mx[k] + 0.5 * s1.mx[k];
+        state.my[k] = 0.5 * state.my[k] + 0.5 * s1.my[k];
+        state.e[k] = 0.5 * state.e[k] + 0.5 * s1.e[k];
+    }
+    Ok((dt1, 0.0))
 }
 
-/// face flux arrays for one sweep direction.
-struct Sweep {
-    mass: Vec<f64>,
-    mx: Vec<f64>,
-    my: Vec<f64>,
-    e: Vec<f64>,
-}
+/// like `advance2d_model` but with an external step cap, the viscous
+/// path's way to interleave euler and diffusive half-steps at the
+/// stiffer of the two bounds. single-advance.
+fn advance2d_model_capped(
+    state: &mut ConservedState2d,
+    g: &Grid2d,
+    model: ThermoModel,
+    cfl: f64,
+    muscl: bool,
+    bc: &crate::solver2d::Boundaries2d,
+    dt_cap: f64,
+) -> Result<(f64, f64), Error> {
+    let (nx, ny) = (g.nx, g.ny);
+    let idx = |i: usize, j: usize| j * nx + i;
+    let n = nx * ny;
+    let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
+    let mut e_int = vec![0.0; n];
+    for k in 0..n {
+        e_int[k] = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
+    }
+    let p = thermo::pressure(model, &state.rho, &e_int, &u, &v)?;
+    let a = thermo::sound_speed(model, &state.rho, &et, &u, &v)?;
+    let mut smax = 0.0f64;
+    for k in 0..n {
+        smax = smax.max(u[k].abs().max(v[k].abs()) + a[k]);
+    }
+    let dt = (cfl * g.dx.min(g.dy) / smax.max(1e-12)).min(dt_cap);
 
-impl Sweep {
-    fn new(n: usize) -> Self {
-        Sweep {
-            mass: vec![0.0; n + 1],
-            mx: vec![0.0; n + 1],
-            my: vec![0.0; n + 1],
-            e: vec![0.0; n + 1],
+    let (fx, fy) = compute_axi_fluxes(model, state, g, muscl, bc, &p, &e_int)?;
+
+    let mut resid = 0.0f64;
+    #[allow(clippy::needless_range_loop)]
+    for j in 0..ny {
+        for i in 0..nx {
+            let k = idx(i, j);
+            let dxi = dt / g.dxs[i];
+            let dyi = dt / g.dys[j];
+            let drho = -(dxi * (fx[j].mass[i + 1] - fx[j].mass[i])
+                + dyi * (fy[i].mass[j + 1] - fy[i].mass[j]));
+            let dmx =
+                -(dxi * (fx[j].mx[i + 1] - fx[j].mx[i]) + dyi * (fy[i].mx[j + 1] - fy[i].mx[j]));
+            let dmy =
+                -(dxi * (fx[j].my[i + 1] - fx[j].my[i]) + dyi * (fy[i].my[j + 1] - fy[i].my[j]));
+            let de = -(dxi * (fx[j].e[i + 1] - fx[j].e[i]) + dyi * (fy[i].e[j + 1] - fy[i].e[j]));
+            state.rho[k] += drho;
+            state.mx[k] += dmx;
+            state.my[k] += dmy;
+            state.e[k] += de;
+            resid = resid
+                .max(drho.abs())
+                .max(dmx.abs())
+                .max(dmy.abs())
+                .max(de.abs());
         }
     }
+    Ok((dt, resid))
 }
 
 /// one axisymmetric euler step; compose with two half-steps for heun the
@@ -106,120 +230,28 @@ impl Sweep {
 pub fn advance2d_axi(
     state: &mut ConservedState2d,
     g: &Grid2d,
-    gamma: f64,
+    model: ThermoModel,
     cfl: f64,
     muscl: bool,
     bc: &Boundaries2d,
 ) -> Result<(f64, f64), Error> {
     let (nx, ny) = (g.nx, g.ny);
     let idx = |i: usize, j: usize| j * nx + i;
+    let n = nx * ny;
     let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
-    let p = eos_pressure2d(gamma, &state.rho, &et, &u, &v)?;
-    let dt = cfl * g.dx.min(g.dy) / smax_of(&u, &v, &p, &state.rho, gamma, nx * ny);
-
-    let st: &ConservedState2d = state;
-    let mut fx: Vec<Sweep> = (0..ny).map(|_| Sweep::new(nx)).collect();
-    let mut fy: Vec<Sweep> = (0..nx).map(|_| Sweep::new(ny)).collect();
-
-    for j in 0..ny {
-        let (mut pr, mut pu, mut pv, mut pp) =
-            (vec![0.0; nx], vec![0.0; nx], vec![0.0; nx], vec![0.0; nx]);
-        for i in 0..nx {
-            pr[i] = st.rho[idx(i, j)];
-            pu[i] = u[idx(i, j)];
-            pv[i] = v[idx(i, j)];
-            pp[i] = p[idx(i, j)];
-        }
-        let y_row = g.centers_y[j * nx];
-        let pad = |c: &[f64], var: usize| -> Vec<f64> {
-            let mut out = vec![0.0; nx + 2];
-            out[0] = ghost_value(&bc.west, c[0], var, 1, y_row);
-            out[nx + 1] = ghost_value(&bc.east, c[nx - 1], var, 1, y_row);
-            out[1..=nx].copy_from_slice(c);
-            out
-        };
-        let flux_row = |c: &[f64], var: usize| -> (Vec<f64>, Vec<f64>) {
-            let padded = pad(c, var);
-            face_states(&padded, nx, muscl)
-        };
-        let (rl, rr) = flux_row(&pr, 0);
-        let (ul, ur) = flux_row(&pu, 1);
-        let (vl, vr) = flux_row(&pv, 2);
-        let (pl, prr) = flux_row(&pp, 3);
-        for f in 0..=nx {
-            let q = hllc_flux(
-                gamma,
-                FacePrim {
-                    rho: rl[f],
-                    u: ul[f],
-                    v: vl[f],
-                    p: pl[f],
-                },
-                FacePrim {
-                    rho: rr[f],
-                    u: ur[f],
-                    v: vr[f],
-                    p: prr[f],
-                },
-                0,
-            );
-            fx[j].mass[f] = q.mass;
-            fx[j].mx[f] = q.mx;
-            fx[j].my[f] = q.my;
-            fx[j].e[f] = q.e;
-        }
+    let mut e_int = vec![0.0; n];
+    for k in 0..n {
+        e_int[k] = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
     }
-
-    for i in 0..nx {
-        let (mut cr, mut cu, mut cv, mut cp) =
-            (vec![0.0; ny], vec![0.0; ny], vec![0.0; ny], vec![0.0; ny]);
-        for j in 0..ny {
-            cr[j] = st.rho[idx(i, j)];
-            cu[j] = u[idx(i, j)];
-            cv[j] = v[idx(i, j)];
-            cp[j] = p[idx(i, j)];
-        }
-        let x_col = g.centers_x[i];
-        let x_ghost_s = 2.0 * g.faces_x[0] - x_col;
-        let x_ghost_n = 2.0 * g.faces_x[nx] - x_col;
-        let pad = |c: &[f64], var: usize| -> Vec<f64> {
-            let mut out = vec![0.0; ny + 2];
-            out[0] = ghost_value(&bc.south, c[0], var, 2, x_ghost_s);
-            out[ny + 1] = ghost_value(&bc.north, c[ny - 1], var, 2, x_ghost_n);
-            out[1..=ny].copy_from_slice(c);
-            out
-        };
-        let flux_col = |c: &[f64], var: usize| -> (Vec<f64>, Vec<f64>) {
-            let padded = pad(c, var);
-            face_states(&padded, ny, muscl)
-        };
-        let (rl, rr) = flux_col(&cr, 0);
-        let (ul, ur) = flux_col(&cu, 1);
-        let (vl, vr) = flux_col(&cv, 2);
-        let (pl, prr) = flux_col(&cp, 3);
-        for f in 0..=ny {
-            let q = hllc_flux(
-                gamma,
-                FacePrim {
-                    rho: rl[f],
-                    u: ul[f],
-                    v: vl[f],
-                    p: pl[f],
-                },
-                FacePrim {
-                    rho: rr[f],
-                    u: ur[f],
-                    v: vr[f],
-                    p: prr[f],
-                },
-                1,
-            );
-            fy[i].mass[f] = q.mass;
-            fy[i].mx[f] = q.mx;
-            fy[i].my[f] = q.my;
-            fy[i].e[f] = q.e;
-        }
+    let p = thermo::pressure(model, &state.rho, &e_int, &u, &v)?;
+    let a = thermo::sound_speed(model, &state.rho, &et, &u, &v)?;
+    let mut smax = 0.0f64;
+    for k in 0..n {
+        smax = smax.max(u[k].abs().max(v[k].abs()) + a[k]);
     }
+    let dt = cfl * g.dx.min(g.dy) / smax.max(1e-12);
+
+    let (fx, fy) = compute_axi_fluxes(model, state, g, muscl, bc, &p, &e_int)?;
 
     // the annular update: r-weighted radial flux difference plus the
     // radial pressure source.
@@ -251,28 +283,329 @@ pub fn advance2d_axi(
     Ok((dt, resid))
 }
 
+/// face flux arrays for one sweep direction.
+pub(crate) struct Sweep {
+    pub(crate) mass: Vec<f64>,
+    pub(crate) mx: Vec<f64>,
+    pub(crate) my: Vec<f64>,
+    pub(crate) e: Vec<f64>,
+}
+
+impl Sweep {
+    fn new(n: usize) -> Self {
+        Sweep {
+            mass: vec![0.0; n + 1],
+            mx: vec![0.0; n + 1],
+            my: vec![0.0; n + 1],
+            e: vec![0.0; n + 1],
+        }
+    }
+}
+
+/// build the hllc face state pair for one face from reconstructed
+/// fields under the chosen closure. `x` is the reconstructed closure
+/// variable: pressure for the perfect gas, internal energy per mass
+/// for equilibrium air. returns (left, right).
+#[allow(clippy::too_many_arguments)]
+fn face_pair(
+    model: ThermoModel,
+    rl: f64,
+    ul: f64,
+    vl: f64,
+    xl: f64,
+    rr: f64,
+    ur: f64,
+    vr: f64,
+    xr: f64,
+) -> (FacePrim, FacePrim) {
+    match model {
+        ThermoModel::Perfect { gamma } => (
+            FacePrim::perfect(rl, ul, vl, xl, gamma),
+            FacePrim::perfect(rr, ur, vr, xr, gamma),
+        ),
+        ThermoModel::EqAir => {
+            let (pl, pr) = (
+                crate::eqair::eqair_pressure_at(rl, xl),
+                crate::eqair::eqair_pressure_at(rr, xr),
+            );
+            (
+                FacePrim {
+                    rho: rl,
+                    u: ul,
+                    v: vl,
+                    p: pl,
+                    a: crate::eqair::eqair_sound_at(rl, xl),
+                    e: xl,
+                },
+                FacePrim {
+                    rho: rr,
+                    u: ur,
+                    v: vr,
+                    p: pr,
+                    a: crate::eqair::eqair_sound_at(rr, xr),
+                    e: xr,
+                },
+            )
+        }
+    }
+}
+
+/// the face fluxes for both sweep directions, per unit area: the shared
+/// machinery between the staircase update and the cut-cell update.
+/// `p` and `e_int` are the precomputed cell fields of the closure.
+#[allow(clippy::needless_range_loop)]
+pub(crate) fn compute_axi_fluxes(
+    model: ThermoModel,
+    state: &ConservedState2d,
+    g: &Grid2d,
+    muscl: bool,
+    bc: &Boundaries2d,
+    p: &[f64],
+    e_int: &[f64],
+) -> Result<(Vec<Sweep>, Vec<Sweep>), Error> {
+    let (nx, ny) = (g.nx, g.ny);
+    let idx = |i: usize, j: usize| j * nx + i;
+    let (u, v, _et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
+    let gamma = match model {
+        ThermoModel::Perfect { gamma } => gamma,
+        ThermoModel::EqAir => 1.4, // only the fallback shaping value
+    };
+    // the reconstructed closure variable per cell: p or e.
+    let x: Vec<f64> = match model {
+        ThermoModel::Perfect { .. } => p.to_vec(),
+        ThermoModel::EqAir => e_int.to_vec(),
+    };
+    let mut fx: Vec<Sweep> = (0..ny).map(|_| Sweep::new(nx)).collect();
+    let mut fy: Vec<Sweep> = (0..nx).map(|_| Sweep::new(ny)).collect();
+
+    // the closure variable's inflow ghosts: under equilibrium air the
+    // row carries internal energy, but ghost_value answers the stored
+    // pressure for supersonic inflow. invert the inflow state through
+    // the closure so the ghost is the same gas the interior holds.
+    let bc_x = |side: &Bc2d, model: ThermoModel| -> Option<f64> {
+        match (side, model) {
+            (Bc2d::SupersonicInflow { rho, p, .. }, ThermoModel::EqAir) => {
+                crate::eqair::energy_from_pressure(&[*rho], &[*p])
+                    .ok()
+                    .and_then(|v| v.first().copied())
+            }
+            _ => None,
+        }
+    };
+    let west_x = bc_x(&bc.west, model);
+    let east_x = bc_x(&bc.east, model);
+
+    for j in 0..ny {
+        let (mut pr, mut pu, mut pv, mut px) =
+            (vec![0.0; nx], vec![0.0; nx], vec![0.0; nx], vec![0.0; nx]);
+        for i in 0..nx {
+            let k = idx(i, j);
+            pr[i] = state.rho[k];
+            pu[i] = u[k];
+            pv[i] = v[k];
+            px[i] = x[k];
+        }
+        let y_row = g.centers_y[j * nx];
+        let pad = |c: &[f64], var: usize| -> Vec<f64> {
+            let mut out = vec![0.0; nx + 2];
+            out[0] = west_x
+                .filter(|_| var == 3)
+                .unwrap_or_else(|| ghost_value(&bc.west, c[0], var, 1, y_row));
+            out[nx + 1] = east_x
+                .filter(|_| var == 3)
+                .unwrap_or_else(|| ghost_value(&bc.east, c[nx - 1], var, 1, y_row));
+            out[1..=nx].copy_from_slice(c);
+            out
+        };
+        let flux_row = |c: &[f64], var: usize| -> (Vec<f64>, Vec<f64>) {
+            let padded = pad(c, var);
+            face_states(&padded, nx, muscl)
+        };
+        let (rl, rr) = flux_row(&pr, 0);
+        let (ul, ur) = flux_row(&pu, 1);
+        let (vl, vr) = flux_row(&pv, 2);
+        let (xl, xr) = flux_row(&px, 3);
+        for f in 0..=nx {
+            let (l, r) = face_pair(
+                model, rl[f], ul[f], vl[f], xl[f], rr[f], ur[f], vr[f], xr[f],
+            );
+            let q = hllc_flux(gamma, l, r, 0);
+            fx[j].mass[f] = q.mass;
+            fx[j].mx[f] = q.mx;
+            fx[j].my[f] = q.my;
+            fx[j].e[f] = q.e;
+        }
+    }
+
+    let south_x_cache = bc_x(&bc.south, model);
+    let north_x_cache = bc_x(&bc.north, model);
+    for i in 0..nx {
+        let (mut cr, mut cu, mut cv, mut cx) =
+            (vec![0.0; ny], vec![0.0; ny], vec![0.0; ny], vec![0.0; ny]);
+        for j in 0..ny {
+            let k = idx(i, j);
+            cr[j] = state.rho[k];
+            cu[j] = u[k];
+            cv[j] = v[k];
+            cx[j] = x[k];
+        }
+        let x_col = g.centers_x[i];
+        let x_ghost_s = 2.0 * g.faces_x[0] - x_col;
+        let x_ghost_n = 2.0 * g.faces_x[nx] - x_col;
+        let south_x = south_x_cache;
+        let north_x = north_x_cache;
+        let pad = |c: &[f64], var: usize| -> Vec<f64> {
+            let mut out = vec![0.0; ny + 2];
+            out[0] = south_x
+                .filter(|_| var == 3)
+                .unwrap_or_else(|| ghost_value(&bc.south, c[0], var, 2, x_ghost_s));
+            out[ny + 1] = north_x
+                .filter(|_| var == 3)
+                .unwrap_or_else(|| ghost_value(&bc.north, c[ny - 1], var, 2, x_ghost_n));
+            out[1..=ny].copy_from_slice(c);
+            out
+        };
+        let flux_col = |c: &[f64], var: usize| -> (Vec<f64>, Vec<f64>) {
+            let padded = pad(c, var);
+            face_states(&padded, ny, muscl)
+        };
+        let (rl, rr) = flux_col(&cr, 0);
+        let (ul, ur) = flux_col(&cu, 1);
+        let (vl, vr) = flux_col(&cv, 2);
+        let (xl, xr) = flux_col(&cx, 3);
+        for f in 0..=ny {
+            let (l, r) = face_pair(
+                model, rl[f], ul[f], vl[f], xl[f], rr[f], ur[f], vr[f], xr[f],
+            );
+            let q = hllc_flux(gamma, l, r, 1);
+            fy[i].mass[f] = q.mass;
+            fy[i].mx[f] = q.mx;
+            fy[i].my[f] = q.my;
+            fy[i].e[f] = q.e;
+        }
+    }
+
+    Ok((fx, fy))
+}
+
 /// heun two-stage step over the axisymmetric step, mirroring
 /// `advance2d_rk2`'s composition over `advance2d`: the increment comes
 /// from the pre-step state (the first advance call returns it).
-pub fn advance2d_axi_rk2(
+/// the planar (non-axisymmetric) model-aware step: the same
+/// closure-general face fluxes as the axi march, with the plain
+/// divergence update — no annular weights, no radial pressure
+/// source. this is what angled (non-zero AoA) bodies need, where
+/// axisymmetry no longer holds.
+pub fn advance2d_model(
     state: &mut ConservedState2d,
     g: &Grid2d,
-    gamma: f64,
+    model: ThermoModel,
+    cfl: f64,
+    muscl: bool,
+    bc: &Boundaries2d,
+) -> Result<(f64, f64), Error> {
+    let (nx, ny) = (g.nx, g.ny);
+    let idx = |i: usize, j: usize| j * nx + i;
+    let n = nx * ny;
+    let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
+    let mut e_int = vec![0.0; n];
+    for k in 0..n {
+        e_int[k] = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
+    }
+    let p = thermo::pressure(model, &state.rho, &e_int, &u, &v)?;
+    let a = thermo::sound_speed(model, &state.rho, &et, &u, &v)?;
+    let mut smax = 0.0f64;
+    for k in 0..n {
+        smax = smax.max(u[k].abs().max(v[k].abs()) + a[k]);
+    }
+    let dt = cfl * g.dx.min(g.dy) / smax.max(1e-12);
+
+    let (fx, fy) = compute_axi_fluxes(model, state, g, muscl, bc, &p, &e_int)?;
+
+    let mut resid = 0.0f64;
+    #[allow(clippy::needless_range_loop)]
+    for j in 0..ny {
+        for i in 0..nx {
+            let k = idx(i, j);
+            let dxi = dt / g.dxs[i];
+            let dyi = dt / g.dys[j];
+            let drho = -(dxi * (fx[j].mass[i + 1] - fx[j].mass[i])
+                + dyi * (fy[i].mass[j + 1] - fy[i].mass[j]));
+            let dmx =
+                -(dxi * (fx[j].mx[i + 1] - fx[j].mx[i]) + dyi * (fy[i].mx[j + 1] - fy[i].mx[j]));
+            let dmy =
+                -(dxi * (fx[j].my[i + 1] - fx[j].my[i]) + dyi * (fy[i].my[j + 1] - fy[i].my[j]));
+            let de = -(dxi * (fx[j].e[i + 1] - fx[j].e[i]) + dyi * (fy[i].e[j + 1] - fy[i].e[j]));
+            state.rho[k] += drho;
+            state.mx[k] += dmx;
+            state.my[k] += dmy;
+            state.e[k] += de;
+            resid = resid
+                .max(drho.abs())
+                .max(dmx.abs())
+                .max(dmy.abs())
+                .max(de.abs());
+        }
+    }
+    Ok((dt, resid))
+}
+
+/// heun (rk2) wrapper around the planar model-aware step, matching
+/// the axi march's time integration.
+pub fn advance2d_model_rk2(
+    state: &mut ConservedState2d,
+    g: &Grid2d,
+    model: ThermoModel,
     cfl: f64,
     muscl: bool,
     bc: &Boundaries2d,
 ) -> Result<(f64, f64), Error> {
     let (dt, _) = {
         let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
-        let p = eos_pressure2d(gamma, &state.rho, &et, &u, &v)?;
-        (
-            cfl * g.dx.min(g.dy) / smax_of(&u, &v, &p, &state.rho, gamma, g.nx * g.ny),
-            0.0,
-        )
+        let a = thermo::sound_speed(model, &state.rho, &et, &u, &v)?;
+        let mut smax = 0.0f64;
+        for k in 0..g.nx * g.ny {
+            smax = smax.max(u[k].abs().max(v[k].abs()) + a[k]);
+        }
+        (cfl * g.dx.min(g.dy) / smax.max(1e-12), 0.0)
     };
     let mut s1 = state.clone();
-    advance2d_axi(&mut s1, g, gamma, cfl, muscl, bc)?;
-    advance2d_axi(&mut s1, g, gamma, cfl, muscl, bc)?;
+    advance2d_model(&mut s1, g, model, cfl, muscl, bc)?;
+    advance2d_model(&mut s1, g, model, cfl, muscl, bc)?;
+    for k in 0..g.nx * g.ny {
+        state.rho[k] = 0.5 * state.rho[k] + 0.5 * s1.rho[k];
+        state.mx[k] = 0.5 * state.mx[k] + 0.5 * s1.mx[k];
+        state.my[k] = 0.5 * state.my[k] + 0.5 * s1.my[k];
+        state.e[k] = 0.5 * state.e[k] + 0.5 * s1.e[k];
+    }
+    Ok((dt, 0.0))
+}
+
+pub fn advance2d_axi_rk2(
+    state: &mut ConservedState2d,
+    g: &Grid2d,
+    model: ThermoModel,
+    cfl: f64,
+    muscl: bool,
+    bc: &Boundaries2d,
+) -> Result<(f64, f64), Error> {
+    let (dt, _) = {
+        let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
+        let n = g.nx * g.ny;
+        let mut e_int = vec![0.0; n];
+        for k in 0..n {
+            e_int[k] = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
+        }
+        let a = thermo::sound_speed(model, &state.rho, &et, &u, &v)?;
+        let mut smax = 0.0f64;
+        for k in 0..n {
+            smax = smax.max(u[k].abs().max(v[k].abs()) + a[k]);
+        }
+        (cfl * g.dx.min(g.dy) / smax.max(1e-12), 0.0)
+    };
+    let mut s1 = state.clone();
+    advance2d_axi(&mut s1, g, model, cfl, muscl, bc)?;
+    advance2d_axi(&mut s1, g, model, cfl, muscl, bc)?;
     for k in 0..g.nx * g.ny {
         state.rho[k] = 0.5 * state.rho[k] + 0.5 * s1.rho[k];
         state.mx[k] = 0.5 * state.mx[k] + 0.5 * s1.mx[k];

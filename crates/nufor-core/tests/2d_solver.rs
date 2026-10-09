@@ -101,12 +101,7 @@ fn l1_err(a: &[f64], b: &[f64]) -> f64 {
 #[test]
 fn hllc_flux_is_the_physical_flux_for_a_uniform_supersonic_state() {
     // u = 3 > a = 1.18, so both waves go right and hllc returns the left physical flux.
-    let l = FacePrim {
-        rho: 1.0,
-        u: 3.0,
-        v: 0.0,
-        p: 1.0,
-    };
+    let l = FacePrim::perfect(1.0, 3.0, 0.0, 1.0, GAMMA);
     let f = hllc_flux(1.4, l, l, 0);
     let e_t = 1.0 / 0.4 + 0.5 * 9.0;
     let e_flux = 3.0 * (e_t + 1.0);
@@ -115,12 +110,7 @@ fn hllc_flux_is_the_physical_flux_for_a_uniform_supersonic_state() {
     assert!(f.my.abs() < 1e-12);
     assert!((f.e - e_flux).abs() < 1e-12);
     // y-normal face swaps the momentum slots.
-    let ly = FacePrim {
-        rho: 1.0,
-        u: 0.0,
-        v: 3.0,
-        p: 1.0,
-    };
+    let ly = FacePrim::perfect(1.0, 0.0, 3.0, 1.0, GAMMA);
     let g = hllc_flux(1.4, ly, ly, 1);
     assert!((g.my - 10.0).abs() < 1e-12);
     assert!(g.mx.abs() < 1e-12);

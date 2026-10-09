@@ -10,7 +10,7 @@ use nufor_core::{
     stretched_grid2d, wall_distance2d, Bc2d, BlasiusProfile, Boundaries2d, Clustering,
     ConservedState2d, Grid2d, InflowProfile, SaParams, TurbState, ViscParams,
 };
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
 
 const GAMMA: f64 = 1.4;
@@ -193,6 +193,8 @@ pub fn solve_turbulent(nx: usize, ny: usize, t_end: f64, progress: &AtomicU32) -
 pub struct PlateCache {
     pub turbulent: Mutex<Option<Plate>>,
     pub turb_progress: AtomicU32,
+    /// one-way flag: the lazy warmup starts at most once.
+    warm_started: AtomicBool,
 }
 
 impl PlateCache {
@@ -200,11 +202,20 @@ impl PlateCache {
         Self {
             turbulent: Mutex::new(None),
             turb_progress: AtomicU32::new(0),
+            warm_started: AtomicBool::new(false),
         }
     }
 
-    /// kick off the background turbulent solve at server start.
-    pub fn spawn_warmup(self: &std::sync::Arc<Self>) {
+    /// kick off the background turbulent solve once, on first use.
+    /// repeated calls are cheap no-ops; a failed or finished solve
+    /// is not restarted (a restart happens with the server itself).
+    pub fn ensure_warm(self: &std::sync::Arc<Self>) {
+        if self
+            .warm_started
+            .swap(true, std::sync::atomic::Ordering::AcqRel)
+        {
+            return;
+        }
         let cache = std::sync::Arc::clone(self);
         std::thread::spawn(move || {
             let plate = solve_turbulent(96, 48, 5.0, &cache.turb_progress);

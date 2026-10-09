@@ -1,23 +1,32 @@
-//! the fine aeroshell run: 2x the coarse grid in every cell, checkpointed
+//! the fine capsule run: 2x the coarse grid in every cell, checkpointed
 //! so an overnight reboot resumes instead of restarting, plus the Cp(x)
 //! surface extraction and the C_A integration against brent's newtonian
 //! numbers. heavy: #[ignore]-marked.
 
 use nufor_core::{
     advance2d_axi_rk2, apply_solid_fn, cons_to_prim2d, eos_pressure2d, grid2d, prim_to_cons2d,
-    Bc2d, Boundaries2d, ConservedState2d, SphereCone, SphereConeSdf,
+    Bc2d, Boundaries2d, ConservedState2d, SphereCone, SphereConeSdf, ThermoModel,
 };
 use std::io::{Read, Write};
 
 const GAMMA: f64 = 1.4;
 const M1: f64 = 22.0;
-const NX: usize = 640;
-const NY: usize = 320;
 const CKPT: &str = "/tmp/nf-aeroshell-fine-ckpt.bin";
+
+/// the grid reads NUFOR_AXI_NX / NUFOR_AXI_NY so convergence studies run
+/// without code edits; the suite default stays 640x320.
+fn env_grid(name: &str, default: usize) -> usize {
+    std::env::var(name)
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(default)
+}
 
 #[test]
 #[ignore = "fine mach-22 aeroshell march with checkpoints, ~hours in release"]
 fn aeroshell_peak_q_fine_grid_cp_extraction() {
+    let nx = env_grid("NUFOR_AXI_NX", 640);
+    let ny = env_grid("NUFOR_AXI_NY", 640 / 2);
     let sc0 = SphereCone::brent_shell();
     let shift = 2.0 - (sc0.xc - sc0.rn);
     let sc = SphereCone {
@@ -28,18 +37,21 @@ fn aeroshell_peak_q_fine_grid_cp_extraction() {
     };
     let sdf = SphereConeSdf { sc };
 
-    let g = grid2d(NX, NY, 0.0, 9.5, 0.0, 4.0).unwrap();
+    let g = grid2d(nx, ny, 0.0, 9.5, 0.0, 4.0).unwrap();
     let a1 = GAMMA.sqrt();
     let u1 = M1 * a1;
 
+    // the checkpoint carries its grid dims; a resume only happens on
+    // an exact match so an env-grid override run never inherits a
+    // different resolution's field.
     let (mut st, mut t, mut steps) = match std::fs::File::open(CKPT) {
-        Ok(mut f) => {
+        Ok(mut f) if f.metadata().unwrap().len() == 16 + 32 * (nx as u64) * (ny as u64) => {
             let mut buf = [0u8; 8];
             f.read_exact(&mut buf).unwrap();
             let t = f64::from_le_bytes(buf);
             f.read_exact(&mut buf).unwrap();
             let steps = u64::from_le_bytes(buf) as usize;
-            let n = NX * NY;
+            let n = nx * ny;
             let read = |f: &mut std::fs::File| -> Vec<f64> {
                 let mut v = vec![0.0f64; n];
                 let mut b = vec![0u8; n * 8];
@@ -56,11 +68,11 @@ fn aeroshell_peak_q_fine_grid_cp_extraction() {
             eprintln!("resumed from checkpoint: t={t:.4} steps={steps}");
             (ConservedState2d { rho, mx, my, e }, t, steps)
         }
-        Err(_) => {
-            let rho = vec![1.0; NX * NY];
-            let u = vec![u1; NX * NY];
-            let v = vec![0.0; NX * NY];
-            let p = vec![1.0; NX * NY];
+        Ok(_) | Err(_) => {
+            let rho = vec![1.0; nx * ny];
+            let u = vec![u1; nx * ny];
+            let v = vec![0.0; nx * ny];
+            let p = vec![1.0; nx * ny];
             let et: Vec<f64> = rho
                 .iter()
                 .zip(&u)
@@ -91,7 +103,15 @@ fn aeroshell_peak_q_fine_grid_cp_extraction() {
     let t_end = 0.5;
     let mut last_ckpt = 0.0f64;
     while t < t_end {
-        let (dt, _) = advance2d_axi_rk2(&mut st, &g, GAMMA, 0.4, true, &bc).unwrap();
+        let (dt, _) = advance2d_axi_rk2(
+            &mut st,
+            &g,
+            ThermoModel::Perfect { gamma: GAMMA },
+            0.4,
+            true,
+            &bc,
+        )
+        .unwrap();
         apply_solid_fn(&mut st, &g, &dist, &normal, GAMMA);
         t += dt;
         steps += 1;
@@ -119,15 +139,15 @@ fn aeroshell_peak_q_fine_grid_cp_extraction() {
     let x_base = sc.x_base();
 
     let mut cp_profile: Vec<(f64, f64, f64)> = Vec::new(); // (x, r, cp)
-    for i in 0..NX {
+    for i in 0..nx {
         let x = g.centers_x[i];
         if x < nose_x - 0.05 || x > x_base {
             continue;
         }
         // scan up the column for the first cell outside the body within
         // one cell of the surface.
-        for j in 0..NY {
-            let k = j * NX + i;
+        for j in 0..ny {
+            let k = j * nx + i;
             let r = g.centers_y[k];
             if sdf.dist(x, r) > 0.0 && sdf.dist(x, r) <= g.dy * 1.5 {
                 cp_profile.push((x, r, (p[k] - 1.0) / q_inf));
@@ -162,14 +182,14 @@ fn aeroshell_peak_q_fine_grid_cp_extraction() {
     // dump the fields and the Cp profile for the report.
     {
         let mut f = std::fs::File::create("/tmp/nf-aeroshell-fine.rgb").unwrap();
-        f.write_all(&(NX as u32).to_le_bytes()).unwrap();
-        f.write_all(&(NY as u32).to_le_bytes()).unwrap();
+        f.write_all(&(nx as u32).to_le_bytes()).unwrap();
+        f.write_all(&(ny as u32).to_le_bytes()).unwrap();
         for &rv in &st.rho {
             f.write_all(&rv.to_le_bytes()).unwrap();
         }
         let mut f = std::fs::File::create("/tmp/nf-aeroshell-fine-p.rgb").unwrap();
-        f.write_all(&(NX as u32).to_le_bytes()).unwrap();
-        f.write_all(&(NY as u32).to_le_bytes()).unwrap();
+        f.write_all(&(nx as u32).to_le_bytes()).unwrap();
+        f.write_all(&(ny as u32).to_le_bytes()).unwrap();
         for &pv in &p {
             f.write_all(&pv.to_le_bytes()).unwrap();
         }
@@ -207,10 +227,15 @@ fn aeroshell_peak_q_fine_grid_cp_extraction() {
     // on any affordable grid; the contract is the TREND: this 2x-fine
     // run must recover substantially more than the coarse 1.131 and
     // stay within 40% of the Rayleigh asymptote.
-    assert!(
-        cp_stag > 1.20,
-        "refinement should lift the stagnation Cp above the coarse 1.131, got {cp_stag:.3}"
-    );
+    // the convergence-trend floor applies at the suite-default grid;
+    // env-override runs for the convergence study extract at their
+    // own resolutions without the 640-level floor.
+    if nx >= 640 {
+        assert!(
+            cp_stag > 1.20,
+            "refinement should lift the stagnation Cp above the coarse 1.131, got {cp_stag:.3}"
+        );
+    }
     assert!(
         (cp_stag - cp_max_pg).abs() / cp_max_pg < 0.40,
         "stagnation Cp {cp_stag:.3} vs perfect-gas {cp_max_pg:.3}"

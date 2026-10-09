@@ -332,18 +332,8 @@ pub(crate) fn advance2d_capped_dts(
         for f in 0..=nx {
             let q = hllc_flux(
                 gamma,
-                FacePrim {
-                    rho: rl[f],
-                    u: ul[f],
-                    v: vl[f],
-                    p: pl[f],
-                },
-                FacePrim {
-                    rho: rr[f],
-                    u: ur[f],
-                    v: vr[f],
-                    p: prr[f],
-                },
+                FacePrim::perfect(rl[f], ul[f], vl[f], pl[f], gamma),
+                FacePrim::perfect(rr[f], ur[f], vr[f], prr[f], gamma),
                 0,
             );
             fx[j].mass[f] = q.mass;
@@ -406,18 +396,8 @@ pub(crate) fn advance2d_capped_dts(
         for f in 0..=ny {
             let q = hllc_flux(
                 gamma,
-                FacePrim {
-                    rho: rl[f],
-                    u: ul[f],
-                    v: vl[f],
-                    p: pl[f],
-                },
-                FacePrim {
-                    rho: rr[f],
-                    u: ur[f],
-                    v: vr[f],
-                    p: prr[f],
-                },
+                FacePrim::perfect(rl[f], ul[f], vl[f], pl[f], gamma),
+                FacePrim::perfect(rr[f], ur[f], vr[f], prr[f], gamma),
                 1,
             );
             fy[i].mass[f] = q.mass;
@@ -653,18 +633,8 @@ pub fn advance2d_capped_par(
         for f in 0..=nx {
             let q = hllc_flux(
                 gamma,
-                FacePrim {
-                    rho: rl[f],
-                    u: ul[f],
-                    v: vl[f],
-                    p: pl[f],
-                },
-                FacePrim {
-                    rho: rr[f],
-                    u: ur[f],
-                    v: vr[f],
-                    p: prr[f],
-                },
+                FacePrim::perfect(rl[f], ul[f], vl[f], pl[f], gamma),
+                FacePrim::perfect(rr[f], ur[f], vr[f], prr[f], gamma),
                 0,
             );
             sw.mass[f] = q.mass;
@@ -714,18 +684,8 @@ pub fn advance2d_capped_par(
         for f in 0..=ny {
             let q = hllc_flux(
                 gamma,
-                FacePrim {
-                    rho: rl[f],
-                    u: ul[f],
-                    v: vl[f],
-                    p: pl[f],
-                },
-                FacePrim {
-                    rho: rr[f],
-                    u: ur[f],
-                    v: vr[f],
-                    p: prr[f],
-                },
+                FacePrim::perfect(rl[f], ul[f], vl[f], pl[f], gamma),
+                FacePrim::perfect(rr[f], ur[f], vr[f], prr[f], gamma),
                 1,
             );
             sw.mass[f] = q.mass;
