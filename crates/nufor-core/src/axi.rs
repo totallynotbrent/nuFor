@@ -164,6 +164,133 @@ pub fn advance2d_model_visc_rk2(
     Ok((dt1, 0.0))
 }
 
+/// closure-aware coupled spalart-allmaras march: the viscous mean-flow
+/// advance above plus the sa transport, each heun stage consuming the
+/// other's updated state. the eddy viscosity is rebuilt from nu_tilde
+/// every stage so the momentum diffusion and the transported field stay
+/// consistent. this is the eqair-capable twin of `advance2d_sa_rk2`,
+/// which is hardcoded to a perfect-gas gamma.
+pub fn advance2d_sa_model_rk2(
+    state: &mut ConservedState2d,
+    turb: &mut crate::turb2d::TurbState,
+    g: &Grid2d,
+    model: ThermoModel,
+    cfl: f64,
+    muscl: bool,
+    bc: &crate::solver2d::Boundaries2d,
+    mu0: f64,
+    t0_ref: f64,
+    s_param: f64,
+    wall_temperature: f64,
+) -> Result<f64, Error> {
+    use crate::sa::eddy_viscosity;
+    use crate::turb2d::advance_turb;
+    let n = g.nx * g.ny;
+    let sa = turb.params;
+    if turb.nu_tilde.len() != n || turb.d.len() != n {
+        return Err(Error::InvalidArgs);
+    }
+    let gamma_eff = match model {
+        ThermoModel::Perfect { gamma } => gamma,
+        ThermoModel::EqAir => 1.4,
+    };
+    // eddy viscosity per cell from a nu_tilde field against a rho field.
+    let mu_t_of = |nt: &[f64], rho: &[f64]| -> Vec<f64> {
+        nt.iter()
+            .zip(rho)
+            .map(|(&ntk, &r)| eddy_viscosity(r, ntk, sa.mu / r.max(1e-12)))
+            .collect()
+    };
+    // the step cap spans the stiffest of momentum diffusion and the sa
+    // transport diffusivity over the (possibly hot) shock layer.
+    let rho_min = state
+        .rho
+        .iter()
+        .cloned()
+        .fold(f64::INFINITY, f64::min)
+        .max(1e-6);
+    let nt_max = turb
+        .nu_tilde
+        .iter()
+        .cloned()
+        .fold(sa.nu_tilde_inf, f64::max);
+    let nu_sa = sa.mu / rho_min + nt_max;
+    let dt_sa = crate::viscous2d::sa_dt_cap(g, nu_sa);
+    // stage 1: euler + viscous + turb from (state, turb).
+    let mut s1 = state.clone();
+    let mut t1 = turb.clone();
+    let (u1, v1, et1) = cons_to_prim2d(&s1.rho, &s1.mx, &s1.my, &s1.e)?;
+    let mut e1 = vec![0.0; n];
+    for k in 0..n {
+        e1[k] = et1[k] - 0.5 * (u1[k] * u1[k] + v1[k] * v1[k]);
+    }
+    let p1 = thermo::pressure(model, &s1.rho, &e1, &u1, &v1)?;
+    let tt1 = thermo::temperature(model, &s1.rho, &p1)?;
+    let mut mu_cells1 = vec![mu0; n];
+    for k in 0..n {
+        mu_cells1[k] = crate::viscous2d::sutherland_mu(mu0, tt1[k].max(1.0), t0_ref, s_param);
+    }
+    let (dt1, _) = advance2d_model_capped(&mut s1, g, model, cfl, muscl, bc, dt_sa)?;
+    let mu_t1 = mu_t_of(&t1.nu_tilde, &s1.rho);
+    crate::viscous2d::add_viscous_cells_mu(
+        &mut s1,
+        g,
+        gamma_eff,
+        mu0,
+        &mu_cells1,
+        sa.pr,
+        Some(crate::viscous2d::TurbCtx {
+            mu_t: &mu_t1,
+            pr_t: sa.pr_t,
+            bc,
+        }),
+        crate::solver2d::TimeControl::Global(dt1),
+        Some(model),
+        wall_temperature,
+    )?;
+    advance_turb(&mut t1, &s1, g, bc, dt1, None)?;
+    // stage 2 re-evaluates both operators at the stage-1 state (heun).
+    let (u2, v2, et2) = cons_to_prim2d(&s1.rho, &s1.mx, &s1.my, &s1.e)?;
+    let mut e2 = vec![0.0; n];
+    for k in 0..n {
+        e2[k] = et2[k] - 0.5 * (u2[k] * u2[k] + v2[k] * v2[k]);
+    }
+    let p2 = thermo::pressure(model, &s1.rho, &e2, &u2, &v2)?;
+    let tt2 = thermo::temperature(model, &s1.rho, &p2)?;
+    let mut mu_cells2 = vec![mu0; n];
+    for k in 0..n {
+        mu_cells2[k] = crate::viscous2d::sutherland_mu(mu0, tt2[k].max(1.0), t0_ref, s_param);
+    }
+    let (dt2, _) = advance2d_model_capped(&mut s1, g, model, cfl, muscl, bc, dt_sa)?;
+    let mu_t2 = mu_t_of(&t1.nu_tilde, &s1.rho);
+    crate::viscous2d::add_viscous_cells_mu(
+        &mut s1,
+        g,
+        gamma_eff,
+        mu0,
+        &mu_cells2,
+        sa.pr,
+        Some(crate::viscous2d::TurbCtx {
+            mu_t: &mu_t2,
+            pr_t: sa.pr_t,
+            bc,
+        }),
+        crate::solver2d::TimeControl::Global(dt2),
+        Some(model),
+        wall_temperature,
+    )?;
+    advance_turb(&mut t1, &s1, g, bc, dt2, None)?;
+    // heun average of the original and the twice-advanced state.
+    for k in 0..n {
+        state.rho[k] = 0.5 * state.rho[k] + 0.5 * s1.rho[k];
+        state.mx[k] = 0.5 * state.mx[k] + 0.5 * s1.mx[k];
+        state.my[k] = 0.5 * state.my[k] + 0.5 * s1.my[k];
+        state.e[k] = 0.5 * state.e[k] + 0.5 * s1.e[k];
+        turb.nu_tilde[k] = 0.5 * turb.nu_tilde[k] + 0.5 * t1.nu_tilde[k];
+    }
+    Ok(dt1)
+}
+
 /// like `advance2d_model` but with an external step cap, the viscous
 /// path's way to interleave euler and diffusive half-steps at the
 /// stiffer of the two bounds. single-advance.

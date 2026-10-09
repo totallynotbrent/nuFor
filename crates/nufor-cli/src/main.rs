@@ -12,12 +12,13 @@ use nufor_config::{
 };
 use nufor_core::{
     advance2d_axi_rk2, advance2d_model_rk2, advance2d_model_visc_rk2, advance2d_sa_lts,
-    advance2d_sa_rk2, advance3d_rk2, advance_ugrid, apply_solid_fn, cons_to_prim2d, eos_pressure2d,
-    euler_solve, grid1d, grid2d, grid3d, prim_to_cons, prim_to_cons2d, prim_to_cons3d,
-    read_restart, render_png, wall_distance2d, write_csv, write_h5, write_restart, write_vtk,
-    write_vtk2d_model, write_vtk3d, Bc2d, Boundaries2d, Boundary, Bounds3d, ConservedState,
-    ConservedState2d, ConservedState3d, Error, EulerConfig, Grid1d, Grid2d, Grid3d, OutputState,
-    SaParams, SolidPolygon, SolidShape, SphereCone, SphereConeSdf, TurbState, Ugrid,
+    advance2d_sa_model_rk2, advance2d_sa_rk2, advance3d_rk2, advance_ugrid, apply_solid_fn,
+    cons_to_prim2d, eos_pressure2d, euler_solve, grid1d, grid2d, grid3d, prim_to_cons,
+    prim_to_cons2d, prim_to_cons3d, read_restart, render_png, wall_distance2d, write_csv, write_h5,
+    write_restart, write_vtk, write_vtk2d_model, write_vtk3d, Bc2d, Boundaries2d, Boundary,
+    Bounds3d, ConservedState, ConservedState2d, ConservedState3d, Error, EulerConfig, Grid1d,
+    Grid2d, Grid3d, OutputState, SaParams, SolidPolygon, SolidShape, SphereCone, SphereConeSdf,
+    TurbState, Ugrid,
 };
 use nufor_core::{model_from_config, ThermoModel};
 
@@ -1340,6 +1341,27 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     } else {
         1_000_000
     };
+    // optional spalart-allmaras coupling over the closure-aware march: a
+    // [physics.turbulence] block switches the viscous advance from laminar
+    // (mu_t = 0) to the coupled sa transport. the wall distance is built
+    // once from the boundary sides.
+    let mut turb: Option<TurbState> = match (&cfg.physics.turbulence, cfg.physics.mu) {
+        (Some(turb_cfg), Some(mu0)) if mu0 > 0.0 => {
+            let n = g.nx * g.ny;
+            let d = wall_distance2d(&g, &bc, (g.xmax - g.xmin).max(g.ymax - g.ymin));
+            Some(TurbState {
+                nu_tilde: vec![turb_cfg.nu_tilde_inf; n],
+                d,
+                params: SaParams {
+                    mu: mu0,
+                    pr: cfg.physics.pr,
+                    nu_tilde_inf: turb_cfg.nu_tilde_inf,
+                    pr_t: turb_cfg.pr_t,
+                },
+            })
+        }
+        _ => None,
+    };
     let t0 = Instant::now();
     let mut t = 0.0;
     let mut steps = 0usize;
@@ -1348,20 +1370,27 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
         let stepped = if let Some(mu0) = cfg.physics.mu {
             if mu0 > 0.0 {
                 let tw = cfg.physics.wall_temperature.unwrap_or(0.0);
-                // sutherland reference: air at 273.15 K with S = 110.4 K.
-                advance2d_model_visc_rk2(
-                    &mut st,
-                    &g,
-                    model,
-                    cfl,
-                    true,
-                    &bc,
-                    mu0,
-                    273.15,
-                    110.4,
-                    cfg.physics.pr,
-                    tw,
-                )
+                if let Some(tb) = turb.as_mut() {
+                    advance2d_sa_model_rk2(
+                        &mut st, tb, &g, model, cfl, true, &bc, mu0, 273.15, 110.4, tw,
+                    )
+                    .map(|dt| (dt, 0.0))
+                } else {
+                    // sutherland reference: air at 273.15 K with S = 110.4 K.
+                    advance2d_model_visc_rk2(
+                        &mut st,
+                        &g,
+                        model,
+                        cfl,
+                        true,
+                        &bc,
+                        mu0,
+                        273.15,
+                        110.4,
+                        cfg.physics.pr,
+                        tw,
+                    )
+                }
             } else {
                 advance2d_model_rk2(&mut st, &g, model, cfl, true, &bc)
             }

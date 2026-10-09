@@ -118,7 +118,10 @@ pub struct SaState {
 
 impl SaState {
     pub fn zeros(n: usize) -> Self {
-        Self { nu_tilde: vec![0.0; n], d_wall: vec![0.0; n] }
+        Self {
+            nu_tilde: vec![0.0; n],
+            d_wall: vec![0.0; n],
+        }
     }
 
     /// init from a per-cell wall distance field. tu_inf is the freestream
@@ -183,10 +186,18 @@ pub fn advance_sa_step(
         let mut lap = 0.0;
         let dx2 = g.dx.max(1e-12);
         let dy2 = g.dy.max(1e-12);
-        if i > 0 { lap += (sa.nu_tilde[j * g.nx + i - 1] - sa.nu_tilde[k]) / dx2; }
-        if i + 1 < g.nx { lap += (sa.nu_tilde[j * g.nx + i + 1] - sa.nu_tilde[k]) / dx2; }
-        if j > 0 { lap += (sa.nu_tilde[(j - 1) * g.nx + i] - sa.nu_tilde[k]) / dy2; }
-        if j + 1 < g.ny { lap += (sa.nu_tilde[(j + 1) * g.nx + i] - sa.nu_tilde[k]) / dy2; }
+        if i > 0 {
+            lap += (sa.nu_tilde[j * g.nx + i - 1] - sa.nu_tilde[k]) / dx2;
+        }
+        if i + 1 < g.nx {
+            lap += (sa.nu_tilde[j * g.nx + i + 1] - sa.nu_tilde[k]) / dx2;
+        }
+        if j > 0 {
+            lap += (sa.nu_tilde[(j - 1) * g.nx + i] - sa.nu_tilde[k]) / dy2;
+        }
+        if j + 1 < g.ny {
+            lap += (sa.nu_tilde[(j + 1) * g.nx + i] - sa.nu_tilde[k]) / dy2;
+        }
         let diffus = (nu_lam[k] + sa.nu_tilde[k]) * lap / SIGMA;
         let upd = sa.nu_tilde[k] + dt * (s + diffus);
         new_nu[k] = upd.max(0.0);

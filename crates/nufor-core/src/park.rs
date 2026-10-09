@@ -10,8 +10,8 @@
 //! euler march is already using. the full park chemistry (coupled
 //! species continuity + torsional/thermal noneq) is a later rung.
 
-use crate::eqair::{gamm_and_partials, E0};
 use crate::eqair::RHO0;
+use crate::eqair::{gamm_and_partials, E0};
 use crate::error::Error;
 use crate::state2d::ConservedState2d;
 use crate::Grid2d;
@@ -48,16 +48,40 @@ pub struct ReactionRate {
 /// rate into N and O than into the molecular partners.
 pub const RATES: [ReactionRate; 6] = [
     // 1. n2 + m -> n + n + m
-    ReactionRate { a: 7.0e15, eta: -1.6, td: D0_K[0] }, // M = N2, O2, NO
-    ReactionRate { a: 3.0e16, eta: -1.6, td: D0_K[0] }, // M = N,  O
+    ReactionRate {
+        a: 7.0e15,
+        eta: -1.6,
+        td: D0_K[0],
+    }, // M = N2, O2, NO
+    ReactionRate {
+        a: 3.0e16,
+        eta: -1.6,
+        td: D0_K[0],
+    }, // M = N,  O
     // 2. o2 + m -> o + o + m
-    ReactionRate { a: 2.0e15, eta: -1.5, td: D0_K[1] },
+    ReactionRate {
+        a: 2.0e15,
+        eta: -1.5,
+        td: D0_K[1],
+    },
     // 3. no + m -> n + o + m
-    ReactionRate { a: 5.0e9, eta: -1.0, td: D0_K[2] },
+    ReactionRate {
+        a: 5.0e9,
+        eta: -1.0,
+        td: D0_K[2],
+    },
     // 4. n2 + o -> no + n   (zeldovich first)
-    ReactionRate { a: 6.4e11, eta: -1.0, td: 38370.0 },
+    ReactionRate {
+        a: 6.4e11,
+        eta: -1.0,
+        td: 38370.0,
+    },
     // 5. no + o -> o2 + n   (zeldovich second)
-    ReactionRate { a: 8.4e6, eta: 0.0, td: 19450.0 },
+    ReactionRate {
+        a: 8.4e6,
+        eta: 0.0,
+        td: 19450.0,
+    },
 ];
 
 /// molar gas constant, J/(mol K).
@@ -112,13 +136,7 @@ pub fn tau_v_park_cutoff(t: f64, mu_gmol: f64, n: f64) -> f64 {
 
 /// total vibrational relaxation time for species s:
 ///     tau = tau_mw + tau_cutoff
-pub fn tau_vib_total(
-    theta_v: f64,
-    t: f64,
-    mu_gmol: f64,
-    p_pa: f64,
-    n: f64,
-) -> f64 {
+pub fn tau_vib_total(theta_v: f64, t: f64, mu_gmol: f64, p_pa: f64, n: f64) -> f64 {
     tau_v_millikan_white(theta_v, t, mu_gmol, p_pa) + tau_v_park_cutoff(t, mu_gmol, n)
 }
 
@@ -141,7 +159,7 @@ pub fn d_e_vib_dt(
         return 0.0;
     }
     let mu = (m_kgmol * 1e3).max(1e-6); // g/mol, partner mass uses n2 as
-                                         // dominant collision partner.
+                                        // dominant collision partner.
     let tau = tau_vib_total(theta_v, t, mu, p_pa, n_m2_3);
     let n_s = rho_s_kgm3 / m_kgmol; // mol/m^3
     let gap = e_vib_per_mol(theta_v, t) - e_vib_per_mol(theta_v, t_v);
@@ -223,8 +241,9 @@ pub fn equilibrium_e_v(
         let (g, _, _) = gamm_and_partials(y, z);
         // cold-limit gamma gives no vibrational excitation
         let t = (e_int[i] * (g - 1.0)).max(1.0);
-        let ev = RU * (y_mol_n2 * THETA_V[0] / ((THETA_V[0] / t).exp() - 1.0).max(1e-12)
-            + y_mol_o2 * THETA_V[1] / ((THETA_V[1] / t).exp() - 1.0).max(1e-12));
+        let ev = RU
+            * (y_mol_n2 * THETA_V[0] / ((THETA_V[0] / t).exp() - 1.0).max(1e-12)
+                + y_mol_o2 * THETA_V[1] / ((THETA_V[1] / t).exp() - 1.0).max(1e-12));
         out.push(ev);
     }
     Ok(out)

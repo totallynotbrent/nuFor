@@ -11,13 +11,13 @@ mod blasius;
 mod body;
 mod cfl;
 pub mod curvilinear;
-pub mod eqair_cea;
 mod cutcell;
 mod cutcell_march;
 mod eos;
 pub mod eos2d;
 mod eos3d;
 mod eqair;
+pub mod eqair_cea;
 mod error;
 mod exact;
 mod ffi;
@@ -55,7 +55,7 @@ mod wall_dist;
 
 pub use axi::{
     advance2d_axi, advance2d_axi_rk2, advance2d_model, advance2d_model_rk2,
-    advance2d_model_visc_rk2,
+    advance2d_model_visc_rk2, advance2d_sa_model_rk2,
 };
 pub use blasius::{BlasiusProfile, BlasiusTable, CF_CONST};
 pub use body::{apply_solid, apply_solid_fn, SolidBody, SolidPolygon, SolidShape};
