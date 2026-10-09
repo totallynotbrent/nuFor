@@ -89,6 +89,7 @@ pub fn advance2d_model_visc_rk2(
     s_param: f64,
     pr: f64,
     wall_temperature: f64,
+    nthreads: usize,
 ) -> Result<(f64, f64), Error> {
     let n = g.nx * g.ny;
     // the diffusion bound with the max kinematic viscosity the shock
@@ -125,7 +126,7 @@ pub fn advance2d_model_visc_rk2(
     let nu_max = mu_max / rho_min;
     let dt_visc = 0.25 * g.dx.min(g.dy).powi(2) / nu_max.max(1e-12);
     let mut s1 = state.clone();
-    let (dt1, _) = advance2d_model_capped(&mut s1, g, model, cfl, muscl, bc, dt_visc)?;
+    let (dt1, _) = advance2d_model_capped(&mut s1, g, model, cfl, muscl, bc, dt_visc, nthreads)?;
     crate::viscous2d::add_viscous_cells_mu(
         &mut s1,
         g,
@@ -145,7 +146,7 @@ pub fn advance2d_model_visc_rk2(
         Some(model),
         wall_temperature,
     )?;
-    let (dt2, _) = advance2d_model_capped(&mut s1, g, model, cfl, muscl, bc, dt_visc)?;
+    let (dt2, _) = advance2d_model_capped(&mut s1, g, model, cfl, muscl, bc, dt_visc, nthreads)?;
     crate::viscous2d::add_viscous_cells_mu(
         &mut s1,
         g,
@@ -192,6 +193,7 @@ pub fn advance2d_sa_model_rk2(
     t0_ref: f64,
     s_param: f64,
     wall_temperature: f64,
+    nthreads: usize,
 ) -> Result<f64, Error> {
     use crate::sa::eddy_viscosity;
     use crate::turb2d::advance_turb;
@@ -240,7 +242,7 @@ pub fn advance2d_sa_model_rk2(
     for k in 0..n {
         mu_cells1[k] = crate::viscous2d::sutherland_mu(mu0, tt1[k].max(1.0), t0_ref, s_param);
     }
-    let (dt1, _) = advance2d_model_capped(&mut s1, g, model, cfl, muscl, bc, dt_sa)?;
+    let (dt1, _) = advance2d_model_capped(&mut s1, g, model, cfl, muscl, bc, dt_sa, nthreads)?;
     let mu_t1 = mu_t_of(&t1.nu_tilde, &s1.rho);
     crate::viscous2d::add_viscous_cells_mu(
         &mut s1,
@@ -271,7 +273,7 @@ pub fn advance2d_sa_model_rk2(
     for k in 0..n {
         mu_cells2[k] = crate::viscous2d::sutherland_mu(mu0, tt2[k].max(1.0), t0_ref, s_param);
     }
-    let (dt2, _) = advance2d_model_capped(&mut s1, g, model, cfl, muscl, bc, dt_sa)?;
+    let (dt2, _) = advance2d_model_capped(&mut s1, g, model, cfl, muscl, bc, dt_sa, nthreads)?;
     let mu_t2 = mu_t_of(&t1.nu_tilde, &s1.rho);
     crate::viscous2d::add_viscous_cells_mu(
         &mut s1,
@@ -312,6 +314,7 @@ fn advance2d_model_capped(
     muscl: bool,
     bc: &crate::solver2d::Boundaries2d,
     dt_cap: f64,
+    nthreads: usize,
 ) -> Result<(f64, f64), Error> {
     let (nx, ny) = (g.nx, g.ny);
     let idx = |i: usize, j: usize| j * nx + i;
@@ -329,7 +332,7 @@ fn advance2d_model_capped(
     }
     let dt = (cfl * g.dx.min(g.dy) / smax.max(1e-12)).min(dt_cap);
 
-    let (fx, fy) = compute_axi_fluxes(model, state, g, muscl, bc, &p, &e_int)?;
+    let (fx, fy) = compute_axi_fluxes(model, state, g, muscl, bc, &p, &e_int, nthreads)?;
 
     let mut resid = 0.0f64;
     #[allow(clippy::needless_range_loop)]
@@ -371,6 +374,7 @@ pub fn advance2d_axi(
     cfl: f64,
     muscl: bool,
     bc: &Boundaries2d,
+    nthreads: usize,
 ) -> Result<(f64, f64), Error> {
     let (nx, ny) = (g.nx, g.ny);
     let idx = |i: usize, j: usize| j * nx + i;
@@ -388,7 +392,7 @@ pub fn advance2d_axi(
     }
     let dt = cfl * g.dx.min(g.dy) / smax.max(1e-12);
 
-    let (fx, fy) = compute_axi_fluxes(model, state, g, muscl, bc, &p, &e_int)?;
+    let (fx, fy) = compute_axi_fluxes(model, state, g, muscl, bc, &p, &e_int, nthreads)?;
 
     // the annular update: r-weighted radial flux difference plus the
     // radial pressure source.
@@ -499,6 +503,7 @@ pub(crate) fn compute_axi_fluxes(
     bc: &Boundaries2d,
     p: &[f64],
     e_int: &[f64],
+    nthreads: usize,
 ) -> Result<(Vec<Sweep>, Vec<Sweep>), Error> {
     let (nx, ny) = (g.nx, g.ny);
     let idx = |i: usize, j: usize| j * nx + i;
@@ -512,8 +517,8 @@ pub(crate) fn compute_axi_fluxes(
         ThermoModel::Perfect { .. } => p.to_vec(),
         ThermoModel::EqAir => e_int.to_vec(),
     };
-    let mut fx: Vec<Sweep> = (0..ny).map(|_| Sweep::new(nx)).collect();
-    let mut fy: Vec<Sweep> = (0..nx).map(|_| Sweep::new(ny)).collect();
+    // the row and column sweeps are built by run_jobs below, sharded
+    // across threads when nthreads > 1.
 
     // the closure variable's inflow ghosts: under equilibrium air the
     // row carries internal energy, but ghost_value answers the stored
@@ -531,8 +536,13 @@ pub(crate) fn compute_axi_fluxes(
     };
     let west_x = bc_x(&bc.west, model);
     let east_x = bc_x(&bc.east, model);
+    let south_x_cache = bc_x(&bc.south, model);
+    let north_x_cache = bc_x(&bc.north, model);
 
-    for j in 0..ny {
+    // shard the row and column sweeps across threads when asked; each job
+    // fills one sweep with no overlap, so the joined result matches the
+    // serial march exactly regardless of thread count.
+    let row_job = |j: usize| -> Result<Sweep, Error> {
         let (mut pr, mut pu, mut pv, mut px) =
             (vec![0.0; nx], vec![0.0; nx], vec![0.0; nx], vec![0.0; nx]);
         for i in 0..nx {
@@ -562,21 +572,21 @@ pub(crate) fn compute_axi_fluxes(
         let (ul, ur) = flux_row(&pu, 1);
         let (vl, vr) = flux_row(&pv, 2);
         let (xl, xr) = flux_row(&px, 3);
+        let mut sw = Sweep::new(nx);
         for f in 0..=nx {
             let (l, r) = face_pair(
                 model, rl[f], ul[f], vl[f], xl[f], rr[f], ur[f], vr[f], xr[f],
             );
             let q = hllc_flux(gamma, l, r, 0);
-            fx[j].mass[f] = q.mass;
-            fx[j].mx[f] = q.mx;
-            fx[j].my[f] = q.my;
-            fx[j].e[f] = q.e;
+            sw.mass[f] = q.mass;
+            sw.mx[f] = q.mx;
+            sw.my[f] = q.my;
+            sw.e[f] = q.e;
         }
-    }
+        Ok(sw)
+    };
 
-    let south_x_cache = bc_x(&bc.south, model);
-    let north_x_cache = bc_x(&bc.north, model);
-    for i in 0..nx {
+    let col_job = |i: usize| -> Result<Sweep, Error> {
         let (mut cr, mut cu, mut cv, mut cx) =
             (vec![0.0; ny], vec![0.0; ny], vec![0.0; ny], vec![0.0; ny]);
         for j in 0..ny {
@@ -589,14 +599,12 @@ pub(crate) fn compute_axi_fluxes(
         let x_col = g.centers_x[i];
         let x_ghost_s = 2.0 * g.faces_x[0] - x_col;
         let x_ghost_n = 2.0 * g.faces_x[nx] - x_col;
-        let south_x = south_x_cache;
-        let north_x = north_x_cache;
         let pad = |c: &[f64], var: usize| -> Vec<f64> {
             let mut out = vec![0.0; ny + 2];
-            out[0] = south_x
+            out[0] = south_x_cache
                 .filter(|_| var == 3)
                 .unwrap_or_else(|| ghost_value(&bc.south, c[0], var, 2, x_ghost_s));
-            out[ny + 1] = north_x
+            out[ny + 1] = north_x_cache
                 .filter(|_| var == 3)
                 .unwrap_or_else(|| ghost_value(&bc.north, c[ny - 1], var, 2, x_ghost_n));
             out[1..=ny].copy_from_slice(c);
@@ -610,17 +618,55 @@ pub(crate) fn compute_axi_fluxes(
         let (ul, ur) = flux_col(&cu, 1);
         let (vl, vr) = flux_col(&cv, 2);
         let (xl, xr) = flux_col(&cx, 3);
+        let mut sw = Sweep::new(ny);
         for f in 0..=ny {
             let (l, r) = face_pair(
                 model, rl[f], ul[f], vl[f], xl[f], rr[f], ur[f], vr[f], xr[f],
             );
             let q = hllc_flux(gamma, l, r, 1);
-            fy[i].mass[f] = q.mass;
-            fy[i].mx[f] = q.mx;
-            fy[i].my[f] = q.my;
-            fy[i].e[f] = q.e;
+            sw.mass[f] = q.mass;
+            sw.mx[f] = q.mx;
+            sw.my[f] = q.my;
+            sw.e[f] = q.e;
         }
-    }
+        Ok(sw)
+    };
+
+    let run_jobs = |n: usize,
+                    job: &(dyn Fn(usize) -> Result<Sweep, Error> + Sync)|
+     -> Result<Vec<Sweep>, Error> {
+        if nthreads <= 1 || n < 2 {
+            return (0..n).map(job).collect();
+        }
+        let threads = nthreads.min(n);
+        let chunk = n.div_ceil(threads);
+        let mut out: Vec<Option<Sweep>> = (0..n).map(|_| None).collect();
+        let mut first_err: Option<Error> = None;
+        std::thread::scope(|s| {
+            let mut handles = Vec::new();
+            for start in (0..n).step_by(chunk) {
+                let end = (start + chunk).min(n);
+                let job = job;
+                handles.push(s.spawn(move || (start, (start..end).map(job).collect::<Vec<_>>())));
+            }
+            for h in handles {
+                let (start, v) = h.join().unwrap();
+                for (k, sw) in v.into_iter().enumerate() {
+                    match sw {
+                        Ok(s) => out[start + k] = Some(s),
+                        Err(e) => first_err = first_err.or(Some(e)),
+                    }
+                }
+            }
+        });
+        match first_err {
+            Some(e) => Err(e),
+            None => Ok(out.into_iter().map(|s| s.unwrap()).collect()),
+        }
+    };
+
+    let fx = run_jobs(ny, &row_job)?;
+    let fy = run_jobs(nx, &col_job)?;
 
     Ok((fx, fy))
 }
@@ -640,6 +686,7 @@ pub fn advance2d_model(
     cfl: f64,
     muscl: bool,
     bc: &Boundaries2d,
+    nthreads: usize,
 ) -> Result<(f64, f64), Error> {
     let (nx, ny) = (g.nx, g.ny);
     let idx = |i: usize, j: usize| j * nx + i;
@@ -657,7 +704,7 @@ pub fn advance2d_model(
     }
     let dt = cfl * g.dx.min(g.dy) / smax.max(1e-12);
 
-    let (fx, fy) = compute_axi_fluxes(model, state, g, muscl, bc, &p, &e_int)?;
+    let (fx, fy) = compute_axi_fluxes(model, state, g, muscl, bc, &p, &e_int, nthreads)?;
 
     let mut resid = 0.0f64;
     #[allow(clippy::needless_range_loop)]
@@ -696,6 +743,7 @@ pub fn advance2d_model_rk2(
     cfl: f64,
     muscl: bool,
     bc: &Boundaries2d,
+    nthreads: usize,
 ) -> Result<(f64, f64), Error> {
     let (dt, _) = {
         let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
@@ -707,8 +755,8 @@ pub fn advance2d_model_rk2(
         (cfl * g.dx.min(g.dy) / smax.max(1e-12), 0.0)
     };
     let mut s1 = state.clone();
-    advance2d_model(&mut s1, g, model, cfl, muscl, bc)?;
-    advance2d_model(&mut s1, g, model, cfl, muscl, bc)?;
+    advance2d_model(&mut s1, g, model, cfl, muscl, bc, nthreads)?;
+    advance2d_model(&mut s1, g, model, cfl, muscl, bc, nthreads)?;
     for k in 0..g.nx * g.ny {
         state.rho[k] = 0.5 * state.rho[k] + 0.5 * s1.rho[k];
         state.mx[k] = 0.5 * state.mx[k] + 0.5 * s1.mx[k];
@@ -725,6 +773,7 @@ pub fn advance2d_axi_rk2(
     cfl: f64,
     muscl: bool,
     bc: &Boundaries2d,
+    nthreads: usize,
 ) -> Result<(f64, f64), Error> {
     let (dt, _) = {
         let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
@@ -741,8 +790,8 @@ pub fn advance2d_axi_rk2(
         (cfl * g.dx.min(g.dy) / smax.max(1e-12), 0.0)
     };
     let mut s1 = state.clone();
-    advance2d_axi(&mut s1, g, model, cfl, muscl, bc)?;
-    advance2d_axi(&mut s1, g, model, cfl, muscl, bc)?;
+    advance2d_axi(&mut s1, g, model, cfl, muscl, bc, nthreads)?;
+    advance2d_axi(&mut s1, g, model, cfl, muscl, bc, nthreads)?;
     for k in 0..g.nx * g.ny {
         state.rho[k] = 0.5 * state.rho[k] + 0.5 * s1.rho[k];
         state.mx[k] = 0.5 * state.mx[k] + 0.5 * s1.mx[k];

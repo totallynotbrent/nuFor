@@ -1047,7 +1047,7 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
     let mut steps = 0usize;
     let mut ok = true;
     while t < t_end && steps < max_steps {
-        match advance2d_axi_rk2(&mut st, &g, model, cfl, true, &bc) {
+        match advance2d_axi_rk2(&mut st, &g, model, cfl, true, &bc, cfg.numerics.threads) {
             Ok((dt, _)) => t += dt,
             Err(e) => {
                 eprintln!("solver error at step {steps}: {e}");
@@ -1372,7 +1372,18 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
                 let tw = cfg.physics.wall_temperature.unwrap_or(0.0);
                 if let Some(tb) = turb.as_mut() {
                     advance2d_sa_model_rk2(
-                        &mut st, tb, &g, model, cfl, true, &bc, mu0, 273.15, 110.4, tw,
+                        &mut st,
+                        tb,
+                        &g,
+                        model,
+                        cfl,
+                        true,
+                        &bc,
+                        mu0,
+                        273.15,
+                        110.4,
+                        tw,
+                        cfg.numerics.threads,
                     )
                     .map(|dt| (dt, 0.0))
                 } else {
@@ -1389,13 +1400,14 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
                         110.4,
                         cfg.physics.pr,
                         tw,
+                        cfg.numerics.threads,
                     )
                 }
             } else {
-                advance2d_model_rk2(&mut st, &g, model, cfl, true, &bc)
+                advance2d_model_rk2(&mut st, &g, model, cfl, true, &bc, cfg.numerics.threads)
             }
         } else {
-            advance2d_model_rk2(&mut st, &g, model, cfl, true, &bc)
+            advance2d_model_rk2(&mut st, &g, model, cfl, true, &bc, cfg.numerics.threads)
         };
         match stepped {
             Ok((dt, _)) => t += dt,

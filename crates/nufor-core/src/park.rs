@@ -262,7 +262,7 @@ pub fn advance2d_park_rk2(
     muscl: bool,
     bc: &crate::Boundaries2d,
 ) -> Result<(f64, f64), Error> {
-    let (dt, a0) = crate::advance2d_model_rk2(state, g, model, cfl, muscl, bc)?;
+    let (dt, a0) = crate::advance2d_model_rk2(state, g, model, cfl, muscl, bc, 1)?;
     relax_vibrational_energy(state, g, park, model, dt)?;
     Ok((dt, a0))
 }

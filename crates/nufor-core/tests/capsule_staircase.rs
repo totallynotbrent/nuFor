@@ -110,6 +110,7 @@ fn aeroshell_peak_q_fine_grid_cp_extraction() {
             0.4,
             true,
             &bc,
+            1,
         )
         .unwrap();
         apply_solid_fn(&mut st, &g, &dist, &normal, GAMMA);

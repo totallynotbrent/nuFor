@@ -134,6 +134,7 @@ pub fn advance2d_axi_cut(
     cfl: f64,
     muscl: bool,
     bc: &Boundaries2d,
+    nthreads: usize,
 ) -> Result<(f64, f64), Error> {
     let (nx, ny) = (g.nx, g.ny);
     let idx = |i: usize, j: usize| j * nx + i;
@@ -152,7 +153,7 @@ pub fn advance2d_axi_cut(
         crate::thermo::ThermoModel::Perfect { gamma } => gamma,
         crate::thermo::ThermoModel::EqAir => 1.4,
     };
-    let (fx, fy) = compute_axi_fluxes(model, state, g, muscl, bc, &p, &e_int)?;
+    let (fx, fy) = compute_axi_fluxes(model, state, g, muscl, bc, &p, &e_int, nthreads)?;
 
     // dt from the full-cell wave speeds; the small cells ride the
     // redistribution instead of shrinking it.

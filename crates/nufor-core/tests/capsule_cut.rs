@@ -101,6 +101,7 @@ fn aeroshell_peak_q_cut_cell_cp_extraction() {
             0.4,
             true,
             &bc,
+            1,
         )
         .unwrap();
         quiesce(&mut st);

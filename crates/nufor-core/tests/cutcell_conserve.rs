@@ -101,6 +101,7 @@ fn cut_cells_conserve_mass_globally() {
             0.4,
             true,
             &bc_closed,
+            1,
         )
         .unwrap();
         quiesce(&mut st);
