@@ -70,6 +70,7 @@ fn axisymmetric_sphere_bow_shock_matches_ambrosio_wortman() {
             true,
             &bc,
             1,
+            None,
         )
         .unwrap();
         apply_solid(&mut st, &g, &body, GAMMA);

@@ -76,6 +76,7 @@ fn aeroshell_peak_q_bow_shock_forms() {
             true,
             &bc,
             1,
+            None,
         )
         .unwrap();
         apply_solid_fn(&mut st, &g, &dist, &normal, GAMMA);

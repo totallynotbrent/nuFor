@@ -1047,7 +1047,17 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
     let mut steps = 0usize;
     let mut ok = true;
     while t < t_end && steps < max_steps {
-        match advance2d_axi_rk2(&mut st, &g, model, cfl, true, &bc, cfg.numerics.threads) {
+        match advance2d_axi_rk2(
+            &mut st,
+            &g,
+            model,
+            cfl,
+            true,
+            &bc,
+            cfg.numerics.threads,
+            body.as_ref()
+                .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
+        ) {
             Ok((dt, _)) => t += dt,
             Err(e) => {
                 eprintln!("solver error at step {steps}: {e}");
@@ -1384,6 +1394,8 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
                         110.4,
                         tw,
                         cfg.numerics.threads,
+                        body.as_ref()
+                            .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
                     )
                     .map(|dt| (dt, 0.0))
                 } else {
@@ -1401,13 +1413,35 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
                         cfg.physics.pr,
                         tw,
                         cfg.numerics.threads,
+                        body.as_ref()
+                            .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
                     )
                 }
             } else {
-                advance2d_model_rk2(&mut st, &g, model, cfl, true, &bc, cfg.numerics.threads)
+                advance2d_model_rk2(
+                    &mut st,
+                    &g,
+                    model,
+                    cfl,
+                    true,
+                    &bc,
+                    cfg.numerics.threads,
+                    body.as_ref()
+                        .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
+                )
             }
         } else {
-            advance2d_model_rk2(&mut st, &g, model, cfl, true, &bc, cfg.numerics.threads)
+            advance2d_model_rk2(
+                &mut st,
+                &g,
+                model,
+                cfl,
+                true,
+                &bc,
+                cfg.numerics.threads,
+                body.as_ref()
+                    .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
+            )
         };
         match stepped {
             Ok((dt, _)) => t += dt,

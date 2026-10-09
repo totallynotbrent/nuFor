@@ -90,6 +90,7 @@ pub fn advance2d_model_visc_rk2(
     pr: f64,
     wall_temperature: f64,
     nthreads: usize,
+    wall: Option<&dyn Fn(f64, f64) -> f64>,
 ) -> Result<(f64, f64), Error> {
     let n = g.nx * g.ny;
     // the diffusion bound with the max kinematic viscosity the shock
@@ -126,7 +127,8 @@ pub fn advance2d_model_visc_rk2(
     let nu_max = mu_max / rho_min;
     let dt_visc = 0.25 * g.dx.min(g.dy).powi(2) / nu_max.max(1e-12);
     let mut s1 = state.clone();
-    let (dt1, _) = advance2d_model_capped(&mut s1, g, model, cfl, muscl, bc, dt_visc, nthreads)?;
+    let (dt1, _) =
+        advance2d_model_capped(&mut s1, g, model, cfl, muscl, bc, dt_visc, nthreads, wall)?;
     crate::viscous2d::add_viscous_cells_mu(
         &mut s1,
         g,
@@ -146,7 +148,8 @@ pub fn advance2d_model_visc_rk2(
         Some(model),
         wall_temperature,
     )?;
-    let (dt2, _) = advance2d_model_capped(&mut s1, g, model, cfl, muscl, bc, dt_visc, nthreads)?;
+    let (dt2, _) =
+        advance2d_model_capped(&mut s1, g, model, cfl, muscl, bc, dt_visc, nthreads, wall)?;
     crate::viscous2d::add_viscous_cells_mu(
         &mut s1,
         g,
@@ -194,6 +197,7 @@ pub fn advance2d_sa_model_rk2(
     s_param: f64,
     wall_temperature: f64,
     nthreads: usize,
+    wall: Option<&dyn Fn(f64, f64) -> f64>,
 ) -> Result<f64, Error> {
     use crate::sa::eddy_viscosity;
     use crate::turb2d::advance_turb;
@@ -242,7 +246,8 @@ pub fn advance2d_sa_model_rk2(
     for k in 0..n {
         mu_cells1[k] = crate::viscous2d::sutherland_mu(mu0, tt1[k].max(1.0), t0_ref, s_param);
     }
-    let (dt1, _) = advance2d_model_capped(&mut s1, g, model, cfl, muscl, bc, dt_sa, nthreads)?;
+    let (dt1, _) =
+        advance2d_model_capped(&mut s1, g, model, cfl, muscl, bc, dt_sa, nthreads, wall)?;
     let mu_t1 = mu_t_of(&t1.nu_tilde, &s1.rho);
     crate::viscous2d::add_viscous_cells_mu(
         &mut s1,
@@ -273,7 +278,8 @@ pub fn advance2d_sa_model_rk2(
     for k in 0..n {
         mu_cells2[k] = crate::viscous2d::sutherland_mu(mu0, tt2[k].max(1.0), t0_ref, s_param);
     }
-    let (dt2, _) = advance2d_model_capped(&mut s1, g, model, cfl, muscl, bc, dt_sa, nthreads)?;
+    let (dt2, _) =
+        advance2d_model_capped(&mut s1, g, model, cfl, muscl, bc, dt_sa, nthreads, wall)?;
     let mu_t2 = mu_t_of(&t1.nu_tilde, &s1.rho);
     crate::viscous2d::add_viscous_cells_mu(
         &mut s1,
@@ -315,6 +321,7 @@ fn advance2d_model_capped(
     bc: &crate::solver2d::Boundaries2d,
     dt_cap: f64,
     nthreads: usize,
+    wall: Option<&dyn Fn(f64, f64) -> f64>,
 ) -> Result<(f64, f64), Error> {
     let (nx, ny) = (g.nx, g.ny);
     let idx = |i: usize, j: usize| j * nx + i;
@@ -332,7 +339,7 @@ fn advance2d_model_capped(
     }
     let dt = (cfl * g.dx.min(g.dy) / smax.max(1e-12)).min(dt_cap);
 
-    let (fx, fy) = compute_axi_fluxes(model, state, g, muscl, bc, &p, &e_int, nthreads)?;
+    let (fx, fy) = compute_axi_fluxes(model, state, g, muscl, bc, &p, &e_int, nthreads, wall)?;
 
     let mut resid = 0.0f64;
     #[allow(clippy::needless_range_loop)]
@@ -375,6 +382,7 @@ pub fn advance2d_axi(
     muscl: bool,
     bc: &Boundaries2d,
     nthreads: usize,
+    wall: Option<&dyn Fn(f64, f64) -> f64>,
 ) -> Result<(f64, f64), Error> {
     let (nx, ny) = (g.nx, g.ny);
     let idx = |i: usize, j: usize| j * nx + i;
@@ -392,7 +400,7 @@ pub fn advance2d_axi(
     }
     let dt = cfl * g.dx.min(g.dy) / smax.max(1e-12);
 
-    let (fx, fy) = compute_axi_fluxes(model, state, g, muscl, bc, &p, &e_int, nthreads)?;
+    let (fx, fy) = compute_axi_fluxes(model, state, g, muscl, bc, &p, &e_int, nthreads, wall)?;
 
     // the annular update: r-weighted radial flux difference plus the
     // radial pressure source.
@@ -465,20 +473,23 @@ fn face_pair(
             FacePrim::perfect(rr, ur, vr, xr, gamma),
         ),
         ThermoModel::EqAir => {
-            // the flux solver reads the same CEA closure the rest of the
-            // march uses: p and a come from the (rho, e) table, not the
-            // legacy tgas1 tables, so the riemann states match the state
-            // advance's equation of state.
-            let (pl, tl) = crate::eqair_cea::p_t_at(rl, xl);
-            let (pr, tr) = crate::eqair_cea::p_t_at(rr, xr);
-            let _ = (tl, tr);
+            // the legacy tgas1 fits extrapolate past their window instead of
+            // clamping, which the riemann solver needs: wake states exceed
+            // the CEA table's energy ceiling and a clamped face pressure
+            // detonates the base flow. consistency with the CEA state
+            // advance is handled by the closure-variable reconstruction
+            // (e_int) plus the fused cell pass.
+            let (pl, pr) = (
+                crate::eqair::eqair_pressure_at(rl, xl),
+                crate::eqair::eqair_pressure_at(rr, xr),
+            );
             (
                 FacePrim {
                     rho: rl,
                     u: ul,
                     v: vl,
                     p: pl,
-                    a: crate::eqair_cea::sound_speed_at(rl, xl),
+                    a: crate::eqair::eqair_sound_at(rl, xl),
                     e: xl,
                 },
                 FacePrim {
@@ -486,7 +497,7 @@ fn face_pair(
                     u: ur,
                     v: vr,
                     p: pr,
-                    a: crate::eqair_cea::sound_speed_at(rr, xr),
+                    a: crate::eqair::eqair_sound_at(rr, xr),
                     e: xr,
                 },
             )
@@ -507,6 +518,7 @@ pub(crate) fn compute_axi_fluxes(
     p: &[f64],
     e_int: &[f64],
     nthreads: usize,
+    wall: Option<&dyn Fn(f64, f64) -> f64>,
 ) -> Result<(Vec<Sweep>, Vec<Sweep>), Error> {
     let (nx, ny) = (g.nx, g.ny);
     let idx = |i: usize, j: usize| j * nx + i;
@@ -668,8 +680,47 @@ pub(crate) fn compute_axi_fluxes(
         }
     };
 
-    let fx = run_jobs(ny, &row_job)?;
-    let fy = run_jobs(nx, &col_job)?;
+    let mut fx = run_jobs(ny, &row_job)?;
+    let mut fy = run_jobs(nx, &col_job)?;
+
+    // slip-wall enforcement: zero the advective flux across any face that
+    // touches a solid cell. the riemann solve never runs across the wall,
+    // so the interior dummy state cannot inject mass, momentum, or energy
+    // into the fluid, and the fluid-side band cell keeps its projection.
+    if let Some(dist) = wall {
+        let (nxg, nyg) = (g.nx, g.ny);
+        let solid = |i: usize, j: usize| -> bool {
+            if i >= nxg || j >= nyg {
+                return false;
+            }
+            dist(g.centers_x[j * nxg + i], g.centers_y[j * nxg + i]) <= 0.0
+        };
+        for j in 0..nyg {
+            for f in 0..=nxg {
+                // x-face f sits between cell (f-1, j) and (f, j).
+                let left_solid = f > 0 && solid(f - 1, j);
+                let right_solid = f < nxg && solid(f, j);
+                if left_solid || right_solid {
+                    fx[j].mass[f] = 0.0;
+                    fx[j].mx[f] = 0.0;
+                    fx[j].my[f] = 0.0;
+                    fx[j].e[f] = 0.0;
+                }
+            }
+        }
+        for i in 0..nxg {
+            for f in 0..=nyg {
+                let below_solid = f > 0 && solid(i, f - 1);
+                let above_solid = f < nyg && solid(i, f);
+                if below_solid || above_solid {
+                    fy[i].mass[f] = 0.0;
+                    fy[i].mx[f] = 0.0;
+                    fy[i].my[f] = 0.0;
+                    fy[i].e[f] = 0.0;
+                }
+            }
+        }
+    }
 
     Ok((fx, fy))
 }
@@ -690,6 +741,7 @@ pub fn advance2d_model(
     muscl: bool,
     bc: &Boundaries2d,
     nthreads: usize,
+    wall: Option<&dyn Fn(f64, f64) -> f64>,
 ) -> Result<(f64, f64), Error> {
     let (nx, ny) = (g.nx, g.ny);
     let idx = |i: usize, j: usize| j * nx + i;
@@ -707,7 +759,7 @@ pub fn advance2d_model(
     }
     let dt = cfl * g.dx.min(g.dy) / smax.max(1e-12);
 
-    let (fx, fy) = compute_axi_fluxes(model, state, g, muscl, bc, &p, &e_int, nthreads)?;
+    let (fx, fy) = compute_axi_fluxes(model, state, g, muscl, bc, &p, &e_int, nthreads, wall)?;
 
     let mut resid = 0.0f64;
     #[allow(clippy::needless_range_loop)]
@@ -747,6 +799,7 @@ pub fn advance2d_model_rk2(
     muscl: bool,
     bc: &Boundaries2d,
     nthreads: usize,
+    wall: Option<&dyn Fn(f64, f64) -> f64>,
 ) -> Result<(f64, f64), Error> {
     let (dt, _) = {
         let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
@@ -758,8 +811,8 @@ pub fn advance2d_model_rk2(
         (cfl * g.dx.min(g.dy) / smax.max(1e-12), 0.0)
     };
     let mut s1 = state.clone();
-    advance2d_model(&mut s1, g, model, cfl, muscl, bc, nthreads)?;
-    advance2d_model(&mut s1, g, model, cfl, muscl, bc, nthreads)?;
+    advance2d_model(&mut s1, g, model, cfl, muscl, bc, nthreads, wall)?;
+    advance2d_model(&mut s1, g, model, cfl, muscl, bc, nthreads, wall)?;
     for k in 0..g.nx * g.ny {
         state.rho[k] = 0.5 * state.rho[k] + 0.5 * s1.rho[k];
         state.mx[k] = 0.5 * state.mx[k] + 0.5 * s1.mx[k];
@@ -777,6 +830,7 @@ pub fn advance2d_axi_rk2(
     muscl: bool,
     bc: &Boundaries2d,
     nthreads: usize,
+    wall: Option<&dyn Fn(f64, f64) -> f64>,
 ) -> Result<(f64, f64), Error> {
     let (dt, _) = {
         let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
@@ -793,8 +847,8 @@ pub fn advance2d_axi_rk2(
         (cfl * g.dx.min(g.dy) / smax.max(1e-12), 0.0)
     };
     let mut s1 = state.clone();
-    advance2d_axi(&mut s1, g, model, cfl, muscl, bc, nthreads)?;
-    advance2d_axi(&mut s1, g, model, cfl, muscl, bc, nthreads)?;
+    advance2d_axi(&mut s1, g, model, cfl, muscl, bc, nthreads, wall)?;
+    advance2d_axi(&mut s1, g, model, cfl, muscl, bc, nthreads, wall)?;
     for k in 0..g.nx * g.ny {
         state.rho[k] = 0.5 * state.rho[k] + 0.5 * s1.rho[k];
         state.mx[k] = 0.5 * state.mx[k] + 0.5 * s1.mx[k];

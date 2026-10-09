@@ -608,9 +608,9 @@ fn march_case(
     let _ = axi;
     while t < t_end && steps < max_steps {
         let (dt, _) = if axi {
-            advance2d_axi_rk2(&mut st, &g, model, cfl, true, &bc, 1)
+            advance2d_axi_rk2(&mut st, &g, model, cfl, true, &bc, 1, None)
         } else {
-            advance2d_model_rk2(&mut st, &g, model, cfl, true, &bc, 1)
+            advance2d_model_rk2(&mut st, &g, model, cfl, true, &bc, 1, None)
         }
         .map_err(|e| e.to_string())?;
         if let Some((dist, normal)) = &body {
