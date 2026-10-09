@@ -1,8 +1,17 @@
 schema_version = 1
 
+# capsule aeroshell at 22.5 deg trim, station h=34.6 km, v=6691.0 m/s
+# auto-regenerated after the verts-block rewrite
+
 [metadata]
 name = "aeroshell-h34.6-a22.5"
-description = "real aeroshell STL cross-section at trim attitude 22.5 deg, lunar-return entry v=11009.6 m/s, equilibrium air, planar 384x192"
+description = "aeroshell capsule, 22.5 deg trim, h=34.6 km"
+
+[initial_condition]
+type = "uniform"
+rho = 0.01
+u = 6691.0
+p = 653.6
 
 [physics]
 equations = "euler_2d"
@@ -21,15 +30,9 @@ y0 = -6.0
 y1 = 6.0
 source = "uniform"
 
-# real capsule profile extracted from the STL the user sent
-# (R_hs = 5.676 m sphere cap over a 4.73 m rim, 23.9 deg backshell,
-# 1.2 m top deck), rotated to the trim attitude alpha_t = 22.5 deg
-# about the pole, translated nose to x = 2.0.
 [body]
 type = "polygon"
 verts = [
-
-],
   [1.9769, 0.0565],
   [1.9545, 0.1132],
   [1.9327, 0.1701],
@@ -170,37 +173,25 @@ verts = [
   [2.0981, -0.2233],
   [2.0727, -0.1679],
   [2.0479, -0.1122],
-  [2.0000, 0.0000],
+  [2.0000, 0.0000]
 ]
 
-[initial_condition]
-type = "uniform"
-rho = 0.01
-u = 6691.0
-v = 0.0
-p = 653.613
+[time]
+max_steps = 20000
+final_time = 0.003
 
 [boundaries]
 left = "supersonic_inflow"
 right = "supersonic_outflow"
 top = "supersonic_outflow"
-bottom = "supersonic_outflow"
-[boundaries.inflow_state]
-rho = 0.00335
-u = 6691.0
-v = 0.0
-p = 208.334
+bottom = "supersonic_inflow"
 
 [numerics]
 flux = "hllc"
 reconstruction = "muscl"
-cfl = 0.4
-
-[time]
-final_time = 0.003
-max_steps = 20000
+cfl = 0.5
 
 [output]
-interval_steps = 200
+fields = ["rho", "p", "T", "mach"]
+interval_steps = 1000
 formats = ["vtk"]
-fields = ["rho", "u", "p"]

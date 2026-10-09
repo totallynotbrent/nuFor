@@ -11,6 +11,7 @@ mod blasius;
 mod body;
 mod cfl;
 pub mod curvilinear;
+pub mod eqair_cea;
 mod cutcell;
 mod cutcell_march;
 mod eos;

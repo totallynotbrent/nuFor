@@ -46,7 +46,7 @@ pub fn pressure(
             }
             Ok(p)
         }
-        ThermoModel::EqAir => crate::eqair::pressure_from_energy(rho, e),
+        ThermoModel::EqAir => crate::eqair_cea::pressure(rho, e, u, v),
     }
 }
 
@@ -67,20 +67,20 @@ pub fn temperature(model: ThermoModel, rho: &[f64], p: &[f64]) -> Result<Vec<f64
     if n == 0 || p.len() != n {
         return Err(Error::InvalidArgs);
     }
-    // the fits anchor: e0 = R0*T0 at 273.15 K and 1.292 kg/m^3.
-    const R0: f64 = 78408.4 / 273.15;
-    let mut t = vec![0.0; n];
     match model {
-        ThermoModel::Perfect { .. } | ThermoModel::EqAir => {
+        ThermoModel::Perfect { .. } => {
+            let mut out = vec![0.0; n];
             for i in 0..n {
-                if rho[i] <= 0.0 || p[i] < 0.0 || !rho[i].is_finite() {
+                let r = rho[i];
+                if !r.is_finite() || r <= 0.0 {
                     return Err(Error::InvalidArgs);
                 }
-                t[i] = p[i] / (rho[i] * R0).max(1e-30);
+                out[i] = p[i] / (r * 287.05);
             }
+            Ok(out)
         }
+        ThermoModel::EqAir => crate::eqair_cea::temperature(rho, p),
     }
-    Ok(t)
 }
 
 pub fn sound_speed(
