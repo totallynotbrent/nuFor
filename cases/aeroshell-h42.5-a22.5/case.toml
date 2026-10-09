@@ -13,8 +13,8 @@ mu = 1.716e-5
 wall_temperature = 1600.0
 
 [mesh]
-nx = 320
-ny = 160
+nx = 1280
+ny = 640
 x0 = 0
 x1 = 14.0
 y0 = -6.0
@@ -28,7 +28,8 @@ source = "uniform"
 [body]
 type = "polygon"
 verts = [
-  [2.0000, 0.0000],
+
+],
   [1.9769, 0.0565],
   [1.9545, 0.1132],
   [1.9327, 0.1701],
@@ -197,7 +198,7 @@ cfl = 0.4
 
 [time]
 final_time = 0.003
-max_steps = 5000
+max_steps = 20000
 
 [output]
 interval_steps = 200
