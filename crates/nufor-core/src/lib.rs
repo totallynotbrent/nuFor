@@ -28,6 +28,7 @@ mod h5;
 mod hllc2d;
 mod hllc3d;
 mod output;
+pub mod park;
 mod probe;
 mod rectilinear;
 mod render2d;

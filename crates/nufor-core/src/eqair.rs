@@ -46,9 +46,9 @@ use crate::Error;
 /// ln(10), the log-space conversion constant from the listing.
 const LN10: f64 = std::f64::consts::LN_10;
 /// RHO0 of the fits: sea-level density in kg/m^3.
-const RHO0: f64 = 1.292;
+pub(crate) const RHO0: f64 = 1.292;
 /// E0 of the fits: R*T0 in m^2/s^2 with T0 = 273.15 K.
-const E0: f64 = 78408.4;
+pub(crate) const E0: f64 = 78408.4;
 /// cold-branch GAMM constants per density region (A, B, C).
 const COLD_GAMM: [f64; 3] = [1.3965, 1.398, 1.3988];
 /// Z breakpoints per density region, inner-first.
@@ -248,7 +248,7 @@ static BLOCKS: [Block; 12] = [
 ];
 
 /// GAMM and its log-space partials at (Y, Z).
-fn gamm_and_partials(y: f64, z: f64) -> (f64, f64, f64) {
+pub(crate) fn gamm_and_partials(y: f64, z: f64) -> (f64, f64, f64) {
     // density region and z sub-block; block indices into BLOCKS follow
     // the dispatch order A1..A5 = 0..4, B1..B4 = 5..8, C1..C3 = 9..11.
     // each region's top block extends upward past its last break (the

@@ -1578,7 +1578,54 @@ fn write_run_log_2d(
         t_max,
         tw
     );
+    // noneq indicator: park two-temperature surface probe. for each
+    // flow cell adjacent to the body, report the n2 vibrational
+    // relaxation time at the local p/t and the residence time
+    // x_len/u_ref so the log carries a noneq-equilibrium discriminator.
+    let noneq_line = {
+        let cb = case_body_fns(&cfg.body);
+        let mut taus: Vec<f64> = Vec::new();
+        if let Some((dist, _)) = cb {
+            for k in flow.iter().copied() {
+                let i = k % g.nx;
+                let j = k / g.nx;
+                let x = 0.5 * (g.faces_x[i] + g.faces_x[i + 1]);
+                let y = 0.5 * (g.faces_y[j] + g.faces_y[j + 1]);
+                let d = dist(x, y);
+                if d < 1.5 * g.dx && d > 0.0 {
+                    let t_loc = temp[k].max(200.0);
+                    let p_loc = p[k].max(1.0);
+                    let tau = nufor_core::park::tau_v_millikan_white(
+                        nufor_core::park::THETA_V[0],
+                        t_loc,
+                        28.0,
+                        p_loc,
+                    );
+                    taus.push(tau);
+                }
+            }
+        }
+        if taus.is_empty() {
+            String::new()
+        } else {
+            let tau_min = taus.iter().copied().fold(f64::INFINITY, f64::min);
+            let tau_max = taus.iter().copied().fold(0.0f64, f64::max);
+            let x_len = (g.faces_x[g.nx] - g.faces_x[0]).abs();
+            let dyn_t = x_len / u_ref.max(1.0);
+            format!(
+                "\nnoneq indicator (park 2T over body-adjacent probes):\n  n2 tau_vib range {:.2e} .. {:.2e} s\n  residence time x_len/u {:.2e} s\n  tau_vib/tau_flight range {:.2e} .. {:.2e}\n",
+                tau_min,
+                tau_max,
+                dyn_t,
+                tau_min / dyn_t.max(1e-12),
+                tau_max / dyn_t.max(1e-12)
+            )
+        }
+    };
     let mut txt = txt;
+    if !noneq_line.is_empty() {
+        txt.push_str(&noneq_line);
+    }
     if !qwall_s.is_empty() {
         txt.push('\n');
         txt.push_str(&qwall_s);
