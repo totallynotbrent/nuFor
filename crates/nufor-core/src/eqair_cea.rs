@@ -64,8 +64,6 @@ pub fn p_t_at(rho: f64, e: f64) -> (f64, f64) {
     let e = e.max(1e-3);
     let lr = rho.log10().clamp(LR_G[0], LR_G[NR - 1]);
     let le = e.log10().clamp(LE_G[0], LE_G[NE - 1]);
-
-    let g_rows = grid(|g| g.clone());
     // locate i, j
     let mut i = 0;
     while i + 1 < NR && LR_G[i + 1] < lr {
@@ -85,19 +83,21 @@ pub fn p_t_at(rho: f64, e: f64) -> (f64, f64) {
     } else {
         0.0
     };
-    let c00 = g_rows[i][j].clone();
-    let c10 = g_rows[(i + 1).min(NR - 1)][j].clone();
-    let c01 = g_rows[i][(j + 1).min(NE - 1)].clone();
-    let c11 = g_rows[(i + 1).min(NR - 1)][(j + 1).min(NE - 1)].clone();
-    let t = c00.t * (1.0 - fi) * (1.0 - fj)
-        + c10.t * fi * (1.0 - fj)
-        + c01.t * (1.0 - fi) * fj
-        + c11.t * fi * fj;
-    let p = c00.p * (1.0 - fi) * (1.0 - fj)
-        + c10.p * fi * (1.0 - fj)
-        + c01.p * (1.0 - fi) * fj
-        + c11.p * fi * fj;
-    (t.max(50.0), p.max(1e-3))
+    grid(|g| {
+        let c00 = &g[i][j];
+        let c10 = &g[(i + 1).min(NR - 1)][j];
+        let c01 = &g[i][(j + 1).min(NE - 1)];
+        let c11 = &g[(i + 1).min(NR - 1)][(j + 1).min(NE - 1)];
+        let t = c00.t * (1.0 - fi) * (1.0 - fj)
+            + c10.t * fi * (1.0 - fj)
+            + c01.t * (1.0 - fi) * fj
+            + c11.t * fi * fj;
+        let p = c00.p * (1.0 - fi) * (1.0 - fj)
+            + c10.p * fi * (1.0 - fj)
+            + c01.p * (1.0 - fi) * fj
+            + c11.p * fi * fj;
+        (t.max(50.0), p.max(1e-3))
+    })
 }
 
 /// p(rho, e_int).

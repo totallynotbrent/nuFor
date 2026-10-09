@@ -1,17 +1,17 @@
 schema_version = 1
 
-# capsule aeroshell at 22.5 deg trim, station h=40.0 km, v=8706.0 m/s
-# auto-regenerated after the verts-block rewrite
-
 [metadata]
 name = "aeroshell-h40.0-a22.5"
 description = "aeroshell capsule, 22.5 deg trim, h=40.0 km"
 
-[initial_condition]
-type = "uniform"
-rho = 0.00474
-u = 8706.0
-p = 308.86
+[mesh]
+nx = 1280
+ny = 640
+x0 = 0.0
+x1 = 14.0
+y0 = -6.0
+y1 = 6.0
+source = "uniform"
 
 [physics]
 equations = "euler_2d"
@@ -21,17 +21,34 @@ gas_constant = 287.0
 mu = 1.716e-5
 wall_temperature = 1600.0
 
-[mesh]
-nx = 1280
-ny = 640
-x0 = 0
-x1 = 14.0
-y0 = -6.0
-y1 = 6.0
-source = "uniform"
+[time]
+final_time = 0.003
+max_steps = 20000
+residual_target = 1e-30
+
+[numerics]
+flux = "hllc"
+reconstruction = "muscl"
+cfl = 0.5
+local_time_stepping = false
+threads = 1
+
+[boundaries]
+left = "supersonic_inflow"
+right = "supersonic_outflow"
+top = "supersonic_outflow"
+bottom = "supersonic_inflow"
+
+[initial_condition]
+type = "uniform"
+rho = 0.00474
+u = 8706.0
+p = 308.86
 
 [body]
 type = "polygon"
+loop_pts = "auto"
+verts_reversed = false
 verts = [
   [1.9769, 0.0565],
   [1.9545, 0.1132],
@@ -176,22 +193,7 @@ verts = [
   [2.0000, 0.0000]
 ]
 
-[time]
-max_steps = 20000
-final_time = 0.003
-
-[boundaries]
-left = "supersonic_inflow"
-right = "supersonic_outflow"
-top = "supersonic_outflow"
-bottom = "supersonic_inflow"
-
-[numerics]
-flux = "hllc"
-reconstruction = "muscl"
-cfl = 0.5
-
 [output]
-fields = ["rho", "p", "T", "mach"]
-interval_steps = 1000
 formats = ["vtk"]
+interval_steps = 1000
+fields = ["rho", "p", "T", "mach"]
