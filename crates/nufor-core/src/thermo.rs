@@ -108,7 +108,11 @@ pub fn sound_speed(
             for i in 0..n {
                 e[i] = et[i] - 0.5 * (u[i] * u[i] + v[i] * v[i]);
             }
-            crate::eqair::sound_speed_from_energy(rho, &e)
+            // the fused table read returns the cheap gamma_eff speed; the
+            // legacy FD-based `eqair::sound_speed_from_energy` costs 3 fd
+            // lookups per cell and misreads equilibrium relaxation as
+            // acoustic stiffness, so route the cfl cap through the table.
+            Ok(crate::eqair_cea::sound_speed(rho, &e, u, v)?)
         }
     }
 }

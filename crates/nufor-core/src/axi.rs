@@ -99,12 +99,22 @@ pub fn advance2d_model_visc_rk2(
     for k in 0..n {
         e_int[k] = et0[k] - 0.5 * (u0[k] * u0[k] + v0[k] * v0[k]);
     }
-    let p0 = thermo::pressure(model, &state.rho, &e_int, &u0, &v0)?;
-    let t0 = thermo::temperature(model, &state.rho, &p0)?;
-    let mut mu_cells = vec![mu0; n];
-    for k in 0..n {
-        mu_cells[k] = crate::viscous2d::sutherland_mu(mu0, t0[k].max(1.0), t0_ref, s_param);
-    }
+    // fused (p, t, mu) pass; on eqair this replaces the temperature
+    // bisection with one table read per cell.
+    let (p0, _t0, mu_cells) = match model {
+        ThermoModel::EqAir => crate::eqair_cea::fused_state_mu(&state.rho, &e_int, |t| {
+            crate::viscous2d::sutherland_mu(mu0, t.max(1.0), t0_ref, s_param)
+        }),
+        ThermoModel::Perfect { .. } => {
+            let p0 = thermo::pressure(model, &state.rho, &e_int, &u0, &v0)?;
+            let t0 = thermo::temperature(model, &state.rho, &p0)?;
+            let mut mc = vec![mu0; n];
+            for k in 0..n {
+                mc[k] = crate::viscous2d::sutherland_mu(mu0, t0[k].max(1.0), t0_ref, s_param);
+            }
+            (p0, t0, mc)
+        }
+    };
     let rho_min = state
         .rho
         .iter()

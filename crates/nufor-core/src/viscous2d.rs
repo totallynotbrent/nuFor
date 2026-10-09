@@ -602,7 +602,15 @@ pub fn add_viscous_cells_mu(
             e_int[k] = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
         }
         let p = crate::thermo::pressure(cl, &state.rho, &e_int, &u, &v)?;
-        crate::thermo::temperature(cl, &state.rho, &p)?
+        // eqair: one fused read per cell instead of the (rho,p) bisection.
+        match cl {
+            crate::thermo::ThermoModel::EqAir => {
+                crate::eqair_cea::fused_state_mu(&state.rho, &e_int, |_| 0.0).1
+            }
+            crate::thermo::ThermoModel::Perfect { .. } => {
+                crate::thermo::temperature(cl, &state.rho, &p)?
+            }
+        }
     } else {
         let p = eos_pressure2d(gamma, &state.rho, &et, &u, &v)?;
         p.iter().zip(&state.rho).map(|(pp, r)| pp / r).collect()

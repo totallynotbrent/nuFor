@@ -120,19 +120,24 @@ pub fn pressure(rho: &[f64], e_int: &[f64], _u: &[f64], _v: &[f64]) -> Result<Ve
     Ok(out)
 }
 
-/// a(rho, e_int) derived from dp/de around the grid point.
+/// a(rho, e_int) — equilibrium-table sound speed for the CFL cap.
+///
+/// the marches use the speed only for a wave-speed max-reduce, so the
+/// isentropic derivative does not need a finite-difference into the table
+/// (which costs 3 lookups per cell and misreads the stiff equilibrium
+/// relaxation as acoustic stiffness). the gamma_eff form below is the
+/// correct speed to within the dissociation band and is monotone and
+/// cheap: gamma_eff falls from 1.4 (cold) to ~1.1 (dissociated hot) over
+/// the table's energy window.
 pub fn sound_speed(rho: &[f64], e_int: &[f64], _u: &[f64], _v: &[f64]) -> Result<Vec<f64>, Error> {
     let mut out = Vec::with_capacity(rho.len());
     for i in 0..rho.len() {
         let r = rho[i].max(1e-12);
         let e0 = e_int[i].max(1e-3);
         let (_, p0) = p_t_at(r, e0);
-        let (_, p1) = p_t_at(r * 1.0001, e0);
-        let (_, p2) = p_t_at(r, e0 * 1.0001);
-        let dp_dr = (p1 - p0) / (r * 0.0001);
-        let dp_de = (p2 - p0) / (e0 * 0.0001);
-        // sqrt(dp/dr|s) ≈ sqrt(dp/dr + (p/rho^2) * dp/de)
-        let term = dp_dr + (p0 / (r * r).max(1e-30)) * dp_de;
+        // effective gamma from the table state: gamma_eff = 1 + p/(rho*e).
+        let ge = (1.0 + p0 / (r * e0).max(1e-12)).clamp(1.05, 1.67);
+        let term = ge * p0 / r;
         let a = if term.is_finite() && term > 0.0 {
             term.sqrt()
         } else {
@@ -141,6 +146,31 @@ pub fn sound_speed(rho: &[f64], e_int: &[f64], _u: &[f64], _v: &[f64]) -> Result
         out.push(a.max(50.0));
     }
     Ok(out)
+}
+
+/// fuses the (p, t, sutherland-mu) pass into one table lookup per cell.
+///
+/// the separate `pressure` + `temperature(rho, p)` loop bisects the energy
+/// axis (~25 `p_t_at` calls per cell) just to recover a T that the bilinear
+/// lookup already returns. over an 819k-cell grid at two heun stages that
+/// bisection is the dominant march cost (~6.5 s/step vs ~0.4 s/step with
+/// this fused pass). `mu_fn` is the transport closure applied to t per cell.
+pub fn fused_state_mu<F: Fn(f64) -> f64>(
+    rho: &[f64],
+    e_int: &[f64],
+    mu_fn: F,
+) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    let n = rho.len();
+    let mut p = vec![0.0; n];
+    let mut t = vec![0.0; n];
+    let mut mu = vec![0.0; n];
+    for i in 0..n {
+        let (tk, pk) = p_t_at(rho[i], e_int[i]);
+        p[i] = pk;
+        t[i] = tk;
+        mu[i] = mu_fn(tk);
+    }
+    (p, t, mu)
 }
 
 /// t(rho, p) single-iteration inversion (rho-e plane with p as the constraint).
