@@ -293,8 +293,71 @@ pub fn apply_solid_fn(
     normal: &dyn Fn(f64, f64) -> (f64, f64),
     gamma: f64,
 ) {
+    // first pass marks which cells are solid so the second pass can build
+    // each interior cell as a zero-gradient ghost of its nearest fluid
+    // neighbor: a solid cell carrying the adjacent fluid state yields
+    // zero flux across every solid-fluid face, which keeps the wake from
+    // being fed by an arbitrary interior state step after step.
+    let n = g.nx * g.ny;
+    let mut is_solid = vec![false; n];
+    for j in 0..g.ny {
+        for i in 0..g.nx {
+            let k = j * g.nx + i;
+            if dist(g.centers_x[k], g.centers_y[k]) <= 0.0 {
+                is_solid[k] = true;
+            }
+        }
+    }
+    let neighbor_fluid = |k: usize| -> Option<usize> {
+        let (i, j) = (k % g.nx, k / g.nx);
+        for d in 1..=4 {
+            let cands = [
+                (i as isize - d, j as isize),
+                (i as isize + d, j as isize),
+                (i as isize, j as isize - d),
+                (i as isize, j as isize + d),
+            ];
+            let mut best: Option<(usize, f64)> = None;
+            for (ci, cj) in cands {
+                if ci < 0 || cj < 0 || ci as usize >= g.nx || cj as usize >= g.ny {
+                    continue;
+                }
+                let c = cj as usize * g.nx + ci as usize;
+                if !is_solid[c] {
+                    let r2 = ((ci - i as isize) * (ci - i as isize)
+                        + (cj - j as isize) * (cj - j as isize))
+                        as f64;
+                    if best.map(|(_, b)| r2 < b).unwrap_or(true) {
+                        best = Some((c, r2));
+                    }
+                }
+            }
+            if best.is_some() {
+                return best.map(|(c, _)| c);
+            }
+        }
+        None
+    };
+    // ghost pass: interior cells mirror their nearest fluid neighbor.
+    for k in 0..n {
+        if is_solid[k] {
+            if let Some(c) = neighbor_fluid(k) {
+                state.rho[k] = state.rho[c];
+                state.mx[k] = state.mx[c];
+                state.my[k] = state.my[c];
+                state.e[k] = state.e[c];
+            } else {
+                let ref_ = SolidRef::default();
+                let e_ref = ref_.p / ((gamma - 1.0) * ref_.rho);
+                state.rho[k] = ref_.rho;
+                state.mx[k] = 0.0;
+                state.my[k] = 0.0;
+                state.e[k] = e_ref;
+            }
+        }
+    }
     let ref_ = SolidRef::default();
-    let e_ref = ref_.p / ((gamma - 1.0) * ref_.rho);
+    let _e_ref = ref_.p / ((gamma - 1.0) * ref_.rho);
     let band = 1.5 * g.dx.min(g.dy);
     for j in 0..g.ny {
         for i in 0..g.nx {
@@ -302,11 +365,8 @@ pub fn apply_solid_fn(
             let (x, y) = (g.centers_x[k], g.centers_y[k]);
             let d = dist(x, y);
             if d <= 0.0 {
-                // solid cell: keep it inert.
-                state.rho[k] = ref_.rho;
-                state.mx[k] = 0.0;
-                state.my[k] = 0.0;
-                state.e[k] = e_ref;
+                // solid cell: already ghosted to its fluid neighbor above.
+                continue;
             } else if d <= band {
                 // fluid cell bordering the surface: remove the normal velocity.
                 let (nx, ny) = normal(x, y);

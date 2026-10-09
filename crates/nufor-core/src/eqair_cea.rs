@@ -132,20 +132,26 @@ pub fn pressure(rho: &[f64], e_int: &[f64], _u: &[f64], _v: &[f64]) -> Result<Ve
 pub fn sound_speed(rho: &[f64], e_int: &[f64], _u: &[f64], _v: &[f64]) -> Result<Vec<f64>, Error> {
     let mut out = Vec::with_capacity(rho.len());
     for i in 0..rho.len() {
-        let r = rho[i].max(1e-12);
-        let e0 = e_int[i].max(1e-3);
-        let (_, p0) = p_t_at(r, e0);
-        // effective gamma from the table state: gamma_eff = 1 + p/(rho*e).
-        let ge = (1.0 + p0 / (r * e0).max(1e-12)).clamp(1.05, 1.67);
-        let term = ge * p0 / r;
-        let a = if term.is_finite() && term > 0.0 {
-            term.sqrt()
-        } else {
-            300.0
-        };
-        out.push(a.max(50.0));
+        out.push(sound_speed_at(rho[i], e_int[i]));
     }
     Ok(out)
+}
+
+/// the scalar form the riemann solver calls per face: effective gamma from
+/// the table state, clamped the same way the vector pass clamps.
+pub fn sound_speed_at(rho: f64, e_int: f64) -> f64 {
+    let r = rho.max(1e-12);
+    let e0 = e_int.max(1e-3);
+    let (_, p0) = p_t_at(r, e0);
+    // effective gamma from the table state: gamma_eff = 1 + p/(rho*e).
+    let ge = (1.0 + p0 / (r * e0).max(1e-12)).clamp(1.05, 1.67);
+    let term = ge * p0 / r;
+    let a = if term.is_finite() && term > 0.0 {
+        term.sqrt()
+    } else {
+        300.0
+    };
+    a.max(50.0)
 }
 
 /// fuses the (p, t, sutherland-mu) pass into one table lookup per cell.

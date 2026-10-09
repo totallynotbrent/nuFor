@@ -465,17 +465,20 @@ fn face_pair(
             FacePrim::perfect(rr, ur, vr, xr, gamma),
         ),
         ThermoModel::EqAir => {
-            let (pl, pr) = (
-                crate::eqair::eqair_pressure_at(rl, xl),
-                crate::eqair::eqair_pressure_at(rr, xr),
-            );
+            // the flux solver reads the same CEA closure the rest of the
+            // march uses: p and a come from the (rho, e) table, not the
+            // legacy tgas1 tables, so the riemann states match the state
+            // advance's equation of state.
+            let (pl, tl) = crate::eqair_cea::p_t_at(rl, xl);
+            let (pr, tr) = crate::eqair_cea::p_t_at(rr, xr);
+            let _ = (tl, tr);
             (
                 FacePrim {
                     rho: rl,
                     u: ul,
                     v: vl,
                     p: pl,
-                    a: crate::eqair::eqair_sound_at(rl, xl),
+                    a: crate::eqair_cea::sound_speed_at(rl, xl),
                     e: xl,
                 },
                 FacePrim {
@@ -483,7 +486,7 @@ fn face_pair(
                     u: ur,
                     v: vr,
                     p: pr,
-                    a: crate::eqair::eqair_sound_at(rr, xr),
+                    a: crate::eqair_cea::sound_speed_at(rr, xr),
                     e: xr,
                 },
             )
