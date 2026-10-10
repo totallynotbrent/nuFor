@@ -2,23 +2,26 @@
 
 A CPU-first computational fluid dynamics research code built in Rust and Fortran.
 
-> **Work in progress.** nuFor is not complete. Right now it can simulate a
-> fixed set of cases through the web UI: the 1D Sod and Lax shock tubes, and
-> the 2D and 3D spherical blast problem, with density / mach / pressure
-> visualization, line probes, resolution comparison, and CSV / VTK / HDF5
-> export. Full mesh upload (solve-on-imported-mesh), arbitrary boundary
-> conditions, and general case setup from the browser are still under
-> development. Those paths are driven from the CLI today and will land in the
-> UI in later releases.
+> **Work in progress.** nuFor is not complete. The validated core today:
+> 1D/2D/3D Euler, 2D/3D viscous Navier-Stokes, Spalart-Allmaras RANS,
+> masked bodies and cut cells, an axisymmetric solver, and an
+> equilibrium-air closure (CEA table) on the hypersonic 2D paths —
+> exercised across a four-station atmospheric-entry sweep with a
+> 1280x640 anchor run. Spalart-Allmaras 3D, two-temperature
+> nonequilibrium, and unstructured meshes are the next rungs on the
+> [roadmap](docs/roadmap.md). Cases run from the CLI today; the web UI
+> covers the fixed case set with field visualization, probes, and
+> CSV / VTK / HDF5 export.
 
 ## Summary
 
 nuFor solves the compressible Euler and Navier-Stokes equations on structured
-grids in one, two, and three dimensions. A Rust application layer handles the
-CLI, the web UI, and case orchestration, while Fortran owns the numerical
-kernels across a narrow C ABI. Python is used for reference solutions and
-verification, never the hot path. It builds with cargo, requires gfortran and
-CMake (HDF5 optional), and runs on Linux.
+grids in one, two, and three dimensions, with an axisymmetric form and a
+tabulated equilibrium-air closure for hypersonic flows. A Rust application
+layer handles the CLI, the web UI, and case orchestration, while Fortran owns
+the numerical kernels across a narrow C ABI. Python is used for reference
+solutions and verification, never the hot path. It builds with cargo, requires
+gfortran and CMake (HDF5 optional), and runs on Linux.
 
 ## Project structure
 
