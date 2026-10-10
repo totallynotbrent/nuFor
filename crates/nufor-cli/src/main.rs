@@ -1557,9 +1557,11 @@ fn write_run_log_2d(
             let mut q_rows: Vec<(f64, f64, f64)> = Vec::new();
             let r0 = 78408.4 / 273.15;
             let kf = |t: f64| {
-                nufor_core::sutherland_mu(1.716e-5, t, 273.15, 110.4) * cfg.physics.gamma
+                // fourier conductivity from prandtl: k = mu * cp / pr with
+                // cp = R*gamma/(gamma-1); r0 IS R, so it multiplies. the old
+                // division starved every heat-flux row by R^2 (~8e4).
+                nufor_core::sutherland_mu(1.716e-5, t, 273.15, 110.4) * cfg.physics.gamma * r0
                     / ((cfg.physics.gamma - 1.0) * cfg.physics.pr)
-                    / r0
             };
             for j in 0..g.ny {
                 for i in 0..g.nx {
