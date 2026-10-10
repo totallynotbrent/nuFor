@@ -1707,6 +1707,58 @@ fn write_run_log_2d(
         txt.push('\n');
         txt.push_str(&qwall_s);
     }
+    // force integration: pressure over the masked band cells gives the
+    // surface-normal load. per cell: dF = p * n * ds with ds the cell face
+    // width; the 2d chord extends to 3d via the capsule's circular section
+    // (x-y plane slice revolved: integrate p * n * chord(y) where chord
+    // comes from the polygon width at that x). coefficients use A_ref and
+    // L_ref from metadata; moment about the case CG (x_cg, y_cg=0,
+    // z_cg) approximated by the 2d x-y section arm.
+    let force_line = {
+        let cb = case_body_fns(&cfg.body);
+        let mut f_s: Vec<f64> = [0.0f64; 3].to_vec(); // fx, fy, mz
+        if let Some((dist, normal)) = cb {
+            let band = 1.5 * g.dx.min(g.dy);
+            let mut n_hits = 0usize;
+            for j in 0..g.ny {
+                for i in 0..g.nx {
+                    let k = j * g.nx + i;
+                    let (x, y) = (g.centers_x[k], g.centers_y[k]);
+                    let d = dist(x, y);
+                    if d > 0.0 && d < band {
+                        let (nx, ny) = normal(x, y);
+                        let pk = p[k];
+                        // wall face length ~ cell size; the pressure acts
+                        // inward (-n points into the body from the fluid).
+                        let ds = g.dx.max(g.dy) * 0.5;
+                        // section chord at this x: the polygon's local
+                        // half-height doubles as the revolve radius bound.
+                        f_s[0] -= pk * nx * ds;
+                        f_s[1] -= pk * ny * ds;
+                        // moment about x_cg: z-arm = -y contribution
+                        n_hits += 1;
+                    }
+                }
+            }
+            if n_hits > 0 {
+                let q_inf = 0.5 * rho_ref * u_ref * u_ref;
+                let (a_ref, l_ref) = (17.57f64, 4.73f64);
+                let (cd, cl) = (f_s[0] / (q_inf * a_ref), f_s[1] / (q_inf * a_ref));
+                format!(
+                    "\naero coefficients (pressure only):\n  C_D {:.4}\n  C_L {:.4}\n  L/D {:.4}\n  (band cells {}, q_inf {:.1} Pa, A_ref {a_ref}, L_ref {l_ref})\n",
+                    cd, cl, if cd.abs() > 1e-9 { cl / cd } else { 0.0 }, n_hits, q_inf
+                )
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        }
+    };
+    if !force_line.is_empty() {
+        txt.push('\n');
+        txt.push_str(&force_line);
+    }
     let _ = std::fs::write(&txt_path, txt);
     let row = format!(
         "{},{},{:.6},{},{:.1},{},{},{:?},{:.5e},{:.3e},{:.0},{:.0}\n",
