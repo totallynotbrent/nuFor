@@ -6,11 +6,11 @@ description = "aeroshell capsule, 22.5 deg trim, h=30.0 km"
 
 [mesh]
 nx = 320
-ny = 160
+ny = 176
 x0 = -2.0
-x1 = 20.0
-y0 = -9.0
-y1 = 9.0
+x1 = 36.0
+y0 = -13.0
+y1 = 13.0
 source = "uniform"
 
 [physics]
@@ -22,7 +22,7 @@ mu = 1.716e-5
 wall_temperature = 300.0
 
 [time]
-final_time = 0.003
+final_time = 0.015
 max_steps = 20000
 residual_target = 1e-30
 
@@ -31,7 +31,7 @@ flux = "hllc"
 reconstruction = "muscl"
 cfl = 0.5
 local_time_stepping = false
-threads = 1
+threads = 8
 
 [boundaries]
 left = "supersonic_inflow"
