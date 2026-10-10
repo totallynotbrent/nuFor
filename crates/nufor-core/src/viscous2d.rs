@@ -530,6 +530,7 @@ pub fn add_viscous_cells(
     add_viscous_cells_model(state, g, gamma, mu_lam, pr, turb, tc, None)
 }
 
+#[allow(clippy::too_many_arguments)]
 /// the closure-aware form of `add_viscous_cells`: `closure` selects the
 /// thermodynamic model for pressure and temperature (None = the scalar
 /// gamma path, byte-identical to the legacy behavior). `mu_lam` is the
@@ -547,10 +548,11 @@ pub fn add_viscous_cells_model(
 ) -> Result<(), Error> {
     let mu_cells: &[f64] = &[];
     add_viscous_cells_mu(
-        state, g, gamma, mu_lam, mu_cells, pr, turb, tc, closure, 0.0,
+        state, g, gamma, mu_lam, mu_cells, pr, turb, tc, closure, 0.0, 1,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 /// the per-cell form: `mu_cells` (dynamic viscosity per cell) replaces
 /// the scalar mu when non-empty, evaluated already from the closure
 /// temperature (sutherland). `closure` selects how p and T are derived.
@@ -565,6 +567,7 @@ pub fn add_viscous_cells_mu(
     tc: crate::solver2d::TimeControl,
     closure: Option<crate::thermo::ThermoModel>,
     wall_temperature: f64,
+    nthreads: usize,
 ) -> Result<(), Error> {
     let (dt, dts) = tc.parts();
     let bc = turb.map(|t| t.bc).unwrap_or(&LAMINAR_BC);
@@ -700,29 +703,84 @@ pub fn add_viscous_cells_mu(
     };
     let (dtdx, dtdy) = (dt / g.dx, dt / g.dy);
     let (dxs_w, dys_w) = (&g.dxs, &g.dys);
-    // x-face viscous flux (nx+1 faces per row); domain-edge faces carry zero flux.
+    // x-face viscous flux (nx+1 faces per row); domain-edge faces carry zero
+    // flux. the flux arrays are face-major (slot f*ny + j), so threads take
+    // contiguous face blocks and own raw slices: disjoint writes, identical
+    // result to the serial loop.
     let mut fxm = vec![0.0; (nx + 1) * ny];
     let mut fym = vec![0.0; (nx + 1) * ny];
     let mut fe = vec![0.0; (nx + 1) * ny];
-    for j in 0..ny {
-        for f in 1..nx {
-            let (a, b) = (idx(f - 1, j), idx(f, j));
-            let gf = face_grad_interp(
-                &grads[a],
-                &grads[b],
-                u[a],
-                u[b],
-                v[a],
-                v[b],
-                (g.centers_x[a], g.centers_x[b], g.faces_x[f]),
-            );
-            let mu_face = 0.5 * (mu_cell(a) + mu_cell(b));
-            let (txx, txy, _, qx, _) = face_flux_split(&gf, mu_face, mu_t, a, b, &coeffs);
-            let k = f * ny + j;
-            fxm[k] = txx;
-            fym[k] = txy;
-            fe[k] = gf.u * txx + gf.v * txy + qx;
+    let xthreads = if nthreads <= 1 || ny < 2 || nx < 2 {
+        1
+    } else {
+        nthreads.min(nx - 1)
+    };
+    if xthreads == 1 {
+        for j in 0..ny {
+            for f in 1..nx {
+                let (a, b) = (idx(f - 1, j), idx(f, j));
+                let gf = face_grad_interp(
+                    &grads[a],
+                    &grads[b],
+                    u[a],
+                    u[b],
+                    v[a],
+                    v[b],
+                    (g.centers_x[a], g.centers_x[b], g.faces_x[f]),
+                );
+                let mu_face = 0.5 * (mu_cell(a) + mu_cell(b));
+                let (txx, txy, _, qx, _) = face_flux_split(&gf, mu_face, mu_t, a, b, &coeffs);
+                let k = f * ny + j;
+                fxm[k] = txx;
+                fym[k] = txy;
+                fe[k] = gf.u * txx + gf.v * txy + qx;
+            }
         }
+    } else {
+        let chunk_f = (nx - 1).div_ceil(xthreads) + 1;
+        let slots = chunk_f * ny;
+        let u_ref = &u[..];
+        let v_ref = &v[..];
+        let grads_ref = &grads[..];
+        let mu_cell_ref = &mu_cell;
+        let coeffs_ref = &coeffs;
+        std::thread::scope(|sc| {
+            let zipped = fxm
+                .chunks_mut(slots)
+                .zip(fym.chunks_mut(slots))
+                .zip(fe.chunks_mut(slots))
+                .enumerate();
+            for (ci, ((cx, cy), ce)) in zipped {
+                sc.spawn(move || {
+                    let f_lo = ci * chunk_f;
+                    let f_hi = (f_lo + chunk_f).min(nx);
+                    // start at max(f_lo, 1): face 0 is the domain edge, but
+                    // chunk-interior faces start exactly at f_lo or the seam
+                    // faces between chunks would be skipped.
+                    for f in f_lo.max(1)..f_hi {
+                        for j in 0..ny {
+                            let (a, b) = (idx(f - 1, j), idx(f, j));
+                            let gf = face_grad_interp(
+                                &grads_ref[a],
+                                &grads_ref[b],
+                                u_ref[a],
+                                u_ref[b],
+                                v_ref[a],
+                                v_ref[b],
+                                (g.centers_x[a], g.centers_x[b], g.faces_x[f]),
+                            );
+                            let mu_face = 0.5 * (mu_cell_ref(a) + mu_cell_ref(b));
+                            let (txx, txy, _, qx, _) =
+                                face_flux_split(&gf, mu_face, mu_t, a, b, coeffs_ref);
+                            let k = (f - f_lo) * ny + j;
+                            cx[k] = txx;
+                            cy[k] = txy;
+                            ce[k] = gf.u * txx + gf.v * txy + qx;
+                        }
+                    }
+                });
+            }
+        });
     }
     // y-face viscous flux (ny+1 faces per column); interior faces use the
     // centered pair, no-slip wall faces carry the one-sided wall shear, and

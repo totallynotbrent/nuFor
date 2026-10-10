@@ -92,13 +92,22 @@ fn eqair_mach22_shock_beats_perfect_gas_cap() {
     assert!(m2 < 1.0, "post-shock Mach = {m2}, must be subsonic");
 }
 
-/// the closure rejects non-positive density or energy outright.
+/// the closure floors non-physical transients instead of failing the
+/// march: negative density or energy clamps to a cold low-density
+/// state (the documented behavior since the CEA swap), and only an
+/// empty input is an outright error.
 #[test]
-fn eqair_rejects_nonphysical_inputs() {
-    assert!(eqair_pressure(&[-1.0], &[1.0]).is_err());
-    assert!(eqair_pressure(&[1.0], &[0.0]).is_err());
+fn eqair_floors_nonphysical_inputs() {
+    let p_neg = eqair_pressure(&[-1.0], &[1.0]).unwrap()[0];
+    let p_zero_e = eqair_pressure(&[1.0], &[0.0]).unwrap()[0];
+    // both floor to a positive cold-gas pressure, never panic or NaN
+    assert!(p_neg.is_finite() && p_neg > 0.0);
+    assert!(p_zero_e.is_finite() && p_zero_e > 0.0);
+    // empty input remains an outright error
     assert!(eqair_pressure(&[], &[]).is_err());
-    assert!(eqair_sound(&[1.0], &[-1.0]).is_err());
+    // sound speed floors the same way
+    let a = eqair_sound(&[1.0], &[-1.0]).unwrap()[0];
+    assert!(a.is_finite() && a > 0.0);
 }
 
 /// every fit block answers with a finite, positive pressure and sound
