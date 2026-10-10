@@ -328,44 +328,129 @@ fn advance2d_model_capped(
     let n = nx * ny;
     let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
     let mut e_int = vec![0.0; n];
-    for k in 0..n {
-        e_int[k] = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
+    // the prim->closure pass is per-cell: shard it with disjoint windows.
+    crate::solver2d::shard_slice(&mut e_int, nthreads, |s, win| {
+        for (w, k) in win.iter_mut().zip(s..) {
+            *w = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
+        }
+    });
+    // one fused (p, a) table lookup per cell instead of two separate
+    // log10-pair sweeps; both outputs are written through disjoint windows.
+    let (mut p, mut a) = (vec![0.0f64; n], vec![0.0f64; n]);
+    {
+        let e_int = &e_int[..];
+        let threads = if nthreads <= 1 || n < 2 {
+            1
+        } else {
+            nthreads.min(n)
+        };
+        let chunk = n.div_ceil(threads);
+        let mut a_rest = a.as_mut_slice();
+        let mut p_rest = p.as_mut_slice();
+        let mut offs: Vec<(usize, &mut [f64], &mut [f64])> = Vec::new();
+        let mut start = 0usize;
+        while start < n {
+            let end = (start + chunk).min(n);
+            let (ph, pt) = p_rest.split_at_mut(end - start);
+            let (ah, at) = a_rest.split_at_mut(end - start);
+            offs.push((start, ph, ah));
+            p_rest = pt;
+            a_rest = at;
+            start = end;
+        }
+        let rho = &state.rho[..];
+        std::thread::scope(|sc| {
+            for (s, pw, aw) in offs {
+                let e_int = &e_int[..];
+                sc.spawn(move || {
+                    for ((w, wa), k) in pw.iter_mut().zip(aw.iter_mut()).zip(s..) {
+                        let (pk, ak) = match model {
+                            ThermoModel::EqAir => crate::eqair_cea::p_a_at(rho[k], e_int[k]),
+                            ThermoModel::Perfect { gamma } => {
+                                let pk = (gamma - 1.0) * rho[k] * e_int[k];
+                                let ak = (gamma * pk / rho[k].max(1e-12)).sqrt();
+                                (pk, ak)
+                            }
+                        };
+                        *w = pk;
+                        *wa = ak;
+                    }
+                });
+            }
+        });
     }
-    let p = thermo::pressure(model, &state.rho, &e_int, &u, &v)?;
-    let a = thermo::sound_speed(model, &state.rho, &et, &u, &v)?;
-    let mut smax = 0.0f64;
-    for k in 0..n {
-        smax = smax.max(u[k].abs().max(v[k].abs()) + a[k]);
-    }
+    let smax = crate::solver2d::shard_rows_max(n, nthreads, |k| u[k].abs().max(v[k].abs()) + a[k]);
     let dt = (cfl * g.dx.min(g.dy) / smax.max(1e-12)).min(dt_cap);
 
     let (fx, fy) = compute_axi_fluxes(model, state, g, muscl, bc, &p, &e_int, nthreads, wall)?;
 
-    let mut resid = 0.0f64;
-    #[allow(clippy::needless_range_loop)]
-    for j in 0..ny {
-        for i in 0..nx {
-            let k = idx(i, j);
-            let dxi = dt / g.dxs[i];
-            let dyi = dt / g.dys[j];
-            let drho = -(dxi * (fx[j].mass[i + 1] - fx[j].mass[i])
-                + dyi * (fy[i].mass[j + 1] - fy[i].mass[j]));
-            let dmx =
-                -(dxi * (fx[j].mx[i + 1] - fx[j].mx[i]) + dyi * (fy[i].mx[j + 1] - fy[i].mx[j]));
-            let dmy =
-                -(dxi * (fx[j].my[i + 1] - fx[j].my[i]) + dyi * (fy[i].my[j + 1] - fy[i].my[j]));
-            let de = -(dxi * (fx[j].e[i + 1] - fx[j].e[i]) + dyi * (fy[i].e[j + 1] - fy[i].e[j]));
-            state.rho[k] += drho;
-            state.mx[k] += dmx;
-            state.my[k] += dmy;
-            state.e[k] += de;
-            resid = resid
-                .max(drho.abs())
-                .max(dmx.abs())
-                .max(dmy.abs())
-                .max(de.abs());
+    // the cell updates are disjoint per cell: shard each conserved array
+    // through split windows and max-reduce the residual per chunk so the
+    // result matches the serial loop exactly.
+    let mut d_r = vec![0.0f64; n];
+    let mut d_m = vec![0.0f64; n];
+    let mut d_n = vec![0.0f64; n];
+    let mut d_e = vec![0.0f64; n];
+    let mut resids = vec![0.0f64; n];
+    {
+        let fxr = &fx[..];
+        let fyr = &fy[..];
+        crate::solver2d::shard_slice(&mut d_r, nthreads, |s, win| {
+            for (w, k) in win.iter_mut().zip(s..) {
+                let (i, j) = (k % nx, k / nx);
+                let dxi = dt / g.dxs[i];
+                let dyi = dt / g.dys[j];
+                *w = -(dxi * (fxr[j].mass[i + 1] - fxr[j].mass[i])
+                    + dyi * (fyr[i].mass[j + 1] - fyr[i].mass[j]));
+            }
+        });
+        crate::solver2d::shard_slice(&mut d_m, nthreads, |s, win| {
+            for (w, k) in win.iter_mut().zip(s..) {
+                let (i, j) = (k % nx, k / nx);
+                let dxi = dt / g.dxs[i];
+                let dyi = dt / g.dys[j];
+                *w = -(dxi * (fxr[j].mx[i + 1] - fxr[j].mx[i])
+                    + dyi * (fyr[i].mx[j + 1] - fyr[i].mx[j]));
+            }
+        });
+        crate::solver2d::shard_slice(&mut d_n, nthreads, |s, win| {
+            for (w, k) in win.iter_mut().zip(s..) {
+                let (i, j) = (k % nx, k / nx);
+                let dxi = dt / g.dxs[i];
+                let dyi = dt / g.dys[j];
+                *w = -(dxi * (fxr[j].my[i + 1] - fxr[j].my[i])
+                    + dyi * (fyr[i].my[j + 1] - fyr[i].my[j]));
+            }
+        });
+        crate::solver2d::shard_slice(&mut d_e, nthreads, |s, win| {
+            for (w, k) in win.iter_mut().zip(s..) {
+                let (i, j) = (k % nx, k / nx);
+                let dxi = dt / g.dxs[i];
+                let dyi = dt / g.dys[j];
+                *w = -(dxi * (fxr[j].e[i + 1] - fxr[j].e[i])
+                    + dyi * (fyr[i].e[j + 1] - fyr[i].e[j]));
+            }
+        });
+        let (dr, dm, dn, de) = (&d_r[..], &d_m[..], &d_n[..], &d_e[..]);
+        crate::solver2d::shard_slice(&mut resids, nthreads, |s, win| {
+            for (w, k) in win.iter_mut().zip(s..) {
+                *w = dr[k]
+                    .abs()
+                    .max(dm[k].abs())
+                    .max(dn[k].abs())
+                    .max(de[k].abs());
+            }
+        });
+        // apply serially: exact serial-equivalent, cache-friendly, and the
+        // deltas are already computed in parallel above.
+        for k in 0..n {
+            state.rho[k] += dr[k];
+            state.mx[k] += dm[k];
+            state.my[k] += dn[k];
+            state.e[k] += de[k];
         }
     }
+    let resid = resids.iter().cloned().fold(0.0f64, f64::max);
     Ok((dt, resid))
 }
 
@@ -479,6 +564,14 @@ fn face_pair(
             // detonates the base flow. consistency with the CEA state
             // advance is handled by the closure-variable reconstruction
             // (e_int) plus the fused cell pass.
+            // the legacy tgas1 fits extrapolate past their window instead of
+            // clamping, which the riemann solver needs: wake states exceed
+            // the CEA table's energy ceiling and a clamped face pressure
+            // detonates the base flow (re-verified: the wall zeroing does
+            // not cure it — the offending faces are fluid-fluid in the
+            // wake). consistency with the CEA state advance is handled by
+            // the closure-variable reconstruction (e_int) plus the fused
+            // cell pass.
             let (pl, pr) = (
                 crate::eqair::eqair_pressure_at(rl, xl),
                 crate::eqair::eqair_pressure_at(rr, xr),
@@ -689,11 +782,15 @@ pub(crate) fn compute_axi_fluxes(
     // into the fluid, and the fluid-side band cell keeps its projection.
     if let Some(dist) = wall {
         let (nxg, nyg) = (g.nx, g.ny);
+        // the solid classification is cached per grid+body: this pass
+        // reads the mask instead of re-querying the distance field, so
+        // wall faces cost O(1) after the first step.
+        let mask = crate::body::solid_mask(g, dist);
         let solid = |i: usize, j: usize| -> bool {
             if i >= nxg || j >= nyg {
                 return false;
             }
-            dist(g.centers_x[j * nxg + i], g.centers_y[j * nxg + i]) <= 0.0
+            mask[j * nxg + i]
         };
         for j in 0..nyg {
             for f in 0..=nxg {

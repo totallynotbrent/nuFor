@@ -57,15 +57,13 @@ fn parse() -> Vec<Vec<Cell>> {
     out
 }
 
-thread_local! {
-    static GRID: std::cell::OnceCell<Vec<Vec<Cell>>> = const { std::cell::OnceCell::new() };
-}
+static GRID: std::sync::OnceLock<Vec<Vec<Cell>>> = std::sync::OnceLock::new();
 
 fn grid<F, R>(f: F) -> R
 where
     F: FnOnce(&Vec<Vec<Cell>>) -> R,
 {
-    GRID.with(|g| f(g.get_or_init(parse)))
+    f(GRID.get_or_init(parse))
 }
 
 /// bilinear lookup on shared input.
@@ -111,10 +109,30 @@ pub fn p_t_at(rho: f64, e: f64) -> (f64, f64) {
 }
 
 /// p(rho, e_int).
+/// fused single-lookup state: (p, a) with one log10 pair and one bilinear
+/// locate, used by the march's per-cell closure pass. a uses the same
+/// gamma_eff form as sound_speed_at so results are identical to the split
+/// calls.
+pub fn p_a_at(rho: f64, e: f64) -> (f64, f64) {
+    let r = rho.max(1e-12);
+    let e0 = e.max(1e-3);
+    let (_, p) = p_t_at(r, e0);
+    // same gamma_eff form as sound_speed_at so fused results are identical
+    // to the split pressure + sound_speed_at calls.
+    let ge = (1.0 + p / (r * e0).max(1e-12)).clamp(1.05, 1.67);
+    let term = ge * p / r;
+    let a = if term.is_finite() && term > 0.0 {
+        term.sqrt()
+    } else {
+        300.0
+    };
+    (p, a.max(50.0))
+}
+
 pub fn pressure(rho: &[f64], e_int: &[f64], _u: &[f64], _v: &[f64]) -> Result<Vec<f64>, Error> {
     let mut out = Vec::with_capacity(rho.len());
     for i in 0..rho.len() {
-        let (_, p) = p_t_at(rho[i], e_int[i]);
+        let (p, _) = p_a_at(rho[i], e_int[i]);
         out.push(p);
     }
     Ok(out)

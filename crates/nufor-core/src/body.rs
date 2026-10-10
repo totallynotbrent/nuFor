@@ -300,6 +300,30 @@ pub fn apply_solid_fn(
     let ref_ = SolidRef::default();
     let e_ref = ref_.p / ((gamma - 1.0) * ref_.rho);
     let band = 1.5 * g.dx.min(g.dy);
+    // the distance class per cell is geometry-static: build the solid
+    // mask and band list once and cache them on the grid; later steps
+    // skip the polygon-distance sweep over the whole grid entirely.
+    let cache = body_cache(g, dist, band);
+    for k in &cache.solid_cells {
+        state.rho[*k] = ref_.rho;
+        state.mx[*k] = 0.0;
+        state.my[*k] = 0.0;
+        state.e[*k] = e_ref;
+    }
+    for k in &cache.band_cells {
+        let (nx, ny) = normal(g.centers_x[*k], g.centers_y[*k]);
+        let u = state.mx[*k] / state.rho[*k];
+        let v = state.my[*k] / state.rho[*k];
+        let un = u * nx + v * ny;
+        if un > 0.0 {
+            state.mx[*k] -= 2.0 * un * nx * state.rho[*k];
+            state.my[*k] -= 2.0 * un * ny * state.rho[*k];
+        } else {
+            state.mx[*k] -= un * nx * state.rho[*k];
+            state.my[*k] -= un * ny * state.rho[*k];
+        }
+    }
+    return;
     for j in 0..g.ny {
         for i in 0..g.nx {
             let k = j * g.nx + i;
@@ -329,4 +353,95 @@ pub fn apply_solid_fn(
             }
         }
     }
+}
+
+/// per-grid body classification cache: which cells are solid, which sit in
+/// the wall band, and a flat solid mask for the flux zeroing. the geometry
+/// and grid are static during a run, so this is built once and reused every
+/// step; the signature (grid dims, band, corner distances) keeps distinct
+/// bodies on same-sized grids from sharing a stale cache in tests.
+pub struct BodyCache {
+    signature: (usize, usize, u64, [u64; 4]),
+    pub solid_cells: Vec<usize>,
+    pub band_cells: Vec<usize>,
+    pub mask: Vec<bool>,
+}
+
+static BODY_CACHE: std::sync::Mutex<Option<BodyCache>> = std::sync::Mutex::new(None);
+
+fn cache_signature(
+    g: &Grid2d,
+    dist: &dyn Fn(f64, f64) -> f64,
+    band: f64,
+) -> (usize, usize, u64, [u64; 4]) {
+    let corners = [
+        (0usize, 0usize),
+        (g.nx - 1, 0usize),
+        (0usize, g.ny - 1),
+        (g.nx - 1, g.ny - 1),
+    ];
+    let probes = corners
+        .iter()
+        .map(|&(i, j)| {
+            let k = j * g.nx + i;
+            dist(g.centers_x[k], g.centers_y[k]).to_bits()
+        })
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap();
+    (g.nx, g.ny, band.to_bits(), probes)
+}
+
+/// fetch the classification for this grid+body, building it on first use.
+pub fn body_cache(
+    g: &Grid2d,
+    dist: &dyn Fn(f64, f64) -> f64,
+    band: f64,
+) -> std::sync::Arc<BodyCache> {
+    let sig = cache_signature(g, dist, band);
+    let mut guard = BODY_CACHE.lock().unwrap();
+    if let Some(c) = guard.as_ref() {
+        if c.signature == sig {
+            return std::sync::Arc::new(BodyCache {
+                signature: sig,
+                solid_cells: c.solid_cells.clone(),
+                band_cells: c.band_cells.clone(),
+                mask: c.mask.clone(),
+            });
+        }
+    }
+    let mut solid = Vec::new();
+    let mut bandc = Vec::new();
+    let mut mask = vec![false; g.nx * g.ny];
+    for j in 0..g.ny {
+        for i in 0..g.nx {
+            let k = j * g.nx + i;
+            let d = dist(g.centers_x[k], g.centers_y[k]);
+            if d <= 0.0 {
+                solid.push(k);
+                mask[k] = true;
+            } else if d < band {
+                bandc.push(k);
+            }
+        }
+    }
+    let cache = BodyCache {
+        signature: sig,
+        solid_cells: solid,
+        band_cells: bandc,
+        mask,
+    };
+    *guard = Some(BodyCache {
+        signature: cache.signature,
+        solid_cells: cache.solid_cells.clone(),
+        band_cells: cache.band_cells.clone(),
+        mask: cache.mask.clone(),
+    });
+    std::sync::Arc::new(cache)
+}
+
+/// flat solid mask for the flux zeroing pass (shares the same cache).
+pub fn solid_mask(g: &Grid2d, dist: &dyn Fn(f64, f64) -> f64) -> std::sync::Arc<Vec<bool>> {
+    let band = 1.5 * g.dx.min(g.dy);
+    std::sync::Arc::new(body_cache(g, dist, band).mask.clone())
 }
