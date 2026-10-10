@@ -293,6 +293,34 @@ where
     });
 }
 
+/// shard a per-index closure over disjoint ranges when nthreads > 1; the
+/// closure must only write through its own disjoint slice, matching the
+/// serial loop exactly.
+pub fn shard_rows<F>(n: usize, nthreads: usize, f: F)
+where
+    F: Fn(usize) + Sync,
+{
+    if nthreads <= 1 || n < 2 {
+        for k in 0..n {
+            f(k);
+        }
+        return;
+    }
+    let threads = nthreads.min(n);
+    let chunk = n.div_ceil(threads);
+    std::thread::scope(|s| {
+        for start in (0..n).step_by(chunk) {
+            let end = (start + chunk).min(n);
+            let f = &f;
+            s.spawn(move || {
+                for k in start..end {
+                    f(k);
+                }
+            });
+        }
+    });
+}
+
 /// shard a row-indexed closure producing one f64 per row, then max-reduce.
 pub fn shard_rows_max<F>(rows: usize, nthreads: usize, f: F) -> f64
 where

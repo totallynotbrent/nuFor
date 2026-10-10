@@ -117,14 +117,18 @@ pub fn advance2d_model_visc_rk2(
             (p0, t0, mc)
         }
     };
-    let rho_min = state
+    // the explicit viscous stability bound is per-cell: dt from the worst
+    // mu/rho in the same cell. pairing the global mu max (shock layer) with
+    // the global rho min (wake floor, a different cell) overstated nu by
+    // orders of magnitude and crushed dt far below the true bound.
+    let nu_max = state
         .rho
         .iter()
-        .cloned()
-        .fold(f64::INFINITY, f64::min)
-        .max(1e-6);
-    let mu_max = mu_cells.iter().cloned().fold(0.0f64, f64::max);
-    let nu_max = mu_max / rho_min;
+        .zip(&mu_cells)
+        .fold(0.0f64, |m, (&r, &mu)| {
+            let r = r.max(1e-6);
+            m.max(mu / r)
+        });
     let dt_visc = 0.25 * g.dx.min(g.dy).powi(2) / nu_max.max(1e-12);
     let mut s1 = state.clone();
     let (dt1, _) =
@@ -147,6 +151,7 @@ pub fn advance2d_model_visc_rk2(
         crate::solver2d::TimeControl::Global(dt1),
         Some(model),
         wall_temperature,
+        nthreads,
     )?;
     let (dt2, _) =
         advance2d_model_capped(&mut s1, g, model, cfl, muscl, bc, dt_visc, nthreads, wall)?;
@@ -168,6 +173,7 @@ pub fn advance2d_model_visc_rk2(
         crate::solver2d::TimeControl::Global(dt2),
         Some(model),
         wall_temperature,
+        nthreads,
     )?;
     for k in 0..n {
         state.rho[k] = 0.5 * state.rho[k] + 0.5 * s1.rho[k];
@@ -264,6 +270,7 @@ pub fn advance2d_sa_model_rk2(
         crate::solver2d::TimeControl::Global(dt1),
         Some(model),
         wall_temperature,
+        nthreads,
     )?;
     advance_turb(&mut t1, &s1, g, bc, dt1, None)?;
     // stage 2 re-evaluates both operators at the stage-1 state (heun).
@@ -296,6 +303,7 @@ pub fn advance2d_sa_model_rk2(
         crate::solver2d::TimeControl::Global(dt2),
         Some(model),
         wall_temperature,
+        nthreads,
     )?;
     advance_turb(&mut t1, &s1, g, bc, dt2, None)?;
     // heun average of the original and the twice-advanced state.
