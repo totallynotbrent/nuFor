@@ -256,6 +256,75 @@ impl TimeControl<'_> {
         }
     }
 }
+
+/// shard a per-slice closure over chunks when nthreads > 1; each thread
+/// owns a disjoint mutable window so the result matches the serial loop.
+pub fn shard_slice<T, F>(buf: &mut [T], nthreads: usize, f: F)
+where
+    T: Send,
+    F: Fn(usize, &mut [T]) + Sync,
+{
+    let n = buf.len();
+    if nthreads <= 1 || n < 2 {
+        f(0, buf);
+        return;
+    }
+    let threads = nthreads.min(n);
+    let chunk = n.div_ceil(threads);
+    let mut starts: Vec<(usize, usize)> = Vec::new();
+    let mut start = 0usize;
+    while start < n {
+        let end = (start + chunk).min(n);
+        starts.push((start, end));
+        start = end;
+    }
+    let mut rest = buf;
+    let mut offs: Vec<(usize, &mut [T])> = Vec::new();
+    for (s, e) in &starts {
+        let (head, tail) = rest.split_at_mut(e - s);
+        offs.push((*s, head));
+        rest = tail;
+    }
+    std::thread::scope(|sc| {
+        for (s, win) in offs {
+            let f = &f;
+            sc.spawn(move || f(s, win));
+        }
+    });
+}
+
+/// shard a row-indexed closure producing one f64 per row, then max-reduce.
+pub fn shard_rows_max<F>(rows: usize, nthreads: usize, f: F) -> f64
+where
+    F: Fn(usize) -> f64 + Sync,
+{
+    if nthreads <= 1 || rows < 2 {
+        let mut m = 0.0f64;
+        for j in 0..rows {
+            m = m.max(f(j));
+        }
+        return m;
+    }
+    let threads = nthreads.min(rows);
+    let chunk = rows.div_ceil(threads);
+    let parts: Vec<f64> = std::thread::scope(|s| {
+        let mut handles = Vec::new();
+        for start in (0..rows).step_by(chunk) {
+            let end = (start + chunk).min(rows);
+            let f = &f;
+            handles.push(s.spawn(move || {
+                let mut m = 0.0f64;
+                for j in start..end {
+                    m = m.max(f(j));
+                }
+                m
+            }));
+        }
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    parts.into_iter().fold(0.0f64, f64::max)
+}
+
 pub(crate) fn advance2d_capped_dts(
     state: &mut ConservedState2d,
     g: &Grid2d,
@@ -332,18 +401,8 @@ pub(crate) fn advance2d_capped_dts(
         for f in 0..=nx {
             let q = hllc_flux(
                 gamma,
-                FacePrim {
-                    rho: rl[f],
-                    u: ul[f],
-                    v: vl[f],
-                    p: pl[f],
-                },
-                FacePrim {
-                    rho: rr[f],
-                    u: ur[f],
-                    v: vr[f],
-                    p: prr[f],
-                },
+                FacePrim::perfect(rl[f], ul[f], vl[f], pl[f], gamma),
+                FacePrim::perfect(rr[f], ur[f], vr[f], prr[f], gamma),
                 0,
             );
             fx[j].mass[f] = q.mass;
@@ -406,18 +465,8 @@ pub(crate) fn advance2d_capped_dts(
         for f in 0..=ny {
             let q = hllc_flux(
                 gamma,
-                FacePrim {
-                    rho: rl[f],
-                    u: ul[f],
-                    v: vl[f],
-                    p: pl[f],
-                },
-                FacePrim {
-                    rho: rr[f],
-                    u: ur[f],
-                    v: vr[f],
-                    p: prr[f],
-                },
+                FacePrim::perfect(rl[f], ul[f], vl[f], pl[f], gamma),
+                FacePrim::perfect(rr[f], ur[f], vr[f], prr[f], gamma),
                 1,
             );
             fy[i].mass[f] = q.mass;
@@ -653,18 +702,8 @@ pub fn advance2d_capped_par(
         for f in 0..=nx {
             let q = hllc_flux(
                 gamma,
-                FacePrim {
-                    rho: rl[f],
-                    u: ul[f],
-                    v: vl[f],
-                    p: pl[f],
-                },
-                FacePrim {
-                    rho: rr[f],
-                    u: ur[f],
-                    v: vr[f],
-                    p: prr[f],
-                },
+                FacePrim::perfect(rl[f], ul[f], vl[f], pl[f], gamma),
+                FacePrim::perfect(rr[f], ur[f], vr[f], prr[f], gamma),
                 0,
             );
             sw.mass[f] = q.mass;
@@ -714,18 +753,8 @@ pub fn advance2d_capped_par(
         for f in 0..=ny {
             let q = hllc_flux(
                 gamma,
-                FacePrim {
-                    rho: rl[f],
-                    u: ul[f],
-                    v: vl[f],
-                    p: pl[f],
-                },
-                FacePrim {
-                    rho: rr[f],
-                    u: ur[f],
-                    v: vr[f],
-                    p: prr[f],
-                },
+                FacePrim::perfect(rl[f], ul[f], vl[f], pl[f], gamma),
+                FacePrim::perfect(rr[f], ur[f], vr[f], prr[f], gamma),
                 1,
             );
             sw.mass[f] = q.mass;

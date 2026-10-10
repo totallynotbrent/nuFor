@@ -7,7 +7,7 @@
 
 use nufor_core::{
     advance2d_axi_rk2, apply_solid, grid2d, prim_to_cons2d, Bc2d, Boundaries2d, ConservedState2d,
-    Grid2d, SolidBody,
+    Grid2d, SolidBody, ThermoModel,
 };
 
 const GAMMA: f64 = 1.4;
@@ -62,7 +62,17 @@ fn axisymmetric_sphere_bow_shock_matches_ambrosio_wortman() {
     let mut t = 0.0;
     let t_end = 4.0;
     while t < t_end {
-        let (dt, _) = advance2d_axi_rk2(&mut st, &g, GAMMA, 0.4, true, &bc).unwrap();
+        let (dt, _) = advance2d_axi_rk2(
+            &mut st,
+            &g,
+            ThermoModel::Perfect { gamma: GAMMA },
+            0.4,
+            true,
+            &bc,
+            1,
+            None,
+        )
+        .unwrap();
         apply_solid(&mut st, &g, &body, GAMMA);
         t += dt;
     }

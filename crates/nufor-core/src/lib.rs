@@ -6,14 +6,18 @@
 use std::ffi::c_char;
 use std::os::raw::c_int;
 
-mod aeroshell;
 mod axi;
 mod blasius;
 mod body;
 mod cfl;
+pub mod curvilinear;
+mod cutcell;
+mod cutcell_march;
 mod eos;
 pub mod eos2d;
 mod eos3d;
+mod eqair;
+pub mod eqair_cea;
 mod error;
 mod exact;
 mod ffi;
@@ -25,6 +29,7 @@ mod h5;
 mod hllc2d;
 mod hllc3d;
 mod output;
+pub mod park;
 mod probe;
 mod rectilinear;
 mod render2d;
@@ -34,9 +39,11 @@ mod solver;
 mod solver2d;
 mod solver3d;
 mod solver_u;
+mod spherecone;
 mod state;
 mod state2d;
 mod state3d;
+mod thermo;
 mod turb2d;
 mod ugrid;
 mod util;
@@ -46,14 +53,22 @@ mod viscous2d_par;
 mod viscous3d;
 mod wall_dist;
 
-pub use aeroshell::{SphereCone, SphereConeSdf};
-pub use axi::{advance2d_axi, advance2d_axi_rk2};
+pub use axi::{
+    advance2d_axi, advance2d_axi_rk2, advance2d_model, advance2d_model_rk2,
+    advance2d_model_visc_rk2, advance2d_sa_model_rk2,
+};
 pub use blasius::{BlasiusProfile, BlasiusTable, CF_CONST};
 pub use body::{apply_solid, apply_solid_fn, SolidBody, SolidPolygon, SolidShape};
 pub use cfl::{cfl_dt, CflStep};
+pub use cutcell::{cut_fractions, cut_fractions_corner, CutFractions};
+pub use cutcell_march::{advance2d_axi_cut, redistribute_weight, CutField, SMALL_CELL_EPS};
 pub use eos::{eos_mach, eos_pressure, eos_sound_speed, eos_temperature};
 pub use eos2d::{eos_mach2d, eos_pressure2d, eos_sound_speed2d};
 pub use eos3d::{eos_mach3d, eos_pressure3d, eos_sound_speed3d};
+pub use eqair::{
+    energy_from_pressure as eqair_energy, pressure_from_energy as eqair_pressure,
+    sound_speed_from_energy as eqair_sound,
+};
 pub use error::Error;
 pub use exact::{riemann, ExactSolution, PrimState};
 pub use flux::{hll_flux, HllFlux};
@@ -63,12 +78,14 @@ pub use grid3d::{grid3d, Bounds3d, Grid3d};
 pub use h5::{read_h5, write_h5};
 pub use hllc2d::{hllc_flux, FacePrim, Flux4};
 pub use hllc3d::{hllc_flux3, FacePrim3, Flux5};
-pub use output::{write_csv, write_vtk, write_vtk2d, write_vtk3d, OutputState};
+pub use output::{
+    write_csv, write_vtk, write_vtk2d, write_vtk2d_model, write_vtk3d, write_vtk_curv, OutputState,
+};
 pub use probe::probe_line;
 pub use rectilinear::{
     channel_grid2d, rectilinear_grid2d, rectilinear_grid3d, stretched_grid2d, Clustering,
 };
-pub use render2d::{colormap, render_png, render_png_rect};
+pub use render2d::{colormap, render_line1d, render_png, render_png_rect};
 pub use restart::{read_restart, write_restart, RestartData, RESTART_VERSION};
 pub use sa::{
     chi, eddy_viscosity, fv1, fv2, fw, g_func, r_func, source, stilde, C_B1, C_B2, C_V1, C_W1,
@@ -84,11 +101,16 @@ pub use solver2d::{
 };
 pub use solver3d::{advance3d, advance3d_rk2};
 pub use solver_u::advance_ugrid;
+pub use spherecone::{SphereCone, SphereConeSdf};
 pub use state::{cons_to_prim, prim_to_cons};
 pub use state2d::{
     check_physical2d, cons_to_prim2d, prim_to_cons2d, ConservedState2d, PhysicalCheck2d,
 };
 pub use state3d::{cons_to_prim3d, prim_to_cons3d, ConservedState3d};
+pub use thermo::{
+    model_from_config, pressure as thermo_pressure, sound_speed as thermo_sound,
+    temperature as thermo_temperature, ThermoModel,
+};
 pub use turb2d::{advance_turb, SaParams, TurbState};
 pub use ugrid::{MeshDiagnostics, Ugrid};
 pub use vectorize::{apply_divergence, simd_capability};

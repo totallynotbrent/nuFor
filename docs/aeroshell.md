@@ -23,9 +23,13 @@ field is meaningful, which is exactly what this cross-check uses.
   peaking at 6.41 against the Rankine-Hugoniot high-Mach limit of 6.0
   (the overshoot is the MUSCL limiter at the axis).
 - The stagnation Cp: 1.131 on the 320x160 grid, 1.670 on the 640x320
-  grid, converging toward the Rayleigh-pitot perfect-gas Cp_max of
-  1.838. The trend is the contract; each refinement recovers most of
-  the remaining gap.
+  grid, 2.43 on the 1280x640 grid. The 640 value converges toward the
+  Rayleigh-pitot perfect-gas Cp_max of 1.838; the 1280 value
+  overshoots it by a third, which pins the overshoot on the nose
+  cell's placement and the limiter rather than on a physical
+  mechanism (the true stagnation value cannot exceed the pitot
+  value). The honest read: the surface stagnation Cp converges
+  non-monotonically and grid refinement alone does not settle it.
 - The user's Cp_max 1.816 (effective gamma 1.2, entry conditions)
   sits within 1.2 percent of the perfect-gas Rayleigh value: at Mach 22
   real-air effects move the stagnation pressure only slightly.
@@ -39,15 +43,36 @@ integral reproduces his table value exactly, 0.6031). The three agree
 within 5 percent, which validates the panel method and the analytic
 meridian against each other.
 
-The CFD profile-integrated C_A comes out 0.257. The gap is a
-measurement limitation, not a solver fault, and it is localized: 97
-percent of the Newtonian axial force comes from the outer band of the
-spherical cap, and the staircase mask's sampled cells sit a full cell
-off the true surface exactly there, reading the already-expanded
-pressure instead of the wall pressure (the sim reads Cp near 0.19
-across that band where Newtonian expects 1.1 to 1.7). The density
-field itself shows the shock layer hugging the body. Cut cells or an
-unstructured surface are the fix, and that is rung 6 of the roadmap.
+The CFD profile-integrated C_A comes out 0.257 at 640 and 0.256 at
+1280 (0.247 at 320): flat across a 4x refinement, so the staircase
+sampling bias is systematic, not a resolution artifact. It is
+localized: 97 percent of the Newtonian axial force comes from the
+outer band of the spherical cap, and the staircase mask's sampled
+cells sit a full cell off the true surface exactly there, reading
+the already-expanded pressure instead of the wall pressure (the sim
+reads Cp near 0.19 across that band where Newtonian expects 1.1 to
+1.7). The density field itself shows the shock layer hugging the
+body.
+
+Cut cells were built and tried (embedded-boundary fractions from the
+signed distance field, corner-interpolation apertures, an exact
+slip-wall flux, Berger-Giuliani state redistribution for the small
+cells). The verdict from the mach-22 re-run: the machinery reads
+true stagnation states at moderate mach (the mach-2 sphere recovers
+the full isentropic stagnation compression the staircase cannot
+see), but at hypersonic walls the reflected-ghost wall Riemann
+problem pumps the surface cells to roughly twice the stagnation
+pressure, and the redistribution neighborhoods average across a
+shock layer that is one to two cells thick at practical resolutions.
+At 160 cells the run completes but over-reads the surface; at 640 it
+destroys the field within 700 steps. The pure pressure-force wall
+flux (the exact inviscid layout) rings and collapses the timestep in
+every stabilization scheme tried. So the C_A gap does not close
+through this cut-cell implementation: the failure is documented with
+the mechanism identified (wall pump plus pool straddle), and the
+next solver rung is a wall-local redistribution that keeps the shock
+layer out of the average (multi-level flux redistribution or
+h-box), not a configuration change.
 
 ## Figures
 

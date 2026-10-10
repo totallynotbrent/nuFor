@@ -527,6 +527,45 @@ pub fn add_viscous_cells(
     turb: Option<TurbCtx>,
     tc: crate::solver2d::TimeControl,
 ) -> Result<(), Error> {
+    add_viscous_cells_model(state, g, gamma, mu_lam, pr, turb, tc, None)
+}
+
+/// the closure-aware form of `add_viscous_cells`: `closure` selects the
+/// thermodynamic model for pressure and temperature (None = the scalar
+/// gamma path, byte-identical to the legacy behavior). `mu_lam` is the
+/// constant molecular viscosity; per-cell sutherland-law viscosity
+/// enters through `mu_cells` when it is non-empty (len nx*ny).
+pub fn add_viscous_cells_model(
+    state: &mut ConservedState2d,
+    g: &Grid2d,
+    gamma: f64,
+    mu_lam: f64,
+    pr: f64,
+    turb: Option<TurbCtx>,
+    tc: crate::solver2d::TimeControl,
+    closure: Option<crate::thermo::ThermoModel>,
+) -> Result<(), Error> {
+    let mu_cells: &[f64] = &[];
+    add_viscous_cells_mu(
+        state, g, gamma, mu_lam, mu_cells, pr, turb, tc, closure, 0.0,
+    )
+}
+
+/// the per-cell form: `mu_cells` (dynamic viscosity per cell) replaces
+/// the scalar mu when non-empty, evaluated already from the closure
+/// temperature (sutherland). `closure` selects how p and T are derived.
+pub fn add_viscous_cells_mu(
+    state: &mut ConservedState2d,
+    g: &Grid2d,
+    gamma: f64,
+    mu_lam: f64,
+    mu_cells: &[f64],
+    pr: f64,
+    turb: Option<TurbCtx>,
+    tc: crate::solver2d::TimeControl,
+    closure: Option<crate::thermo::ThermoModel>,
+    wall_temperature: f64,
+) -> Result<(), Error> {
     let (dt, dts) = tc.parts();
     let bc = turb.map(|t| t.bc).unwrap_or(&LAMINAR_BC);
     let mu_t: &[f64] = turb.map(|t| t.mu_t).unwrap_or(&[]);
@@ -553,8 +592,29 @@ pub fn add_viscous_cells(
         return Ok(());
     }
     let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
-    let p = eos_pressure2d(gamma, &state.rho, &et, &u, &v)?;
-    let t: Vec<f64> = p.iter().zip(&state.rho).map(|(pp, r)| pp / r).collect();
+    let t = if let Some(cl) = closure {
+        // the closure-aware path: pressure and temperature both come
+        // from the closure (perfect gas under Perfect or the tgast
+        // fits under EqAir), so the heat-conduction term sees the same
+        // temperature the euler march does.
+        let mut e_int = vec![0.0; nx * ny];
+        for k in 0..nx * ny {
+            e_int[k] = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
+        }
+        let p = crate::thermo::pressure(cl, &state.rho, &e_int, &u, &v)?;
+        // eqair: one fused read per cell instead of the (rho,p) bisection.
+        match cl {
+            crate::thermo::ThermoModel::EqAir => {
+                crate::eqair_cea::fused_state_mu(&state.rho, &e_int, |_| 0.0).1
+            }
+            crate::thermo::ThermoModel::Perfect { .. } => {
+                crate::thermo::temperature(cl, &state.rho, &p)?
+            }
+        }
+    } else {
+        let p = eos_pressure2d(gamma, &state.rho, &et, &u, &v)?;
+        p.iter().zip(&state.rho).map(|(pp, r)| pp / r).collect()
+    };
     // the per-row y centers the profile inflow ghosts evaluate at.
     let centers_y: Vec<f64> = (0..ny).map(|j| g.centers_y[j * nx]).collect();
     let (pu, pv, pt) = (
@@ -614,7 +674,12 @@ pub fn add_viscous_cells(
         }
         grads
     };
-    let kappa = gamma / ((gamma - 1.0) * pr);
+    let r0 = 78408.4 / 273.15;
+    let kappa = if closure.is_some() {
+        gamma / ((gamma - 1.0) * pr) / r0
+    } else {
+        gamma / ((gamma - 1.0) * pr)
+    };
     let kappa_t = if turb {
         gamma / ((gamma - 1.0) * pr_t)
     } else {
@@ -624,6 +689,14 @@ pub fn add_viscous_cells(
         kappa,
         kappa_t,
         gamma,
+    };
+    // per-cell molecular viscosity overrides the scalar mu when given.
+    let mu_cell = |k: usize| {
+        if mu_cells.is_empty() {
+            mu_lam
+        } else {
+            mu_cells[k]
+        }
     };
     let (dtdx, dtdy) = (dt / g.dx, dt / g.dy);
     let (dxs_w, dys_w) = (&g.dxs, &g.dys);
@@ -643,7 +716,8 @@ pub fn add_viscous_cells(
                 v[b],
                 (g.centers_x[a], g.centers_x[b], g.faces_x[f]),
             );
-            let (txx, txy, _, qx, _) = face_flux_split(&gf, mu_lam, mu_t, a, b, &coeffs);
+            let mu_face = 0.5 * (mu_cell(a) + mu_cell(b));
+            let (txx, txy, _, qx, _) = face_flux_split(&gf, mu_face, mu_t, a, b, &coeffs);
             let k = f * ny + j;
             fxm[k] = txx;
             fym[k] = txy;
@@ -674,7 +748,8 @@ pub fn add_viscous_cells(
                 v[b],
                 (cy_a, cy_b, g.faces_y[f]),
             );
-            let (_, txy, tyy, _, qy) = face_flux_split(&gf, mu_lam, mu_t, a, b, &coeffs);
+            let mu_face = 0.5 * (mu_cell(a) + mu_cell(b));
+            let (_, txy, tyy, _, qy) = face_flux_split(&gf, mu_face, mu_t, a, b, &coeffs);
             let k = i * (ny + 1) + f;
             gym_x[k] = txy;
             gym_y[k] = tyy;
@@ -684,9 +759,9 @@ pub fn add_viscous_cells(
         if matches!(bc.south, crate::solver2d::Bc2d::NoSlipWall) {
             let (a, b) = (idx(i, 0), idx(i, 1));
             let mu_f = if mu_t.is_empty() {
-                mu_lam
+                mu_cell(a)
             } else {
-                mu_lam + mu_t[a]
+                mu_cell(a) + mu_t[a]
             };
             let (txy, tyy) = if unif_y {
                 wall_shear_flux(u[a], u[b], v[a], v[b], mu_f, g.dy)
@@ -699,16 +774,38 @@ pub fn add_viscous_cells(
             let k = i * (ny + 1);
             gym_x[k] = txy;
             gym_y[k] = tyy;
-            gye[k] = u[a] * txy + v[a] * tyy;
+            // wall heat flux: conductor into the isothermal wall, or 0
+            // for the adiabatic recovery temperature (the zero-gradient
+            // padding already makes free walls adiabatic).
+            let mut q_wall = 0.0;
+            if wall_temperature > 0.0 {
+                let t0 = t[idx(i, 0)];
+                let t1 = t[idx(i, 1)];
+                let dtdn = if unif_y {
+                    (-3.0 * wall_temperature + 4.0 * t0 - t1) / (2.0 * g.dy)
+                } else {
+                    quad_deriv_at(
+                        wall_temperature,
+                        t0,
+                        t1,
+                        g.faces_y[0],
+                        y_c0,
+                        y_c1,
+                        g.faces_y[0],
+                    )
+                };
+                q_wall = mu_f * coeffs.kappa * dtdn;
+            }
+            gye[k] = u[a] * txy + v[a] * tyy + q_wall;
         }
         // top face f=ny. the outward normal is -y, so the shear the wall
         // exerts enters the flux difference with the opposite sign.
         if matches!(bc.north, crate::solver2d::Bc2d::NoSlipWall) {
             let (a, b) = (idx(i, ny - 1), idx(i, ny - 2));
             let mu_f = if mu_t.is_empty() {
-                mu_lam
+                mu_cell(a)
             } else {
-                mu_lam + mu_t[a]
+                mu_cell(a) + mu_t[a]
             };
             // the uniform shorthand returns the south-oriented magnitude, so
             // the stretched branch mirrors it: negate the sign-true derivative.
@@ -723,7 +820,26 @@ pub fn add_viscous_cells(
             let k = i * (ny + 1) + ny;
             gym_x[k] = -txy;
             gym_y[k] = -tyy;
-            gye[k] = -(u[a] * txy + v[a] * tyy);
+            let mut q_wall = 0.0;
+            if wall_temperature > 0.0 {
+                let t0 = t[idx(i, ny - 1)];
+                let t1 = t[idx(i, ny - 2)];
+                let dtdn = if unif_y {
+                    (3.0 * wall_temperature - 4.0 * t0 + t1) / (2.0 * g.dy)
+                } else {
+                    -quad_deriv_at(
+                        wall_temperature,
+                        t0,
+                        t1,
+                        g.faces_y[ny],
+                        y_c_n,
+                        y_c_nm1,
+                        g.faces_y[ny],
+                    )
+                };
+                q_wall = -mu_f * coeffs.kappa * dtdn;
+            }
+            gye[k] = -(u[a] * txy + v[a] * tyy + q_wall);
         }
     }
     for (j, &dyw) in dys_w.iter().enumerate() {

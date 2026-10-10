@@ -23,6 +23,7 @@ pub enum MeshKind {
     Rect2d,
     Rect3d,
     Gmsh2d,
+    Stl,
 }
 
 impl MeshKind {
@@ -31,6 +32,7 @@ impl MeshKind {
             MeshKind::Rect2d => "rect2d",
             MeshKind::Rect3d => "rect3d",
             MeshKind::Gmsh2d => "gmsh2d",
+            MeshKind::Stl => "stl",
         }
     }
 }
@@ -163,6 +165,57 @@ fn parse_mesh(path: &str) -> Result<MeshInfo, String> {
             edges,
         });
     }
+    if path.ends_with(".stl") {
+        let tris = crate::stlcut::load_stl(path)?;
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+        // wireframe: 3d verts projected to the (x, y) plane for the
+        // viewer, capped for the browser payload
+        let mut seen = std::collections::HashMap::new();
+        for t in tris.iter().take(20000) {
+            let mut idx = [0usize; 3];
+            for (k, v) in t.v.iter().enumerate() {
+                let key = (
+                    (v.0 * 1e4).round() as i64,
+                    (v.1 * 1e4).round() as i64,
+                    (v.2 * 1e4).round() as i64,
+                );
+                let next = seen.len();
+                let id = *seen.entry(key).or_insert(next);
+                if id == next && nodes.len() < 20000 {
+                    nodes.push((v.0, v.1));
+                }
+                idx[k] = id;
+            }
+            edges.push((idx[0], idx[1]));
+            edges.push((idx[1], idx[2]));
+            edges.push((idx[0], idx[2]));
+        }
+        if nodes.is_empty() {
+            return Err("stl: no triangles parsed".into());
+        }
+        let xs = nodes.iter().map(|n| n.0).collect::<Vec<_>>();
+        let ys = nodes.iter().map(|n| n.1).collect::<Vec<_>>();
+        let (x0, x1) = (
+            xs.iter().cloned().fold(f64::INFINITY, f64::min),
+            xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+        );
+        let (y0, y1) = (
+            ys.iter().cloned().fold(f64::INFINITY, f64::min),
+            ys.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+        );
+        return Ok(MeshInfo {
+            kind: MeshKind::Stl,
+            nx: 0,
+            ny: 0,
+            nz: 0,
+            xs: vec![x0, x1],
+            ys: vec![y0, y1],
+            zs: vec![],
+            nodes,
+            edges,
+        });
+    }
     let m = crate::mesh_io::load_rectilinear(path)?;
     let nx = m.xs.len().saturating_sub(1);
     let ny = m.ys.len().saturating_sub(1);
@@ -241,7 +294,11 @@ fn blast_ic_rect3d(g: &Grid3d) -> ConservedState3d {
 
 /// march the blast on the imported grid and cache the three scalar fields.
 fn solve_on_mesh(info: &MeshInfo, t_end: f64, cfl: f64, job: &MeshSolve) -> Result<(), String> {
+    if info.kind == MeshKind::Stl {
+        return Err("stl meshes render but do not solve here \u{2014} apply the slice to a case and run the case".into());
+    }
     match info.kind {
+        MeshKind::Stl => Err("unreachable: stl rejected above".into()),
         MeshKind::Rect2d => {
             let g = rectilinear_grid2d(&info.xs, &info.ys).map_err(|e| e.to_string())?;
             let mut st = blast_ic_rect2d(&g);
@@ -385,6 +442,7 @@ pub fn handle(
             match parse_mesh(&dst) {
                 Ok(info) => {
                     if info.kind != MeshKind::Gmsh2d
+                        && info.kind != MeshKind::Stl
                         && info.nx * info.ny * info.nz.max(1) > MAX_CELLS
                     {
                         return err(
@@ -393,10 +451,10 @@ pub fn handle(
                         );
                     }
                     let kind = info.kind.as_str();
-                    let cells = if info.kind == MeshKind::Gmsh2d {
-                        info.nodes.len()
-                    } else {
-                        info.nx * info.ny * info.nz.max(1)
+                    let cells = match info.kind {
+                        MeshKind::Gmsh2d => info.nodes.len(),
+                        MeshKind::Stl => info.edges.len() / 3,
+                        _ => info.nx * info.ny * info.nz.max(1),
                     };
                     *state.path.lock().unwrap() = Some(dst.clone());
                     *state.info.lock().unwrap() = Some(info.clone());
@@ -407,6 +465,89 @@ pub fn handle(
                 }
                 Err(e) => err("400 Bad Request", &e),
             }
+        }
+        "/api/stl/verts" => {
+            // slice the uploaded stl at a plane and return the case
+            // file's polygon verts block, so a body from cad flows
+            // straight into the case editor
+            let path = match state.path.lock().unwrap().as_ref() {
+                Some(p) => p.clone(),
+                None => return err("404 Not Found", "no mesh uploaded"),
+            };
+            if !path.ends_with(".stl") {
+                return err("400 Bad Request", "uploaded mesh is not an stl");
+            }
+            let num = |k: &str, dflt: f64| -> f64 {
+                get(k).and_then(|v| v.parse::<f64>().ok()).unwrap_or(dflt)
+            };
+            let z0 = num("z", 0.0);
+            let scale = num("scale", 1.0);
+            let aoa = num("aoa", 0.0).to_radians();
+            let dx = num("dx", f64::NAN);
+            let dy = num("dy", f64::NAN);
+            let tris = match crate::stlcut::load_stl(&path) {
+                Ok(t) => t,
+                Err(e) => return err("400 Bad Request", &e),
+            };
+            // a plane exactly on a vertex ring needs the nudge retry,
+            // same as the cli path
+            let mut pts = None;
+            for cand in [z0, z0 + 1e-7, z0 - 1e-7, z0 + 1e-5, z0 - 1e-5] {
+                if let Ok(p) = crate::stlcut::slice_at(&tris, cand) {
+                    if p.len() >= 4 {
+                        pts = Some(p);
+                        break;
+                    }
+                }
+            }
+            let mut pts = match pts {
+                Some(p) => p,
+                None => {
+                    return err(
+                        "400 Bad Request",
+                        &format!("the plane z={z0} does not cut a usable loop"),
+                    )
+                }
+            };
+            // transform: scale + rotate about the centroid, then
+            // place the nose at (dx, dy) when given
+            let (mut cx, mut cy) = (0.0f64, 0.0f64);
+            for q in &pts {
+                cx += q.0;
+                cy += q.1;
+            }
+            cx /= pts.len() as f64;
+            cy /= pts.len() as f64;
+            let (ca, sa) = (aoa.cos(), aoa.sin());
+            for q in pts.iter_mut() {
+                let (x, y) = ((q.0 - cx) * scale, (q.1 - cy) * scale);
+                *q = (cx + x * ca + y * sa, cy - x * sa + y * ca);
+            }
+            if dx.is_finite() || dy.is_finite() {
+                let nose = pts
+                    .iter()
+                    .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap())
+                    .copied()
+                    .unwrap_or((0.0, 0.0));
+                let (px, py) = (dx, if dy.is_finite() { dy } else { nose.1 });
+                for q in pts.iter_mut() {
+                    *q = (q.0 - nose.0 + px, q.1 - nose.1 + py);
+                }
+            }
+            let mut out = String::from("verts = [\n");
+            for (x, y) in &pts {
+                out.push_str(&format!("  [{x:.4}, {y:.4}],\n"));
+            }
+            out.push(']');
+            let esc = out
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"")
+                .replace('\n', "\\n");
+            json(format!(
+                "{{\"verts\":\"{}\",\"points\":{}}}",
+                esc,
+                pts.len()
+            ))
         }
         "/api/meshview/info" => {
             let guard = state.info.lock().unwrap();
@@ -560,7 +701,7 @@ fn gmsh_wireframe(m: &crate::mesh_io::MshMesh, max_edges: usize) -> Wire {
 /// the wireframe json: 2d faces, or a sampled 3d grid-box for the spin view.
 fn wire_json(info: &MeshInfo) -> String {
     match info.kind {
-        MeshKind::Gmsh2d => {
+        MeshKind::Gmsh2d | MeshKind::Stl => {
             let mut pts = String::new();
             for (x, y) in &info.nodes {
                 pts.push_str(&format!("[{x},{y}],"));

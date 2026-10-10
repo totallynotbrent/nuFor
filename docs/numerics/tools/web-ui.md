@@ -16,45 +16,66 @@ LAN or Tailscale, not just on the box itself.
 
 ## Pages
 
-The `/` shell has one panel per feature:
+The `/` shell is one solver workspace in the shape of a commercial CFD
+workbench: a header with the case file actions, a left setup sidebar, and
+one large graphics window that serves both the mesh and the result.
 
-- **Solve** — pick the field (density / velocity / pressure / Mach / momentum /
-  energy), run, and watch the curve; optional exact-solution overlay.
-- **Case** — edit the case parameters used by the next run (initial condition,
-  cells, end time, gamma, CFL, boundary).
-- **Verify** — run against the exact 1D Riemann solution and read the L1
-  density error.
-- **Output** — download the current snapshot as CSV, VTK, or HDF5.
-- **Benchmark** — run a single-core throughput sweep.
-- **History** — every run in the session with its mesh, outcome, and reason.
-- **Gallery** — the validated case set rendered beside its mesh: the 2D
-  blast, the laminar Blasius plate, and the turbulent SA plate. The mesh
-  pane shows the actual grid (uniform for the blast, wall-clustered for the
-  plates) so the boundary-layer spacing is visible. The turbulent plate
-  solves once in the background at server start and reports its progress
-  until it lands.
-- **2D field** — a 2D blast wave solved and rendered to a colour-mapped image,
-  switchable between density, mach, and pressure. Playback animates from
-  frames baked once in the background; the run itself marches in a
-  background thread and reports live progress (percent, step count, and
-  time) under the run button instead of blocking the page.
-- **Validation** — the measured skin friction along the plate against the
-  published reference: the exact Blasius correlation for the laminar plate,
-  the Schlichting power law for the turbulent one.
-- **Mesh view** — upload a mesh (2D or 3D rectilinear VTK / coordinate file,
-  or a 2D gmsh `.msh`), see it on the left of the main screen with the
-  result beside it on the right. Rectilinear meshes can be solved directly
-  from the browser: a blast marches on the imported grid in the background
-  and the finished field can be switched between density, mach, and
-  pressure; 3D meshes add axis switching (xy / xz / zy) and a slice slider.
-  3D meshes render as a drag-to-spin wireframe for inspection. gmsh meshes
-  are wireframe-view only for now — solving them needs the unstructured
-  path, which is CLI-driven today.
+- **Header** — **Load case** opens a picker over the `cases/` directory
+  (the list is the directory; nothing is baked into the page), **Save**
+  writes the editor's changes back to the file, **New** saves the
+  current setup under a fresh name, and **Run** marches the loaded case.
+  The current case name and run status sit beside them, with a progress
+  bar that fills as the march runs.
+- **Setup** — the loaded case as a tree: Mesh, Body, Physics, Initial
+  condition, Boundaries, Numerics, Time control, Output, Metadata, each
+  node a set of property inputs (enum fields render as selects). Edits
+  write into the case file on Save; "Edit raw TOML" flips to the full
+  text editor.
+- **Graphics window** — two modes on the window itself, Mesh and
+  Results. **Mesh** renders the loaded case's grid like a mesher: cell
+  edges, the body filled with its outline, each domain boundary
+  colored by its condition with a legend naming them, a cell count,
+  and wheel zoom / drag pan. **Results** shows the field (density /
+  mach / pressure) at true aspect with coordinate axes, a scrub bar
+  over the run's frames, and a mesh overlay toggle. Frames arrive
+  while the run is still marching, so the scrub bar and the field can
+  be watched live; a case with no frames yet shows a placeholder
+  message instead of a broken image. For dimensionally small runs the
+  displayed times round to 0.000 at three decimals.
+- **Results panel** (sidebar) — after a run with a body: the surface Cp
+  stations and the integrated axial-force coefficient, normalized by
+  the case's own freestream and reference area.
+- **Import mesh** (collapsed section) — upload or server-path load of
+  a mesh (rectilinear VTK / coordinates, gmsh 2d); the uploaded grid
+  renders in the same mesh viewer, and rectilinear grids can run a
+  blast march on it.
 
 ## Data API
 
 All routes answer on `0.0.0.0:<port>`:
 
+- `GET /api/cases` — the case directory as a JSON list.
+- `GET /api/cases/load?name=..` — one case's `case.toml` as text.
+- `POST /api/cases/save?name=..` — write the editor's text back to the
+  case file (validated before anything is written).
+- `POST /api/cases/create?name=..` — save the editor's text as a new case.
+- `POST /api/cases/delete?name=..` — remove a case directory.
+- `GET /api/cases/run?name=..` — start the background march for that
+  case (1D, 2D, or axisymmetric, dispatched by the case's equations);
+  answers `202` immediately. Poll `GET /api/cases/run-status` for
+  percent, steps, and time.
+- `GET /api/cases/mesh?name=..` — the loaded case's grid faces and
+  extents plus the body outline sampled from its own sdf, so the mesh
+  pane shows the exact grid the march will run on.
+- `GET /api/cases/probe?field=..&x0=..&y0=..&x1=..&y1=..&samples=..` —
+  a line sample through the finished run's final field.
+- `GET /api/cases/surface` — after a run with a body: the surface Cp
+  stations, the body silhouette, and the integrated C_A (normalized by
+  the case's own freestream and reference area).
+- `GET /api/frames?t=..&field=rho|mach|p` — one playback frame (PNG)
+  from the animation, per field; frames are served as they are
+  rendered, during the run as well as after it.
+  `GET /api/frames/times` lists the frame times, growing live.
 - `GET /api/result` (alias `/api/snapshot`) — the current result envelope:
   steps, residual, termination reason, the snapshot (centers, rho, m, e, u, p,
   mach), and the exact solution with its L1 density error.
@@ -71,8 +92,25 @@ All routes answer on `0.0.0.0:<port>`:
 - `GET /api/run-case?dim=2d|3d&n=..&t=..&cfl=..&name=..` — start a background
   blast march; answers `202` immediately. Poll `GET /api/run-status` for
   percent, steps, and time; the finished run writes `results/<name>.vtk`.
-- `GET /api/frames?t=..` — one playback frame (PNG) from the baked blast
-  animation; `GET /api/frames/times` lists the available times.
+- `GET /api/frames?t=..&field=rho|mach|p` — one playback frame (PNG)
+  from the animation, per field; frames are served as they are
+  rendered, during the run as well as after it.
+  `GET /api/frames/times` lists the frame times, growing live.
+- `GET /api/cases` — the case directory as a JSON list.
+- `GET /api/cases/load?name=..` — one case's `case.toml` as text.
+- `POST /api/cases/save?name=..` — write the editor's text back to the
+  case file (validated before anything is written).
+- `POST /api/cases/create?name=..` — save the editor's text as a new case.
+- `POST /api/cases/delete?name=..` — remove a case directory.
+- `GET /api/cases/run?name=..` — start the background march for that
+  case; answers `202` immediately. Poll `GET /api/cases/run-status` for
+  percent, steps, and time.
+- `GET /api/cases/surface` — after a run with a body: the surface Cp
+  stations, the body silhouette, and the integrated C_A (normalized by
+  the case's own freestream and reference area).
+- `GET /api/cases/mesh?name=..` — the loaded case's grid faces and
+  extents plus the body outline sampled from its own sdf, so the mesh
+  pane shows the exact grid the march will run on.
 - `GET /api/mesh-faces?kind=blast|laminar|turbulent` — the face coordinates of
   the active gallery grid, so the mesh pane draws the real cell spacing.
 - `GET /api/plates/{laminar|turbulent}/image|validation|profile` — the plate
