@@ -16,12 +16,16 @@ fn flux_on_normal(gamma: f64, left: FacePrim, right: FacePrim, nx: f64, ny: f64)
         u: un(left.u, left.v),
         v: ut(left.u, left.v),
         p: left.p,
+        a: left.a,
+        e: left.e,
     };
     let r = FacePrim {
         rho: right.rho,
         u: un(right.u, right.v),
         v: ut(right.u, right.v),
         p: right.p,
+        a: right.a,
+        e: right.e,
     };
     let f = hllc_flux(gamma, l, r, 0);
     // rotate the face-frame flux back: normal component is [1], tangent [2].
@@ -79,18 +83,8 @@ pub fn advance_ugrid(
         };
         let flux = flux_on_normal(
             gamma,
-            FacePrim {
-                rho: state.rho[li],
-                u: u[li],
-                v: v[li],
-                p: p[li],
-            },
-            FacePrim {
-                rho: rr,
-                u: rux,
-                v: rv,
-                p: rp,
-            },
+            FacePrim::perfect(state.rho[li], u[li], v[li], p[li], gamma),
+            FacePrim::perfect(rr, rux, rv, rp, gamma),
             nx,
             ny,
         );

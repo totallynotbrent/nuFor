@@ -1,0 +1,59 @@
+schema_version = 1
+
+[metadata]
+name = "capsule-peak-q"
+description = "sphere-cone capsule, mach 22 freestream, axisymmetric euler"
+case_revision = 1
+
+[physics]
+equations = "euler_axi"
+gamma = 1.4
+gas_constant = 287
+
+[mesh]
+nx = 320
+ny = 160
+x0 = 0
+x1 = 9.5
+y0 = 0
+y1 = 4
+source = "uniform"
+
+[initial_condition]
+type = "uniform"
+rho = 1
+u = 26.038
+p = 1
+
+[boundaries]
+left = "supersonic_inflow"
+right = "supersonic_outflow"
+bottom = "slip_wall"
+top = "slip_wall"
+[boundaries.inflow_state]
+rho = 1
+u = 26.038
+p = 1
+
+
+[body]
+type = "sphere_cone"
+rn = 1.9
+delta_deg = 9.5663
+rb = 2.365
+xc = 3.9
+
+[numerics]
+flux = "hllc"
+reconstruction = "muscl"
+cfl = 0.4
+
+[time]
+final_time = 0.5
+max_steps = 200000
+
+[output]
+interval_steps = 5000
+formats = ["vtk"]
+fields = ["rho", "u", "p"]
+

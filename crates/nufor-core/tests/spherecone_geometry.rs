@@ -1,4 +1,4 @@
-//! the sphere-cone geometry contract: brent's aeroshell meridian must
+//! the sphere-cone geometry contract: the reference capsule meridian must
 //! reproduce the trade-study numbers exactly, and the signed-distance
 //! body must be consistent with them (negative inside, positive outside,
 //! surface at zero).

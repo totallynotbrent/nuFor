@@ -1,5 +1,7 @@
 //! colormap rendering of a 2d scalar field to a png.
 
+use crate::solver::ConservedState;
+use crate::state::cons_to_prim;
 use png::ColorType;
 
 /// map a normalized value in [0, 1] to an rgb colour on a blue-to-red scale.
@@ -67,4 +69,63 @@ pub fn render_png_rect(
             .map_err(|e| format!("png data: {e}"))?;
     }
     Ok(bytes)
+}
+
+/// a 1d field as a line plot png (x horizontal, value vertical).
+pub fn render_line1d(centers: &[f64], st: &ConservedState, gamma: f64, field: &str) -> Vec<u8> {
+    let n = st.rho.len();
+    let (u, _et) = cons_to_prim(&st.rho, &st.m, &st.e).unwrap_or_else(|_| {
+        (
+            vec![0.0; n],
+            vec![st.e.iter().cloned().fold(0.0, f64::max); n],
+        )
+    });
+    let vals: Vec<f64> = match field {
+        "u" => u,
+        "p" => (0..n)
+            .map(|i| (gamma - 1.0) * (st.e[i] - 0.5 * st.m[i] * st.m[i] / st.rho[i].max(1e-12)))
+            .collect(),
+        _ => st.rho.clone(),
+    };
+    let w = 640usize;
+    let h = 320usize;
+    let bg = [16, 16, 16u8];
+    let ax = [43, 43, 43u8];
+    let amber = [224, 164, 88u8];
+    let mut px = vec![bg[0]; w * h * 3];
+    for x in 0..w {
+        for c in 0..3 {
+            px[(h - 1) * w * 3 + x * 3 + c] = ax[c];
+            px[((h / 4) * w + x) * 3 + c] = [30, 30, 30u8][c];
+            px[((h / 2) * w + x) * 3 + c] = [24, 24, 24u8][c];
+            px[((3 * h / 4) * w + x) * 3 + c] = [30, 30, 30u8][c];
+        }
+    }
+    let v0 = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+    let v1 = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let span = (v1 - v0).max(1e-9);
+    let x0 = *centers.first().unwrap_or(&0.0);
+    let x1 = *centers.last().unwrap_or(&1.0);
+    let xs = (x1 - x0).max(1e-9);
+    for i in 0..n {
+        let cx = (((centers[i] - x0) / xs) * (w - 2) as f64 + 1.0) as usize;
+        let cy = (h as f64 - 4.0 - ((vals[i] - v0) / span) * (h - 10) as f64) as usize;
+        let cy = cy.clamp(1, h - 2);
+        for dx in 0..2 {
+            let px_x = (cx + dx).min(w - 1);
+            for c in 0..3 {
+                px[cy * w * 3 + px_x * 3 + c] = amber[c];
+            }
+        }
+    }
+    let mut bytes = Vec::new();
+    {
+        let mut enc = png::Encoder::new(&mut bytes, w as u32, h as u32);
+        enc.set_color(png::ColorType::Rgb);
+        enc.set_depth(png::BitDepth::Eight);
+        if let Ok(mut writer) = enc.write_header() {
+            let _ = writer.write_image_data(&px);
+        }
+    }
+    bytes
 }

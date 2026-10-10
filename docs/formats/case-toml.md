@@ -74,12 +74,14 @@ silently change a run.
 | `metadata.name` | string | yes | non-empty | Case name, used in logs and results. |
 | `metadata.description` | string | no | | Free text: goal, expected result. |
 | `metadata.case_revision` | int | no (default 1) | >= 1 | Revision counter for the case definition. |
-| `physics.equations` | string | yes | `euler_1d` \| `euler_2d` \| `euler_3d` \| `rans_2d_sa` | Equation set; the case-run wiring (`nufor run`) chooses the solver by this. `rans_2d_sa` is the 2D Reynolds-averaged Navier-Stokes with the Spalart-Allmaras model. |
-| `physics.gamma` | float | yes | > 1 | Ratio of specific heats. |
+| `physics.equations` | string | yes | `euler_1d` \| `euler_2d` \| `euler_3d` \| `euler_axi` \| `rans_2d_sa` | Equation set; the case-run wiring (`nufor run`) chooses the solver by this. `euler_axi` is axisymmetric Euler (see [[case-body]]), `rans_2d_sa` the 2D Reynolds-averaged Navier-Stokes with Spalart-Allmaras. |
+| `physics.gamma` | float | yes | > 1 | Ratio of specific heats; with `eos = "eqair"` this is the fallback for degenerate cells only. |
+| `physics.eos` | string | no (default `perfect`) | `perfect` \| `eqair` | Thermodynamic closure: constant-gamma perfect gas, or equilibrium air via the Srinivasan-Tannehill fits (see [[equilibrium-air]]). |
 | `physics.gas_constant` | float | yes | > 0 | Specific gas constant, J/(kg K) in SI. |
 | `physics.unit_system` | string | no (default `si`) | `si` \| `nondim` | Unit convention for reported fields. |
 | `physics.reference` | table | no | rho, p, l > 0 | Nondimensionalization reference state. |
-| `physics.mu` | float | no | > 0 | Molecular dynamic viscosity; required for `rans_2d_sa`. |
+| `physics.mu` | float | no | > 0 | Molecular dynamic viscosity; required for `rans_2d_sa`. For planar 2D euler cases, any positive value routes the run to the viscous march (see [[equilibrium-air#a-way-to-run-viscous|viscous closure]]). |
+| `physics.wall_temperature` | float | no (default 0) | >= 0 | Wall temperature in K for viscous 2D runs; 0 (or absent) means an adiabatic wall, any positive value a fixed-temperature (cold) wall. |
 | `physics.pr` | float | no (default 0.72) | > 0 | Molecular Prandtl number for the heat flux. |
 | `physics.turbulence.nu_tilde_inf` | float | required with `rans_2d_sa` | > 0 | Freestream SA working variable; the usual convention is three times the molecular kinematic viscosity. |
 | `physics.turbulence.pr_t` | float | no (default 0.9) | > 0 | Turbulent Prandtl number for the eddy heat flux. |
@@ -102,7 +104,7 @@ silently change a run.
 | `initial_condition` (uniform) | rho, u, p | yes | rho, p > 0 | Constant state. |
 | `initial_condition` (two_state) | left, right | yes | rho, p > 0 per side | Left/right constant states, e.g. a shock tube (1D). |
 | `initial_condition` (blast) | radius, ambient, fireball | yes | radius > 0; rho, p > 0 | Over-pressured fireball in ambient surroundings; the natural 2D/3D shock-tube. |
-| `boundaries.left` | string | yes | `wall` \| `inflow` \| `outflow` \| `periodic` \| `profile_inflow` | Left boundary condition. `profile_inflow` needs `[boundaries.inflow_profile]`. |
+| `boundaries.left` | string | yes | `wall` \| `inflow` \| `outflow` \| `periodic` \| `profile_inflow` \| `slip_wall` \| `supersonic_inflow` \| `supersonic_outflow` | Left boundary condition. `profile_inflow` needs `[boundaries.inflow_profile]`; `supersonic_inflow` needs `[boundaries.inflow_state]`; the full kind list lives in [[case-body]]. |
 | `boundaries.right` | string | yes | same set | Right boundary condition. |
 | `boundaries.top` | string | no | same set | Top boundary, honored by the 2D solvers (default `outflow`). |
 | `boundaries.bottom` | string | no | same set | Bottom boundary, honored by the 2D solvers (default `outflow`). A `wall` side is no-slip, which is what the SA model expects at a solid surface. |
@@ -116,6 +118,8 @@ silently change a run.
 | `time.final_time` | float | no (default 0) | >= 0 | Stop time. |
 | `time.max_steps` | int | no (default 0) | >= 0 | Hard cap on iterations. |
 | `time.residual_target` | float | no | > 0 | Early stop when the residual drops below this. |
+| `body` | table | no | | Optional immersed body; the shape set (`sphere_cone`, `sphere`, `polygon`) and keys live in [[case-body]]. |
+| `boundaries.inflow_state` | table | with a `supersonic_inflow` side | rho, p > 0 | The fixed state a supersonic inflow side carries (`v` optional, default 0). |
 | `output.interval_steps` | int | yes | >= 1 | Write cadence in solver steps. |
 | `output.formats` | string list | yes | non-empty, `csv` \| `vtk` \| `hdf5` | Writers to run. |
 | `output.fields` | string list | yes | non-empty | Fields written, e.g. `rho`, `u`, `p`. |

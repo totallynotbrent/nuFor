@@ -1,5 +1,6 @@
-//! the sphere-cone aeroshell meridian: the analytic profile generator used
-//! by both the body mask and the axisymmetric run.
+//! the sphere-cone meridian: an analytic body-of-revolution profile
+//! (spherical nose cap tangent to a conical flank) used by the body mask
+//! and the axisymmetric runs.
 //!
 //! the shape is the capsule forebody from brent's trade study, an
 //! apollo-style sphere-cone: a spherical nose cap of radius R_N whose arc
@@ -19,7 +20,7 @@
 //!     |'
 //!     +-----------------> x
 
-/// the sphere-cone parameters, apex-forward: x measured downstream from
+/// the sphere-cone parameters, nose forward: x measured downstream from
 /// the nose, y is the radius from the symmetry axis.
 #[derive(Debug, Clone, Copy)]
 pub struct SphereCone {
@@ -34,7 +35,7 @@ pub struct SphereCone {
 }
 
 impl SphereCone {
-    /// brent's selected vehicle: R_N = 1.90 m, base radius 2.365 m at
+    /// the reference capsule geometry: R_N = 1.90 m, base radius 2.365 m at
     /// x_base = 4.5 m, tangent at x = 1.584 m. returns the shape with the
     /// nose at x = 0.
     pub fn brent_shell() -> Self {

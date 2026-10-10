@@ -2,17 +2,20 @@
 title: nuFor
 ---
 
-> **Work in progress.** nuFor is not complete. Right now it can simulate a
-> fixed set of cases through the web UI: the 1D Sod and Lax shock tubes, the
-> 2D and 3D spherical blast problem, and the validated flat plates (the
-> laminar Blasius layer and the turbulent SA layer) with density / mach /
-> pressure visualization, the mesh beside the field, line probes, resolution
-> comparison, a validation view of measured skin friction against the
-> published correlations, and CSV / VTK / HDF5 export. Mesh upload works in
-> the browser for rectilinear 2D and 3D meshes (view, spin, solve a blast on
-> them); gmsh meshes render as wireframes, and solving arbitrary boundary
-> conditions or general case setups from the browser is still CLI-driven
-> today.
+> **Work in progress.** nuFor is not complete. The web UI is a solver
+> workbench: load a case from the directory, edit its setup in the
+> tree (mesh, body, physics, boundary conditions, numerics), inspect
+> the mesh in the graphics window (cell edges, colored boundaries,
+> zoom and pan), run it, scrub the result in time, and read the
+> surface Cp when the case has a body. Everything runs from
+> `case.toml` files, so the shipped cases (the 1D Sod shock tube, the
+> flat plates, the axisymmetric capsule) are the same kind of file as
+> anything you create. Mesh import works for rectilinear 2D and 3D
+> grids (view, solve on them); gmsh meshes render as wireframes. What
+> is still missing: solving on unstructured meshes from the browser.
+> Thermodynamics now covers two closures: the perfect gas and
+> equilibrium air (the Srinivasan-Tannehill curve fits, valid 250 K to
+> 15000 K), selected per case with `physics.eos`.
 
 nuFor is a CPU-first computational fluid dynamics code: finite-volume solvers
 for the compressible Euler and Navier-Stokes equations, written as Fortran
@@ -25,6 +28,7 @@ a web UI, with every numerical claim backed by a verification case.
 - [Getting started](getting-started.md) - install, run your first case, see a result
 - [Architecture](architecture.md) - how the Rust/Fortran/Python layers fit together
 - [Case format](formats/case-toml.md) - the `case.toml` file that drives every run
+- [Immersed bodies](formats/case-body.md) - the `[body]` section, axisymmetric runs, the boundary kinds
 
 ## Solver trajectory
 
@@ -62,7 +66,7 @@ Every milestone closes against an analytical or benchmark case:
 
 ## Reference
 
-- [Equation of state](numerics/foundations/eos.md)
+- [Equation of state](numerics/foundations/eos.md) · [Equilibrium air](numerics/foundations/equilibrium-air.md)
 - [HLL flux](numerics/fluxes/flux-hll.md) · [HLL vs HLLC](numerics/fluxes/hll-vs-hllc.md)
 - [State and grid](numerics/foundations/state-grid.md) · [Time step](numerics/foundations/time-step.md)
 - [Restart](numerics/foundations/restart.md) · [HDF5 output](numerics/foundations/hdf5.md)

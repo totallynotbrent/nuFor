@@ -16,6 +16,9 @@ pub struct CaseConfig {
     pub numerics: Numerics,
     pub time: TimeControl,
     pub output: Output,
+    /// immersed analytic body; absent means an empty domain.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<BodySection>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -54,6 +57,9 @@ pub struct Physics {
     /// sets (euler ignores it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mu: Option<f64>,
+    /// thermodynamic closure: perfect gas or equilibrium air.
+    #[serde(default)]
+    pub eos: Eos,
     /// molecular prandtl number for the heat flux (default 0.72, air).
     #[serde(
         default = "default_prandtl",
@@ -64,6 +70,12 @@ pub struct Physics {
     /// rans_2d_sa.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turbulence: Option<Turbulence>,
+    /// isothermal wall temperature (K) for the viscous wall boundary;
+    /// omitted or non-positive means the adiabatic wall. the stagnation
+    /// heating figures use a cold wall because the published entry
+    /// correlations (fay-riddell) are posed at a fixed wall temperature.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wall_temperature: Option<f64>,
 }
 
 /// the sa turbulence block of a rans_2d_sa case.
@@ -96,6 +108,18 @@ fn is_default_prandtl_t(v: &f64) -> bool {
     *v == 0.9
 }
 
+/// thermodynamic closure for the compressible equation sets.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+pub enum Eos {
+    /// constant gamma, constant R (the classical closure).
+    #[default]
+    #[serde(rename = "perfect")]
+    Perfect,
+    /// equilibrium air curve fits: p, T, a as functions of (rho, e).
+    #[serde(rename = "eqair")]
+    EqAir,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Equations {
@@ -105,6 +129,11 @@ pub enum Equations {
     Euler2d,
     #[serde(rename = "euler_3d")]
     Euler3d,
+    /// axisymmetric euler: the planar fluxes with the annular update
+    /// (face radii and the p/r geometric source). the mesh's y axis is
+    /// the radius; the south boundary is the symmetry axis.
+    #[serde(rename = "euler_axi")]
+    EulerAxi,
     #[serde(rename = "rans_2d_sa")]
     Rans2dSa,
 }
@@ -213,7 +242,45 @@ pub struct State {
     pub rho: f64,
     /// x-velocity.
     pub u: f64,
+    /// y-velocity, when the context has one (1d states ignore it).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub v: f64,
     pub p: f64,
+}
+
+fn is_zero(v: &f64) -> bool {
+    *v == 0.0
+}
+
+/// an immersed analytic body. the meridian is evaluated per cell; the
+/// mask (and cut cells where the solver supports them) come from the
+/// same signed distance. `inside` convention: negative distance is
+/// inside the solid.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum BodySection {
+    /// a sphere-cone body of revolution: a spherical nose cap of nose
+    /// radius `rn` tangent to a conical flank of half-angle
+    /// `delta_deg` (degrees), flaring to base radius `rb`. `xc` is the
+    /// axial station of the sphere center, so the nose tip sits at
+    /// `xc - rn`.
+    SphereCone {
+        /// nose radius R_N.
+        rn: f64,
+        /// cone half-angle in degrees.
+        delta_deg: f64,
+        /// base radius R_b.
+        rb: f64,
+        /// axial station of the sphere center.
+        xc: f64,
+    },
+    /// a circle (a cylinder in 2d planar, a sphere in axisymmetric).
+    Sphere { r: f64, cx: f64, cy: f64 },
+    /// a closed polygon from its vertices, ordered around the boundary.
+    Polygon {
+        /// vertex list, [[x, y], ...] in mesh units.
+        verts: Vec<(f64, f64)>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -230,6 +297,9 @@ pub struct Boundaries {
     /// the inflow profile when a side is `profile_inflow`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inflow_profile: Option<InflowProfileSpec>,
+    /// the fixed state a `supersonic_inflow` side carries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inflow_state: Option<State>,
 }
 
 /// how a profile-inflow side prescribes its boundary layer.
@@ -258,6 +328,13 @@ pub enum BoundaryKind {
     Periodic,
     /// inflow carrying a boundary-layer profile (see inflow_profile).
     ProfileInflow,
+    /// a fixed supersonic inflow state (see inflow_state).
+    SupersonicInflow,
+    /// an inviscid slip wall: the ghost mirrors the normal velocity.
+    /// the axisymmetric south boundary uses this as the symmetry axis.
+    SlipWall,
+    /// supersonic outflow: the ghost copies the interior state.
+    SupersonicOutflow,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

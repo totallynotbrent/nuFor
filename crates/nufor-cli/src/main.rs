@@ -11,19 +11,24 @@ use nufor_config::{
     Mesh, OutputFormat,
 };
 use nufor_core::{
-    advance2d_rk2, advance2d_sa_lts, advance2d_sa_rk2, advance3d_rk2, advance_ugrid,
+    advance2d_axi_rk2, advance2d_model_rk2, advance2d_model_visc_rk2, advance2d_sa_lts,
+    advance2d_sa_model_rk2, advance2d_sa_rk2, advance3d_rk2, advance_ugrid, apply_solid_fn,
     cons_to_prim2d, eos_pressure2d, euler_solve, grid1d, grid2d, grid3d, prim_to_cons,
     prim_to_cons2d, prim_to_cons3d, read_restart, render_png, wall_distance2d, write_csv, write_h5,
-    write_restart, write_vtk, write_vtk2d, write_vtk3d, Bc2d, Boundaries2d, Boundary, Bounds3d,
-    ConservedState, ConservedState2d, ConservedState3d, Error, EulerConfig, Grid1d, Grid2d, Grid3d,
-    OutputState, SaParams, TurbState, Ugrid,
+    write_restart, write_vtk, write_vtk2d_model, write_vtk3d, Bc2d, Boundaries2d, Boundary,
+    Bounds3d, ConservedState, ConservedState2d, ConservedState3d, Error, EulerConfig, Grid1d,
+    Grid2d, Grid3d, OutputState, SaParams, SolidPolygon, SolidShape, SphereCone, SphereConeSdf,
+    TurbState, Ugrid,
 };
+use nufor_core::{model_from_config, ThermoModel};
 
+mod casework;
 mod mesh_io;
 mod meshview;
 mod plates;
 mod runstate;
 mod serve;
+mod stlcut;
 mod webviews;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -47,6 +52,7 @@ fn main() {
         "history" => history(&args),
         "benchmark" => benchmark(&args),
         "serve" => serve(&args),
+        "stl-cut" => stl_cut(&args),
         "help" | "-h" | "--help" => {
             usage(prog);
             0
@@ -184,10 +190,34 @@ fn run(args: &[String]) -> i32 {
         eprintln!("run needs a case file or: <N> <t> [sod|lax] [rst]");
         return 2;
     }
-    if Path::new(&args[2]).exists() && args[2].ends_with(".toml") {
-        return run_case(&args[2]);
+    // sweep "--flag value" pairs the case runners can act on.
+    let mut max_steps_override: Option<usize> = None;
+    let mut positional: Vec<&str> = Vec::new();
+    let mut i = 2;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--max-steps" => {
+                if let Some(v) = args.get(i + 1).and_then(|s| s.parse().ok()) {
+                    max_steps_override = Some(v);
+                }
+                i += 2;
+            }
+            _ => {
+                positional.push(&args[i]);
+                i += 1;
+            }
+        }
     }
-    run_shock_tube(args)
+    if let Some(p) = positional.first() {
+        if Path::new(p).exists() && p.ends_with(".toml") {
+            return run_case_with_overrides(p, max_steps_override);
+        }
+    }
+    let mut rest: Vec<String> = vec![args[0].clone(), args[1].clone()];
+    for p in positional {
+        rest.push(p.to_string());
+    }
+    run_shock_tube(&rest)
 }
 
 fn run_shock_tube(args: &[String]) -> i32 {
@@ -440,6 +470,110 @@ fn serve(args: &[String]) -> i32 {
     }
 }
 
+/// stl-cut: slice an stl body at a plane and print the case file's
+/// polygon verts block, so an exported CAD shape drives the same
+/// immersed-body runs. usage: stl-cut <file.stl> [z=<plane>] [scale=<s>]
+/// [dx=<x>] [dy=<y>] [aoa=<deg>] — scale/translate/rotate then emit.
+fn stl_cut(args: &[String]) -> i32 {
+    let Some(path) = args.get(2) else {
+        eprintln!("stl-cut needs an stl file");
+        return 2;
+    };
+    let mut z0 = 0.0f64;
+    let mut scale = 1.0f64;
+    let (mut dx, mut dy) = (f64::NAN, f64::NAN);
+    let mut aoa = 0.0f64;
+    for a in args.iter().skip(3) {
+        let Some((k, v)) = a.split_once('=') else {
+            eprintln!("stl-cut: bad option {a:?} (expected k=v)");
+            return 2;
+        };
+        let Ok(v) = v.parse::<f64>() else {
+            eprintln!("stl-cut: bad value in {a:?}");
+            return 2;
+        };
+        match k {
+            "z" => z0 = v,
+            "scale" => scale = v,
+            "dx" => dx = v,
+            "dy" => dy = v,
+            "aoa" => aoa = v.to_radians(),
+            _ => {
+                eprintln!("stl-cut: unknown option {k:?}");
+                return 2;
+            }
+        }
+    }
+    let tris = match stlcut::load_stl(path) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("stl-cut: {e}");
+            return 2;
+        }
+    };
+    // a plane exactly on a vertex ring (the common export case at
+    // z=0) yields degenerate crossings; nudge the plane and take the
+    // best-behaved slice.
+    let mut pts = None;
+    for cand in [z0, z0 + 1e-7, z0 - 1e-7, z0 + 1e-5, z0 - 1e-5] {
+        match stlcut::slice_at(&tris, cand) {
+            Ok(p) if p.len() >= 4 => {
+                pts = Some(p);
+                break;
+            }
+            _ => continue,
+        }
+    }
+    let mut pts = match pts {
+        Some(p) => p,
+        None => {
+            eprintln!("stl-cut: the plane z={z0} does not cut a usable loop");
+            return 2;
+        }
+    };
+    // transform: scale about the slice's centroid, rotate by the
+    // angle of attack about the centroid, then translate so the
+    // rotated shape's nose (leftmost point) lands at (dx, dy).
+    let (mut cx, mut cy) = (0.0f64, 0.0f64);
+    for p in &pts {
+        cx += p.0;
+        cy += p.1;
+    }
+    cx /= pts.len() as f64;
+    cy /= pts.len() as f64;
+    let (ca, sa) = (aoa.cos(), aoa.sin());
+    for p in pts.iter_mut() {
+        let (x, y) = ((p.0 - cx) * scale, (p.1 - cy) * scale);
+        // positive aoa pitches the nose up relative to the +x flow
+        *p = (cx + x * ca + y * sa, cy - x * sa + y * ca);
+    }
+    // placement applies only when explicitly given: absent dx/dy
+    // keep the slice's own coordinates so the shape stays where the
+    // CAD put it.
+    if dx.is_finite() || dy.is_finite() {
+        let nose = pts
+            .iter()
+            .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap())
+            .copied()
+            .unwrap_or((0.0, 0.0));
+        let (px, py) = (dx, if dy.is_finite() { dy } else { nose.1 });
+        for p in pts.iter_mut() {
+            *p = (p.0 - nose.0 + px, p.1 - nose.1 + py);
+        }
+    }
+    println!("verts = [");
+    for (x, y) in &pts {
+        println!("  [{x:.4}, {y:.4}],");
+    }
+    println!("]");
+    println!(
+        "# stl-cut: {} points, z={z0}, scale={scale}, aoa={} deg",
+        pts.len(),
+        aoa.to_degrees()
+    );
+    0
+}
+
 fn init(args: &[String]) -> i32 {
     let path = args.get(2).map(String::as_str).unwrap_or("case.toml");
     let template = r#"# nuFor case definition. Schema in docs/formats/case-toml.md.
@@ -494,7 +628,7 @@ fields = ["rho", "u", "p"]
 }
 
 /// build a 1d grid from a case's mesh section, uniform or loaded from a file.
-fn build_1d_mesh(mesh: &Mesh) -> Result<Grid1d, String> {
+pub fn build_1d_mesh(mesh: &Mesh) -> Result<Grid1d, String> {
     match mesh.source.as_str() {
         "file" => {
             let path = mesh
@@ -669,7 +803,7 @@ fn build_3d_mesh(mesh: &Mesh) -> Result<Grid3d, String> {
 }
 
 /// build a conserved 1d state from a case's initial_condition.
-fn ic_from_case(ic: &InitialCondition, n: usize, gamma: f64) -> Result<ConservedState, String> {
+pub fn ic_from_case(ic: &InitialCondition, n: usize, gamma: f64) -> Result<ConservedState, String> {
     let fill = |rho0: f64, u0: f64, p0: f64| -> ConservedState {
         let rho = vec![rho0; n];
         let u = vec![u0; n];
@@ -698,11 +832,30 @@ fn ic_from_case(ic: &InitialCondition, n: usize, gamma: f64) -> Result<Conserved
     }
 }
 
-fn bc1d(kind: BoundaryKind) -> Boundary {
+pub fn bc1d(kind: BoundaryKind) -> Boundary {
     match kind {
         BoundaryKind::Wall => Boundary::Reflective,
         _ => Boundary::Transmissive,
     }
+}
+
+fn run_case_with_overrides(path: &str, max_steps: Option<usize>) -> i32 {
+    if let Some(ms) = max_steps {
+        set_adhoc_max_steps(ms);
+    }
+    run_case(path)
+}
+
+fn set_adhoc_max_steps(v: usize) {
+    ADHOC_MAX_STEPS.with(|c| c.set(Some(v)));
+}
+
+thread_local! {
+    static ADHOC_MAX_STEPS: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+fn get_adhoc_max_steps() -> Option<usize> {
+    ADHOC_MAX_STEPS.with(|c| c.get())
 }
 
 fn run_case(path: &str) -> i32 {
@@ -717,7 +870,341 @@ fn run_case(path: &str) -> i32 {
         Equations::Euler1d => run_case_1d(&cfg, path),
         Equations::Euler2d => run_case_2d(&cfg, path),
         Equations::Euler3d => run_case_3d(&cfg, path),
+        Equations::EulerAxi => {
+            if cfg.mesh.source == "sphere-cone-o-grid" {
+                run_case_axi_curv(&cfg, path)
+            } else {
+                run_case_axi(&cfg, path)
+            }
+        }
         Equations::Rans2dSa => run_case_2d_sa(&cfg, path),
+    }
+}
+
+/// a body's signed distance and surface normal as shared closures.
+pub type CaseBodyFns = (
+    std::sync::Arc<dyn Fn(f64, f64) -> f64>,
+    std::sync::Arc<dyn Fn(f64, f64) -> (f64, f64)>,
+);
+
+/// the case body section as (dist, normal) closures the mask machinery
+/// already takes. absent body: None.
+pub fn case_body_fns(body: &Option<nufor_config::BodySection>) -> Option<CaseBodyFns> {
+    match body {
+        None => None,
+        Some(nufor_config::BodySection::SphereCone {
+            rn,
+            delta_deg,
+            rb,
+            xc,
+        }) => {
+            let sc = SphereCone {
+                rn: *rn,
+                delta: delta_deg.to_radians(),
+                rb: *rb,
+                xc: *xc,
+            };
+            let sdf = std::sync::Arc::new(SphereConeSdf { sc });
+            let d = sdf.clone();
+            let n = sdf.clone();
+            Some((
+                std::sync::Arc::new(move |x, y| d.dist(x, y)),
+                std::sync::Arc::new(move |x, y| n.normal(x, y)),
+            ))
+        }
+        Some(nufor_config::BodySection::Sphere { r, cx, cy }) => {
+            let (cx, cy, r) = (*cx, *cy, *r);
+            Some((
+                std::sync::Arc::new(move |x, y| {
+                    let (dx, dy) = (x - cx, y - cy);
+                    (dx * dx + dy * dy).sqrt() - r
+                }),
+                std::sync::Arc::new(move |x, y| {
+                    let (dx, dy) = (x - cx, y - cy);
+                    let l = (dx * dx + dy * dy).sqrt().max(1e-30);
+                    (dx / l, dy / l)
+                }),
+            ))
+        }
+        Some(nufor_config::BodySection::Polygon { verts }) => {
+            let poly = std::sync::Arc::new(SolidPolygon::new(verts.clone()));
+            let d = poly.clone();
+            let n = poly.clone();
+            Some((
+                std::sync::Arc::new(move |x, y| d.signed_distance(x, y)),
+                std::sync::Arc::new(move |x, y| n.normal(x, y)),
+            ))
+        }
+    }
+}
+
+/// boundary kinds to solver bcs, for the euler-family runners. a
+/// supersonic_inflow side reads its state from boundaries.inflow_state,
+/// falling back to the uniform freestream.
+pub fn case_side_bc_euler(k: BoundaryKind, inflow: Option<(f64, f64, f64, f64)>) -> Bc2d {
+    match k {
+        BoundaryKind::Wall => Bc2d::NoSlipWall,
+        BoundaryKind::SlipWall => Bc2d::SlipWall,
+        BoundaryKind::SupersonicOutflow => Bc2d::SupersonicOutflow,
+        BoundaryKind::SupersonicInflow | BoundaryKind::Inflow => match inflow {
+            Some((rho, u, v, p)) => Bc2d::SupersonicInflow { rho, u, v, p },
+            None => Bc2d::Transmissive,
+        },
+        BoundaryKind::ProfileInflow | BoundaryKind::Periodic | BoundaryKind::Outflow => {
+            Bc2d::Transmissive
+        }
+    }
+}
+
+/// the inflow state a supersonic_inflow side carries: the explicit
+/// boundaries.inflow_state when present, else the uniform freestream.
+pub fn case_inflow_state(cfg: &CaseConfig) -> Option<(f64, f64, f64, f64)> {
+    match &cfg.boundaries.inflow_state {
+        Some(s) => Some((s.rho, s.u, s.v, s.p)),
+        None => Some(freestream(cfg)),
+    }
+}
+
+/// the uniform freestream state the inflow sides use, taken from the
+/// initial condition.
+fn freestream(cfg: &CaseConfig) -> (f64, f64, f64, f64) {
+    match &cfg.initial_condition {
+        InitialCondition::Uniform { rho, u, p } => (*rho, *u, 0.0, *p),
+        InitialCondition::TwoState { left, .. } => (left.rho, left.u, 0.0, left.p),
+        InitialCondition::Blast { ambient, .. } => (ambient.rho, ambient.u, 0.0, ambient.p),
+    }
+}
+
+/// the full Boundaries2d for a case, the same mapping the runners use.
+pub fn case_boundaries(cfg: &CaseConfig) -> Boundaries2d {
+    Boundaries2d {
+        west: case_side_bc_euler(cfg.boundaries.left, case_inflow_state(cfg)),
+        east: case_side_bc_euler(cfg.boundaries.right, None),
+        south: case_side_bc_euler(
+            cfg.boundaries
+                .bottom
+                .unwrap_or(nufor_config::BoundaryKind::Outflow),
+            None,
+        ),
+        north: case_side_bc_euler(
+            cfg.boundaries
+                .top
+                .unwrap_or(nufor_config::BoundaryKind::Outflow),
+            None,
+        ),
+    }
+}
+
+/// the axisymmetric euler run: planar fluxes with the annular update,
+/// optional immersed body via the solid mask, slip-wall south boundary
+/// as the symmetry axis.
+fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
+    let g = match build_2d_mesh(&cfg.mesh) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("mesh error: {e}");
+            return 2;
+        }
+    };
+    let gamma = cfg.physics.gamma;
+    let model = model_from_config(cfg);
+    let mut st = match ic2d_from_case_model(&cfg.initial_condition, &g, gamma, model) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("initial condition error: {e}");
+            return 2;
+        }
+    };
+    let body = case_body_fns(&cfg.body);
+    if let Some((dist, normal)) = &body {
+        apply_solid_fn(&mut st, &g, dist.as_ref(), normal.as_ref(), gamma);
+    }
+    let bc = Boundaries2d {
+        west: case_side_bc_euler(cfg.boundaries.left, case_inflow_state(cfg)),
+        east: case_side_bc_euler(cfg.boundaries.right, None),
+        south: case_side_bc_euler(
+            cfg.boundaries.bottom.unwrap_or(BoundaryKind::SlipWall),
+            None,
+        ),
+        north: case_side_bc_euler(
+            cfg.boundaries
+                .top
+                .unwrap_or(BoundaryKind::SupersonicOutflow),
+            None,
+        ),
+    };
+    let cfl = cfg.numerics.cfl;
+    let t_end = cfg.time.final_time;
+    let max_steps = if let Some(ms) = get_adhoc_max_steps() {
+        ms
+    } else if cfg.time.max_steps > 0 {
+        cfg.time.max_steps as usize
+    } else {
+        1_000_000
+    };
+    let t0 = Instant::now();
+    let mut t = 0.0;
+    let mut steps = 0usize;
+    let mut ok = true;
+    while t < t_end && steps < max_steps {
+        match advance2d_axi_rk2(
+            &mut st,
+            &g,
+            model,
+            cfl,
+            true,
+            &bc,
+            cfg.numerics.threads,
+            body.as_ref()
+                .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
+        ) {
+            Ok((dt, _)) => t += dt,
+            Err(e) => {
+                eprintln!("solver error at step {steps}: {e}");
+                ok = false;
+                break;
+            }
+        }
+        if let Some((dist, normal)) = &body {
+            apply_solid_fn(&mut st, &g, dist.as_ref(), normal.as_ref(), gamma);
+        }
+        steps += 1;
+        if steps % 200 == 0 {
+            println!(
+                "step {steps} t={t:.4} wall={:.1}s",
+                t0.elapsed().as_secs_f64()
+            );
+        }
+    }
+    if ok {
+        println!(
+            "case {} ({})\nthink: axisymmetric, {}x{}\nsteps: {}\ntime: {:.4}\nwall: {:.3}s",
+            cfg.metadata.name,
+            path,
+            g.nx,
+            g.ny,
+            steps,
+            t,
+            t0.elapsed().as_secs_f64()
+        );
+        write_case_vtk2d_model(path, &cfg.metadata.name, &g, &st, model)
+    } else {
+        1
+    }
+}
+
+/// the body-fitted (curvilinear) axisymmetric runner: the sphere-cone
+/// O-grid with the wall IN the mesh. selected by
+/// [mesh] source = "sphere-cone-o-grid".
+fn run_case_axi_curv(cfg: &CaseConfig, path: &str) -> i32 {
+    use nufor_core::curvilinear::{advance2d_axi_curv, CurvGrid, Freestream};
+
+    let sc = match &cfg.body {
+        Some(nufor_config::BodySection::SphereCone {
+            rn,
+            delta_deg,
+            rb,
+            xc,
+        }) => SphereCone {
+            rn: *rn,
+            delta: delta_deg.to_radians(),
+            rb: *rb,
+            xc: *xc,
+        },
+        _ => {
+            eprintln!("o-grid runner needs [body] sphere_cone geometry");
+            return 2;
+        }
+    };
+    let ny = match cfg.mesh.ny {
+        Some(v) => v as usize,
+        None => {
+            eprintln!("o-grid runner needs [mesh] ny (the wall-normal cell count)");
+            return 2;
+        }
+    };
+    let g = CurvGrid::over_sphere_cone(&sc, cfg.mesh.nx as usize, ny, 6.0, 2.0);
+    let model = model_from_config(cfg);
+    let (rho0, u0, p0) = match &cfg.initial_condition {
+        nufor_config::InitialCondition::Uniform { rho, u, p } => (*rho, *u, *p),
+        _ => {
+            eprintln!("o-grid runner needs a uniform initial condition");
+            return 2;
+        }
+    };
+    let e_int = match nufor_core::eqair_energy(&[rho0], &[p0]) {
+        Ok(v) => v[0],
+        Err(e) => {
+            eprintln!("initial condition error: {e}");
+            return 2;
+        }
+    };
+    let et = e_int + 0.5 * u0 * u0;
+    let n = g.nx * g.ny;
+    let mut st = ConservedState2d {
+        rho: vec![rho0; n],
+        mx: vec![rho0 * u0; n],
+        my: vec![0.0; n],
+        e: vec![rho0 * et; n],
+    };
+    let fs = Freestream {
+        rho: rho0,
+        u: u0,
+        p: p0,
+    };
+    let cfl = cfg.numerics.cfl;
+    let t_end = cfg.time.final_time;
+    let max_steps = if cfg.time.max_steps > 0 {
+        cfg.time.max_steps as usize
+    } else {
+        1_000_000
+    };
+    let t0 = Instant::now();
+    let mut t = 0.0;
+    let mut steps = 0usize;
+    let mut ok = true;
+    while t < t_end && steps < max_steps {
+        match advance2d_axi_curv(&mut st, &g, model, cfl, fs) {
+            Ok((dt, _)) => t += dt,
+            Err(e) => {
+                eprintln!("solver error at step {steps}: {e}");
+                ok = false;
+                break;
+            }
+        }
+        steps += 1;
+        if steps % 200 == 0 {
+            println!(
+                "step {steps} t={t:.4} wall={:.1}s",
+                t0.elapsed().as_secs_f64()
+            );
+        }
+    }
+    if ok {
+        println!(
+            "case {} ({})\nthink: axisymmetric o-grid, {}x{}\nsteps: {}\ntime: {:.4}\nwall: {:.3}s",
+            cfg.metadata.name,
+            path,
+            g.nx,
+            g.ny,
+            steps,
+            t,
+            t0.elapsed().as_secs_f64()
+        );
+        let dir = case_dir(path);
+        let dst = dir.join(format!("{}.vtk", cfg.metadata.name));
+        match nufor_core::write_vtk_curv(&dst, &g, &mut st, model) {
+            Ok(()) => {
+                println!("wrote: {}", dst.display());
+                0
+            }
+            Err(e) => {
+                eprintln!("vtk write error: {e}");
+                1
+            }
+        }
+    } else {
+        1
     }
 }
 
@@ -842,51 +1329,452 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
         }
     };
     let gamma = cfg.physics.gamma;
-    let mut st = match ic2d_from_case(&cfg.initial_condition, &g, gamma) {
+    let model = model_from_config(cfg);
+    let mut st = match ic2d_from_case_model(&cfg.initial_condition, &g, gamma, model) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("initial condition error: {e}");
             return 2;
         }
     };
-    let bc = Boundaries2d::default();
+    let body = case_body_fns(&cfg.body);
+    if let Some((dist, normal)) = &body {
+        apply_solid_fn(&mut st, &g, dist.as_ref(), normal.as_ref(), gamma);
+    }
+    let bc = case_boundaries(cfg);
     let cfl = cfg.numerics.cfl;
     let t_end = cfg.time.final_time;
-    let max_steps = if cfg.time.max_steps > 0 {
+    let max_steps = if let Some(ms) = get_adhoc_max_steps() {
+        ms
+    } else if cfg.time.max_steps > 0 {
         cfg.time.max_steps as usize
     } else {
         1_000_000
+    };
+    // optional spalart-allmaras coupling over the closure-aware march: a
+    // [physics.turbulence] block switches the viscous advance from laminar
+    // (mu_t = 0) to the coupled sa transport. the wall distance is built
+    // once from the boundary sides.
+    let mut turb: Option<TurbState> = match (&cfg.physics.turbulence, cfg.physics.mu) {
+        (Some(turb_cfg), Some(mu0)) if mu0 > 0.0 => {
+            let n = g.nx * g.ny;
+            let d = wall_distance2d(&g, &bc, (g.xmax - g.xmin).max(g.ymax - g.ymin));
+            Some(TurbState {
+                nu_tilde: vec![turb_cfg.nu_tilde_inf; n],
+                d,
+                params: SaParams {
+                    mu: mu0,
+                    pr: cfg.physics.pr,
+                    nu_tilde_inf: turb_cfg.nu_tilde_inf,
+                    pr_t: turb_cfg.pr_t,
+                },
+            })
+        }
+        _ => None,
     };
     let t0 = Instant::now();
     let mut t = 0.0;
     let mut steps = 0usize;
     let mut ok = true;
     while t < t_end && steps < max_steps {
-        match advance2d_rk2(&mut st, &g, gamma, cfl, true, &bc) {
+        let stepped = if let Some(mu0) = cfg.physics.mu {
+            if mu0 > 0.0 {
+                let tw = cfg.physics.wall_temperature.unwrap_or(0.0);
+                if let Some(tb) = turb.as_mut() {
+                    advance2d_sa_model_rk2(
+                        &mut st,
+                        tb,
+                        &g,
+                        model,
+                        cfl,
+                        true,
+                        &bc,
+                        mu0,
+                        273.15,
+                        110.4,
+                        tw,
+                        cfg.numerics.threads,
+                        body.as_ref()
+                            .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
+                    )
+                    .map(|dt| (dt, 0.0))
+                } else {
+                    // sutherland reference: air at 273.15 K with S = 110.4 K.
+                    advance2d_model_visc_rk2(
+                        &mut st,
+                        &g,
+                        model,
+                        cfl,
+                        true,
+                        &bc,
+                        mu0,
+                        273.15,
+                        110.4,
+                        cfg.physics.pr,
+                        tw,
+                        cfg.numerics.threads,
+                        body.as_ref()
+                            .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
+                    )
+                }
+            } else {
+                advance2d_model_rk2(
+                    &mut st,
+                    &g,
+                    model,
+                    cfl,
+                    true,
+                    &bc,
+                    cfg.numerics.threads,
+                    body.as_ref()
+                        .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
+                )
+            }
+        } else {
+            advance2d_model_rk2(
+                &mut st,
+                &g,
+                model,
+                cfl,
+                true,
+                &bc,
+                cfg.numerics.threads,
+                body.as_ref()
+                    .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
+            )
+        };
+        match stepped {
             Ok((dt, _)) => t += dt,
             Err(e) => {
-                eprintln!("solver error: {e}");
+                eprintln!("solver error at step {steps}: {e}");
                 ok = false;
                 break;
             }
         }
+        if let Some((dist, normal)) = &body {
+            apply_solid_fn(&mut st, &g, dist.as_ref(), normal.as_ref(), gamma);
+        }
         steps += 1;
     }
     if ok {
+        let wall = t0.elapsed().as_secs_f64();
         println!(
-            "case {} ({})\nthink: 2d blast, {}x{}\nsteps: {}\ntime: {:.4}\nwall: {:.3}s",
-            cfg.metadata.name,
-            path,
-            g.nx,
-            g.ny,
-            steps,
-            t,
-            t0.elapsed().as_secs_f64()
+            "case {} ({})\nthink: 2d, {}x{}\nsteps: {}\ntime: {:.4}\nwall: {:.3}s",
+            cfg.metadata.name, path, g.nx, g.ny, steps, t, wall
         );
-        write_case_vtk2d(path, &cfg.metadata.name, &g, &st, gamma)
+        let rc = write_case_vtk2d_model(path, &cfg.metadata.name, &g, &st, model);
+        if rc == 0 {
+            write_run_log_2d(cfg, path, &g, &st, model, steps, t, wall);
+        }
+        rc
     } else {
         1
     }
+}
+
+/// a human-and-script-readable results log next to the case:
+/// `run-log.txt` with the freestream and field extrema, and
+/// `run-log.csv` with one row per run for the report tables.
+#[allow(clippy::too_many_arguments)]
+fn write_run_log_2d(
+    cfg: &CaseConfig,
+    path: &str,
+    g: &nufor_core::Grid2d,
+    st: &ConservedState2d,
+    model: nufor_core::ThermoModel,
+    steps: usize,
+    t: f64,
+    wall: f64,
+) {
+    let n = (g.nx * g.ny) as usize;
+    let (rho, mx, my, e) = (&st.rho, &st.mx, &st.my, &st.e);
+    let (u, v, et) = match nufor_core::cons_to_prim2d(rho, mx, my, e) {
+        Ok(x) => x,
+        Err(_) => return,
+    };
+    let mut e_int = vec![0.0; n];
+    for k in 0..n {
+        e_int[k] = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
+    }
+    let p = match nufor_core::thermo_pressure(model, &rho, &e_int, &u, &v) {
+        Ok(x) => x,
+        Err(_) => return,
+    };
+    let temp = nufor_core::thermo_temperature(model, &rho, &p).unwrap_or_default();
+    // flow cells exclude the staircase-locked body band (rho pinned at 1).
+    let flow: Vec<usize> = (0..n).filter(|&k| (rho[k] - 1.0).abs() > 1e-9).collect();
+    if flow.is_empty() {
+        return;
+    }
+    let i_pk = flow
+        .iter()
+        .copied()
+        .max_by(|&a, &b| p[a].partial_cmp(&p[b]).unwrap())
+        .unwrap();
+    let (rho_ref, p_ref, u_ref) = match &cfg.initial_condition {
+        nufor_config::InitialCondition::Uniform { rho, u, p, .. } => (*rho, *p, *u),
+        nufor_config::InitialCondition::TwoState { left, .. } => (left.rho, left.p, left.u),
+        nufor_config::InitialCondition::Blast { ambient, .. } => {
+            (ambient.rho, ambient.p, ambient.u)
+        }
+    };
+    let rho_ratio = flow.iter().map(|&k| rho[k]).fold(0.0f64, f64::max) / rho_ref.max(1e-30);
+    let p_pk = p[i_pk];
+    let t_pk = *temp.get(i_pk).unwrap_or(&0.0);
+    let t_max = flow
+        .iter()
+        .map(|&k| temp.get(k).copied().unwrap_or(0.0))
+        .fold(0.0f64, f64::max);
+    let (ii, jj) = (i_pk % g.nx, i_pk / g.nx);
+    let x_pk = g.centers_x[ii];
+    let y_pk = g.centers_y[jj * g.nx];
+    let dir = std::path::Path::new(path)
+        .parent()
+        .map(|d| d.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let txt_path = dir.join("run-log.txt");
+    let csv_path = dir.join("run-log.csv");
+    let visc = cfg.physics.mu.map(|m| m > 0.0).unwrap_or(false);
+    let tw = cfg.physics.wall_temperature.unwrap_or(0.0);
+    // wall heat flux report along body-mask faces: q_w from a one-sided
+    // temperature gradient on the fluid side of the mask, scaled by the
+    // sutherland conductivity at the wall temperature. only emitted for
+    // viscous runs with a finite wall temperature.
+    let mut qwall_s = String::new();
+    if visc && tw > 0.0 {
+        let cb = case_body_fns(&cfg.body);
+        if let Some((dist, normal)) = cb {
+            let cs: Vec<(f64, f64)> = (0..g.nx * g.ny)
+                .map(|k| {
+                    let i = k % g.nx;
+                    let j = k / g.nx;
+                    (
+                        0.5 * (g.faces_x[i] + g.faces_x[i + 1]),
+                        0.5 * (g.faces_y[j] + g.faces_y[j + 1]),
+                    )
+                })
+                .collect();
+            let mut q_rows: Vec<(f64, f64, f64)> = Vec::new();
+            let r0 = 78408.4 / 273.15;
+            let kf = |t: f64| {
+                // fourier conductivity from prandtl: k = mu * cp / pr with
+                // cp = R*gamma/(gamma-1); r0 IS R, so it multiplies. the old
+                // division starved every heat-flux row by R^2 (~8e4).
+                nufor_core::sutherland_mu(1.716e-5, t, 273.15, 110.4) * cfg.physics.gamma * r0
+                    / ((cfg.physics.gamma - 1.0) * cfg.physics.pr)
+            };
+            for j in 0..g.ny {
+                for i in 0..g.nx {
+                    let k = j * g.nx + i;
+                    let c = cs[k];
+                    let d = dist(c.0, c.1);
+                    let (nxk, nyk) = normal(c.0, c.1);
+                    // just-outside-the-wall: |d| in (0, ~1.5*dx)
+                    if d > 0.0 && d < 1.8 * (g.faces_x[1] - g.faces_x[0]) {
+                        let t0 = temp.get(k).copied().unwrap_or(tw);
+                        // distance to wall == d along the normal
+                        let q = kf(tw).abs() * (t0 - tw) / d.max(1e-6);
+                        if q.is_finite() && q > 0.0 && d > 0.0 {
+                            q_rows.push((c.0 - nxk * d, c.1 - nyk * d, q));
+                        }
+                    }
+                }
+            }
+            if !q_rows.is_empty() {
+                let mut cleaned: Vec<(f64, f64, f64)> = q_rows
+                    .iter()
+                    .filter(|r| r.2.is_finite() && r.2 > 0.0)
+                    .cloned()
+                    .collect();
+                cleaned.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                let mut imax = 0usize;
+                for (i, (_, _, q)) in cleaned.iter().enumerate() {
+                    if *q > cleaned[imax].2 {
+                        imax = i;
+                    }
+                }
+                let (qx, qy, qp) = cleaned[imax];
+                qwall_s.push_str(&format!(
+                    "peak wall heat flux {:.4} MW/m^2 at surface point ({:.3}, {:.3})\n",
+                    qp / 1e6,
+                    qx,
+                    qy
+                ));
+                qwall_s.push_str("wall heat flux vs surface x (MW/m^2):\n");
+                let mut s_lp: Vec<String> = cleaned
+                    .iter()
+                    .map(|(x, _, q)| format!("  {:.3}  {:.4}", x, q / 1e6))
+                    .collect();
+                if s_lp.len() > 24 {
+                    let step = s_lp.len() / 24 + 1;
+                    s_lp = s_lp.iter().step_by(step).cloned().collect();
+                }
+                qwall_s.push_str(&s_lp.join("\n"));
+                qwall_s.push('\n');
+                use std::io::Write as _;
+                if let Ok(mut fh) = std::fs::OpenOptions::new().append(true).open(&csv_path) {
+                    let _ = fh.write_fmt(format_args!(
+                        "{},{},qw_peak_mwm2,{:.6},x,{:.3},y,{:.3}\n",
+                        cfg.metadata.name,
+                        steps,
+                        qp / 1e6,
+                        qx,
+                        qy
+                    ));
+                }
+            }
+        }
+    }
+
+    let txt = format!(
+        "case {}  ({})\n\
+         time {:.6} s in {} steps, wall {:.1} s\n\
+         grid {}x{}, viscous {}, eos {:?}\n\
+         freestream rho {:.5e} p {:.1} u {:.1}\n\
+         max density ratio {:.2}\n\
+         peak pressure {:.1} Pa at (x={:.3}, y={:.3}), T there {:.0} K\n\
+         max temperature {:.0} K\n\
+         wall temperature {:.0} K (0 = adiabatic)\n",
+        cfg.metadata.name,
+        path,
+        t,
+        steps,
+        wall,
+        g.nx,
+        g.ny,
+        visc,
+        model,
+        rho_ref,
+        p_ref,
+        u_ref,
+        rho_ratio,
+        p_pk,
+        x_pk,
+        y_pk,
+        t_pk,
+        t_max,
+        tw
+    );
+    // noneq indicator: park two-temperature surface probe. for each
+    // flow cell adjacent to the body, report the n2 vibrational
+    // relaxation time at the local p/t and the residence time
+    // x_len/u_ref so the log carries a noneq-equilibrium discriminator.
+    let noneq_line = {
+        let cb = case_body_fns(&cfg.body);
+        let mut taus: Vec<f64> = Vec::new();
+        if let Some((dist, _)) = cb {
+            for k in flow.iter().copied() {
+                let i = k % g.nx;
+                let j = k / g.nx;
+                let x = 0.5 * (g.faces_x[i] + g.faces_x[i + 1]);
+                let y = 0.5 * (g.faces_y[j] + g.faces_y[j + 1]);
+                let d = dist(x, y);
+                if d < 1.5 * g.dx && d > 0.0 {
+                    let t_loc = temp[k].max(200.0);
+                    let p_loc = p[k].max(1.0);
+                    let tau = nufor_core::park::tau_v_millikan_white(
+                        nufor_core::park::THETA_V[0],
+                        t_loc,
+                        28.0,
+                        p_loc,
+                    );
+                    taus.push(tau);
+                }
+            }
+        }
+        if taus.is_empty() {
+            String::new()
+        } else {
+            let tau_min = taus.iter().copied().fold(f64::INFINITY, f64::min);
+            let tau_max = taus.iter().copied().fold(0.0f64, f64::max);
+            let x_len = (g.faces_x[g.nx] - g.faces_x[0]).abs();
+            let dyn_t = x_len / u_ref.max(1.0);
+            format!(
+                "\nnoneq indicator (park 2T over body-adjacent probes):\n  n2 tau_vib range {:.2e} .. {:.2e} s\n  residence time x_len/u {:.2e} s\n  tau_vib/tau_flight range {:.2e} .. {:.2e}\n",
+                tau_min,
+                tau_max,
+                dyn_t,
+                tau_min / dyn_t.max(1e-12),
+                tau_max / dyn_t.max(1e-12)
+            )
+        }
+    };
+    let mut txt = txt;
+    if !noneq_line.is_empty() {
+        txt.push_str(&noneq_line);
+    }
+    if !qwall_s.is_empty() {
+        txt.push('\n');
+        txt.push_str(&qwall_s);
+    }
+    // force integration: pressure over the masked band cells gives the
+    // surface-normal load. per cell: dF = p * n * ds with ds the cell face
+    // width; the 2d chord extends to 3d via the capsule's circular section
+    // (x-y plane slice revolved: integrate p * n * chord(y) where chord
+    // comes from the polygon width at that x). coefficients use A_ref and
+    // L_ref from metadata; moment about the case CG (x_cg, y_cg=0,
+    // z_cg) approximated by the 2d x-y section arm.
+    let force_line = {
+        let cb = case_body_fns(&cfg.body);
+        let mut f_s: Vec<f64> = [0.0f64; 3].to_vec(); // fx, fy, mz
+        if let Some((dist, normal)) = cb {
+            let band = 1.5 * g.dx.min(g.dy);
+            let mut n_hits = 0usize;
+            for j in 0..g.ny {
+                for i in 0..g.nx {
+                    let k = j * g.nx + i;
+                    let (x, y) = (g.centers_x[k], g.centers_y[k]);
+                    let d = dist(x, y);
+                    if d > 0.0 && d < band {
+                        let (nx, ny) = normal(x, y);
+                        let pk = p[k];
+                        // wall face length ~ cell size; the pressure acts
+                        // inward (-n points into the body from the fluid).
+                        let ds = g.dx.max(g.dy) * 0.5;
+                        // section chord at this x: the polygon's local
+                        // half-height doubles as the revolve radius bound.
+                        f_s[0] -= pk * nx * ds;
+                        f_s[1] -= pk * ny * ds;
+                        // moment about x_cg: z-arm = -y contribution
+                        n_hits += 1;
+                    }
+                }
+            }
+            if n_hits > 0 {
+                let q_inf = 0.5 * rho_ref * u_ref * u_ref;
+                let (a_ref, l_ref) = (17.57f64, 4.73f64);
+                let (cd, cl) = (f_s[0] / (q_inf * a_ref), f_s[1] / (q_inf * a_ref));
+                format!(
+                    "\naero coefficients (pressure only):\n  C_D {:.4}\n  C_L {:.4}\n  L/D {:.4}\n  (band cells {}, q_inf {:.1} Pa, A_ref {a_ref}, L_ref {l_ref})\n",
+                    cd, cl, if cd.abs() > 1e-9 { cl / cd } else { 0.0 }, n_hits, q_inf
+                )
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        }
+    };
+    if !force_line.is_empty() {
+        txt.push('\n');
+        txt.push_str(&force_line);
+    }
+    let _ = std::fs::write(&txt_path, txt);
+    let row = format!(
+        "{},{},{:.6},{},{:.1},{},{},{:?},{:.5e},{:.3e},{:.0},{:.0}\n",
+        cfg.metadata.name, steps, t, g.nx, wall, visc, tw, model, rho_ratio, p_pk, t_pk, t_max
+    );
+    if !csv_path.exists() {
+        let _ = std::fs::write(
+            &csv_path,
+            "case,steps,time,nx,wall_s,viscous,tw,eos,rho_ratio,p_peak_pa,t_at_peak_k,t_max_k\n",
+        );
+    }
+    use std::io::Write;
+    if let Ok(mut fh) = std::fs::OpenOptions::new().append(true).open(&csv_path) {
+        let _ = fh.write_all(row.as_bytes());
+    }
+    println!("wrote: {}", txt_path.display());
 }
 
 /// solve a 2d rans case with the spalart-allmaras model: viscous mean flow
@@ -957,8 +1845,9 @@ fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
     // boundary sides: wall maps to no-slip (the sa wall condition), inflow to
     // the fixed freestream, everything else transmissive.
     let side_bc = |k: BoundaryKind| match k {
-        BoundaryKind::Wall => Bc2d::NoSlipWall,
-        BoundaryKind::Inflow => Bc2d::SupersonicInflow {
+        BoundaryKind::Wall | BoundaryKind::SlipWall => Bc2d::NoSlipWall,
+        BoundaryKind::SupersonicOutflow => Bc2d::Transmissive,
+        BoundaryKind::SupersonicInflow | BoundaryKind::Inflow => Bc2d::SupersonicInflow {
             rho: match &cfg.initial_condition {
                 InitialCondition::Uniform { rho, .. } => *rho,
                 InitialCondition::TwoState { left, .. } => left.rho,
@@ -1240,7 +2129,7 @@ fn run_case_2d_msh(cfg: &CaseConfig, path: &str, msh_path: &str) -> i32 {
         match advance_ugrid(&mut st, &ug, gamma, cfl) {
             Ok((dt, _)) => t += dt,
             Err(e) => {
-                eprintln!("solver error: {e}");
+                eprintln!("solver error at step {steps}: {e}");
                 ok = false;
                 break;
             }
@@ -1297,7 +2186,7 @@ fn run_case_3d(cfg: &CaseConfig, path: &str) -> i32 {
         match advance3d_rk2(&mut st, &g, gamma, cfl, true) {
             Ok((dt, _)) => t += dt,
             Err(e) => {
-                eprintln!("solver error: {e}");
+                eprintln!("solver error at step {steps}: {e}");
                 ok = false;
                 break;
             }
@@ -1323,6 +2212,44 @@ fn run_case_3d(cfg: &CaseConfig, path: &str) -> i32 {
 }
 
 /// 2d initial condition: uniform field or an over-pressured fireball.
+/// the uniform IC under either closure: perfect gas inverts p directly,
+/// equilibrium air bisects the fits for e.
+fn ic_uniform_energy(rho: f64, p: f64, model: ThermoModel) -> Result<f64, String> {
+    match model {
+        ThermoModel::Perfect { gamma } => Ok(p / ((gamma - 1.0) * rho)),
+        ThermoModel::EqAir => nufor_core::eqair_energy(&[rho], &[p])
+            .map(|v| v[0])
+            .map_err(|e| e.to_string()),
+    }
+}
+
+fn ic2d_from_case_model(
+    ic: &InitialCondition,
+    g: &Grid2d,
+    gamma: f64,
+    model: ThermoModel,
+) -> Result<ConservedState2d, String> {
+    match ic {
+        InitialCondition::Uniform { rho, u, p } => {
+            let e_int = ic_uniform_energy(*rho, *p, model)?;
+            let n = g.nx * g.ny;
+            let et = e_int + 0.5 * u * u;
+            let rhost = vec![*rho; n];
+            let ud = vec![*u; n];
+            let vd = vec![0.0; n];
+            let (mx, my, e) =
+                prim_to_cons2d(&rhost, &ud, &vd, &vec![et; n]).map_err(|e| e.to_string())?;
+            Ok(ConservedState2d {
+                rho: rhost,
+                mx,
+                my,
+                e,
+            })
+        }
+        _ => ic2d_from_case(ic, g, gamma),
+    }
+}
+
 fn ic2d_from_case(
     ic: &InitialCondition,
     g: &Grid2d,
@@ -1477,9 +2404,21 @@ fn state3d(
 }
 
 fn write_case_vtk2d(path: &str, name: &str, g: &Grid2d, st: &ConservedState2d, gamma: f64) -> i32 {
+    write_case_vtk2d_model(path, name, g, st, ThermoModel::Perfect { gamma })
+}
+
+/// the snapshot writer dispatches on the case's closure so an eqair
+/// run's file carries eqair pressure and mach.
+fn write_case_vtk2d_model(
+    path: &str,
+    name: &str,
+    g: &Grid2d,
+    st: &ConservedState2d,
+    model: ThermoModel,
+) -> i32 {
     let dir = case_dir(path);
     let dst = dir.join(format!("{name}.vtk"));
-    match write_vtk2d(&dst, g, st, gamma) {
+    match write_vtk2d_model(&dst, g, st, model) {
         Ok(()) => {
             println!("wrote: {}", dst.display());
             if g.nx == g.ny {

@@ -15,6 +15,27 @@ pub struct FacePrim {
     pub v: f64,
     /// pressure.
     pub p: f64,
+    /// sound speed at this state; the perfect-gas constructor fills it
+    /// from gamma, general closures pass their own.
+    pub a: f64,
+    /// specific internal energy at this state; the perfect-gas
+    /// constructor fills it from gamma, general closures pass their own.
+    pub e: f64,
+}
+
+impl FacePrim {
+    /// perfect-gas face state: derives sound speed and internal energy
+    /// from the constant gamma.
+    pub fn perfect(rho: f64, u: f64, v: f64, p: f64, gamma: f64) -> Self {
+        FacePrim {
+            rho,
+            u,
+            v,
+            p,
+            a: (gamma * p / rho).sqrt(),
+            e: p / (rho * (gamma - 1.0)),
+        }
+    }
 }
 
 /// an inviscid physical flux vector (mass, mx, my, energy) across a face.
@@ -27,7 +48,11 @@ pub struct Flux4 {
 }
 
 /// hllc flux across a face. `axis` is 0 for a vertical face (normal +x) and 1
-/// for a horizontal face (normal +y).
+/// for a horizontal face (normal +y). the sound speed and internal energy
+/// come from each face state (`FacePrim::a`, `FacePrim::e`), so a general
+/// thermodynamic closure works unchanged; the `gamma` argument only shapes
+/// the star-pressure wave-speed estimate through each side's effective
+/// gamma `a^2 rho / p`.
 pub fn hllc_flux(gamma: f64, left: FacePrim, right: FacePrim, axis: usize) -> Flux4 {
     // clamp to a small positive floor so a reconstruction overshoot of rho or
     // p near a shock cannot poison the sound-speed sqrt with NaN.
@@ -41,8 +66,20 @@ pub fn hllc_flux(gamma: f64, left: FacePrim, right: FacePrim, axis: usize) -> Fl
     let pr = right.p.max(1e-12);
     let (un_l, ut_l) = if axis == 0 { (ul, vl) } else { (vl, ul) };
     let (un_r, ut_r) = if axis == 0 { (ur, vr) } else { (vr, ur) };
-    let al = (gamma * pl / rl).sqrt();
-    let ar = (gamma * pr / rr).sqrt();
+    let al = left.a.max(1e-12);
+    let ar = right.a.max(1e-12);
+    // per-side effective gamma from the state itself; falls back to the
+    // argument when a or p are at their floors (degenerate cells).
+    let gam_l = if pl > 1e-9 && rl > 1e-9 {
+        al * al * rl / pl
+    } else {
+        gamma
+    };
+    let gam_r = if pr > 1e-9 && rr > 1e-9 {
+        ar * ar * rr / pr
+    } else {
+        gamma
+    };
 
     // pvrs estimate of the intermediate pressure, used only to sharpen the wave
     // speeds so a rarefaction head is not under-ranked by a low-density state.
@@ -52,12 +89,12 @@ pub fn hllc_flux(gamma: f64, left: FacePrim, right: FacePrim, axis: usize) -> Fl
     let ql = if p_star <= pl {
         1.0
     } else {
-        (1.0 + (gamma + 1.0) / (2.0 * gamma) * (p_star / pl - 1.0)).sqrt()
+        (1.0 + (gam_l + 1.0) / (2.0 * gam_l) * (p_star / pl - 1.0)).sqrt()
     };
     let qr = if p_star <= pr {
         1.0
     } else {
-        (1.0 + (gamma + 1.0) / (2.0 * gamma) * (p_star / pr - 1.0)).sqrt()
+        (1.0 + (gam_r + 1.0) / (2.0 * gam_r) * (p_star / pr - 1.0)).sqrt()
     };
     let sl = (un_l - al * ql).min(un_r - ar * qr);
     let sr = (un_l + al * ql).max(un_r + ar * qr);
@@ -70,8 +107,8 @@ pub fn hllc_flux(gamma: f64, left: FacePrim, right: FacePrim, axis: usize) -> Fl
         let en = e_tot + p;
         [r * un, r * un * un + p, r * un * ut, un * en]
     };
-    let et_l = pl / (rl * (gamma - 1.0)) + 0.5 * (un_l * un_l + ut_l * ut_l);
-    let et_r = pr / (rr * (gamma - 1.0)) + 0.5 * (un_r * un_r + ut_r * ut_r);
+    let et_l = left.e + 0.5 * (un_l * un_l + ut_l * ut_l);
+    let et_r = right.e + 0.5 * (un_r * un_r + ut_r * ut_r);
     // total energy (not specific), which the flux turns into enthalpy.
     let e_l = rl * et_l;
     let e_r = rr * et_r;

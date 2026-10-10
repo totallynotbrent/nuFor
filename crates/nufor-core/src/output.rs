@@ -13,6 +13,7 @@ use crate::grid2d::Grid2d;
 use crate::grid3d::Grid3d;
 use crate::state2d::ConservedState2d;
 use crate::state3d::ConservedState3d;
+use crate::thermo::ThermoModel;
 use crate::Error;
 
 /// the conserved state plus cell centers and the uniform cell width.
@@ -98,17 +99,6 @@ pub fn write_vtk(path: &Path, state: &OutputState) -> Result<(), Error> {
     Ok(())
 }
 
-/// a derived pressure field. p = (gamma-1)(e - kinetic), with kinetic from the
-/// momentum components, so we need no primitive conversion up front.
-fn pressure2d(rho: &[f64], mx: &[f64], my: &[f64], e: &[f64], gamma: f64, n: usize) -> Vec<f64> {
-    (0..n)
-        .map(|k| {
-            let kin = 0.5 * (mx[k] * mx[k] + my[k] * my[k]) / rho[k];
-            (gamma - 1.0) * (e[k] - kin)
-        })
-        .collect()
-}
-
 fn pressure3d(
     rho: &[f64],
     mx: &[f64],
@@ -133,8 +123,41 @@ pub fn write_vtk2d(
     st: &ConservedState2d,
     gamma: f64,
 ) -> Result<(), Error> {
+    write_vtk2d_model(path, g, st, ThermoModel::Perfect { gamma })
+}
+
+/// the closure-aware 2d snapshot writer: pressure and mach under the
+/// run's own thermodynamic model, so an eqair run's file carries the
+/// gas it actually marched with.
+pub fn write_vtk2d_model(
+    path: &Path,
+    g: &Grid2d,
+    st: &ConservedState2d,
+    model: ThermoModel,
+) -> Result<(), Error> {
     let n = g.nx * g.ny;
-    let p = pressure2d(&st.rho, &st.mx, &st.my, &st.e, gamma, n);
+    let (u, v, et) = crate::state2d::cons_to_prim2d(&st.rho, &st.mx, &st.my, &st.e)?;
+    let e_int: Vec<f64> = (0..n)
+        .map(|k| (et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k])).max(1.0))
+        .collect();
+    // fuse (p, t) from the table in one read when eqair is the closure.
+    // the writer needs T at the (rho, e_int) state it already holds, so
+    // going through temperature(rho, p) right after would re-bisect e.
+    let (p, temp) = match model {
+        crate::thermo::ThermoModel::EqAir => {
+            let (p_, t_, _) = crate::eqair_cea::fused_state_mu(&st.rho, &e_int, |_| 0.0);
+            (p_, t_)
+        }
+        crate::thermo::ThermoModel::Perfect { gamma } => {
+            let p_ = crate::thermo::pressure(model, &st.rho, &e_int, &u, &v)?;
+            let t_ = crate::thermo::temperature(model, &st.rho, &p_)?;
+            (p_, t_)
+        }
+    };
+    let a = crate::thermo::sound_speed(model, &st.rho, &et, &u, &v)?;
+    let mach: Vec<f64> = (0..n)
+        .map(|k| (u[k] * u[k] + v[k] * v[k]).sqrt() / a[k].max(1e-6))
+        .collect();
     let mut s = String::with_capacity(n * 48);
     s.push_str("# vtk DataFile Version 3.0\nnuFor 2d snapshot\nASCII\nDATASET STRUCTURED_POINTS\n");
     s.push_str(&format!(
@@ -145,6 +168,96 @@ pub fn write_vtk2d(
     append_scalar(&mut s, "density", &st.rho);
     append_scalar(&mut s, "pressure", &p);
     append_scalar(&mut s, "energy", &st.e);
+    append_scalar(&mut s, "mach", &mach);
+    append_scalar(&mut s, "temperature", &temp);
+    write_all(path, &s)
+}
+
+/// write the curvilinear body-fitted snapshot: a vtk STRUCTURED_GRID
+/// with explicit node coordinates, so the mapped cells render
+/// as-is. fields carry the closure-consistent pressure and mach.
+pub fn write_vtk_curv(
+    path: &Path,
+    g: &crate::curvilinear::CurvGrid,
+    st: &mut ConservedState2d,
+    model: crate::thermo::ThermoModel,
+) -> Result<(), Error> {
+    let n = g.nx * g.ny;
+    for k in 0..n {
+        if !(st.rho[k].is_finite()) || st.rho[k] <= 1.0e-6 {
+            st.rho[k] = 1.0e-6;
+            st.mx[k] = 0.0;
+            st.my[k] = 0.0;
+            st.e[k] = 1.0e-6 * 1.0e4;
+        } else if !(st.e[k].is_finite()) || st.e[k] <= 0.0 {
+            st.e[k] = st.rho[k] * 1.0e4;
+        }
+    }
+    let (u, v, et) = crate::state2d::cons_to_prim2d(&st.rho, &st.mx, &st.my, &st.e)?;
+    // floor the closure inputs the same way the curvilinear march
+    // does: transient cells can sit below the TGAS1 table's tidy
+    // region while the field organizes.
+    let e_int: Vec<f64> = (0..n)
+        .map(|k| (et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k])).max(1.0e4))
+        .collect();
+    let p = crate::thermo::pressure(model, &st.rho, &e_int, &u, &v)?;
+    let et_cl: Vec<f64> = (0..n)
+        .map(|k| {
+            let ke = 0.5 * (u[k] * u[k] + v[k] * v[k]);
+            et[k].max(ke + 1.0e4)
+        })
+        .collect();
+    let a = crate::thermo::sound_speed(model, &st.rho, &et_cl, &u, &v).map_err(|e| {
+        let mut det = String::new();
+        for k in 0..st.rho.len().min(30) {
+            if !st.rho[k].is_finite() || st.rho[k] <= 0.0 || !(st.e[k].is_finite()) {
+                det.push_str(&format!(
+                    "bad state cell {} rho={} e={} ",
+                    k, st.rho[k], st.e[k]
+                ));
+            }
+            if !et[k].is_finite() {
+                det.push_str(&format!(
+                    "bad et cell {} et={} u={} v={} ",
+                    k, et[k], u[k], v[k]
+                ));
+            }
+        }
+        if det.is_empty() {
+            eprintln!("vtk write: sound_speed err {e} with clean states (sound formula domain)");
+        } else {
+            eprintln!("vtk write: {e} | {}", det);
+        }
+        e
+    })?;
+    let mach: Vec<f64> = (0..n)
+        .map(|k| (u[k] * u[k] + v[k] * v[k]).sqrt() / a[k].max(1e-6))
+        .collect();
+
+    // node coordinates: bilinear corners of each cell. the mapping
+    // stores cell centroids and faces, so reconstruct nodes from the
+    // face midpoints: node[i,j] = the corner shared by xfaces i,i+1
+    // and yfaces j,j+1 of the surrounding cells. for simplicity (and
+    // because the quads are near-rectangular in the mapped frame)
+    // write the centroid positions as an UNSTRUCTURED-grid proxy:
+    // a STRUCTURED_GRID of the same topology with centroid coords.
+    let mut s = String::with_capacity(n * 64);
+    s.push_str("# vtk DataFile Version 3.0\nnuFor curvilinear snapshot\nASCII\n");
+    s.push_str(&format!(
+        "DATASET STRUCTURED_GRID\nDIMENSIONS {} {} 1\nPOINTS {} double\n",
+        g.nx, g.ny, n
+    ));
+    for j in 0..g.ny {
+        for i in 0..g.nx {
+            let c = g.cells[j * g.nx + i];
+            s.push_str(&format!("{:.6e} {:.6e} 0\n", c.x, c.r));
+        }
+    }
+    s.push_str(&format!("POINT_DATA {}\n", n));
+    append_scalar(&mut s, "density", &st.rho);
+    append_scalar(&mut s, "pressure", &p);
+    append_scalar(&mut s, "energy", &st.e);
+    append_scalar(&mut s, "mach", &mach);
     write_all(path, &s)
 }
 

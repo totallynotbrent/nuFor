@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+Laminar viscous flow meets the thermodynamic closure. A planar 2D case
+with `physics.mu` above zero now steps with a viscous march that closes
+over whichever closure the case names: per-cell Sutherland viscosity
+against the cell temperature, conductivity following `physics.pr`
+scaled by the closure's cold-air gas constant. The wall thermal side
+is a new `physics.wall_temperature` key (K); zero keeps the adiabatic
+wall, any positive value a fixed cold wall. Every case run writes a
+`run-log.txt` summary and appends a `run-log.csv` row next to the case
+file: case, grid, step count, wall clock, viscous/eos flags, freestream
+state, and the peak-pressure and peak-temperature extrema with their
+locations.
+
 Axisymmetric Euler solver and masked solid bodies. The 2D planar flux
 machinery now drives an annular update for bodies of revolution: radial
 faces carry the cell radii and radial momentum gains the geometric p/r

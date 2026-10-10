@@ -3,8 +3,7 @@
 //! actually animate instead of re-solving every tick.
 
 use nufor_core::{
-    advance2d_rk2, advance3d_rk2, grid2d, grid3d, render_png_rect, write_vtk2d, Boundaries2d,
-    Bounds3d, ConservedState2d, Grid2d,
+    advance2d_rk2, advance3d_rk2, grid2d, grid3d, write_vtk2d, Boundaries2d, Bounds3d, Grid2d,
 };
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
@@ -115,95 +114,71 @@ impl RunJob {
 /// the frame cache: bake n_steps 2d blast frames once in the background so
 /// playback animates from memory instead of solving per request.
 pub struct FrameCache {
-    frames: Mutex<Vec<(f64, Vec<u8>)>>,
-    pub baking: AtomicBool,
+    frames: Mutex<Vec<(&'static str, f64, Vec<u8>)>>,
 }
 
 impl FrameCache {
     pub fn new() -> Self {
         Self {
             frames: Mutex::new(Vec::new()),
-            baking: AtomicBool::new(false),
         }
     }
 
-    /// bake the default blast animation (2d, t from 0.02 to 0.35) once.
-    pub fn spawn_bake(self: &std::sync::Arc<Self>, n: usize, field: &str) {
-        if self.baking.load(Ordering::Relaxed) {
-            return;
-        }
-        self.baking.store(true, Ordering::Relaxed);
-        let cache = std::sync::Arc::clone(self);
-        let field = field.to_string();
-        std::thread::spawn(move || {
-            let g = grid2d(n, n, 0.0, 1.0, 0.0, 1.0).unwrap();
-            let mut st = crate::serve::blast_ic2d(&g, GAMMA);
-            let bc = Boundaries2d::default();
-            let mut t = 0.02f64;
-            let mut frames: Vec<(f64, Vec<u8>)> = Vec::new();
-            let t_stop = 0.35f64;
-            while t < t_stop {
-                // march a fixed dt so the frames land on round t values
-                let (dt, _) = advance2d_rk2(&mut st, &g, GAMMA, 0.4, true, &bc).unwrap();
-                if t + dt > t_stop {
-                    break;
-                }
-                t += dt;
-                if frames.is_empty() || (t - frames.last().unwrap().0).abs() > 0.009 {
-                    let png = render_field2d(&g, &st, &field);
-                    frames.push((t, png));
-                }
-            }
-            *cache.frames.lock().unwrap() = frames;
-            cache.baking.store(false, Ordering::Relaxed);
-        });
-    }
-
-    /// the frame nearest the requested t, if baked.
-    pub fn frame_near(&self, t: f64) -> Option<(f64, Vec<u8>)> {
+    /// the frame nearest the requested t for the given field, if baked.
+    pub fn frame_near(&self, field: &str, t: f64) -> Option<(f64, Vec<u8>)> {
         let frames = self.frames.lock().unwrap();
-        if frames.is_empty() {
-            return None;
+        let cand: Vec<&(&'static str, f64, Vec<u8>)> = frames
+            .iter()
+            .filter(|(f, _, _)| *f == field || field.is_empty())
+            .collect();
+        if cand.is_empty() {
+            // fall back to any field so playback never goes blank
+            if frames.is_empty() {
+                return None;
+            }
+            let best = frames
+                .iter()
+                .min_by(|a, b| {
+                    (a.1 - t)
+                        .abs()
+                        .partial_cmp(&(b.1 - t).abs())
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .unwrap();
+            return Some((best.1, best.2.clone()));
         }
-        frames
+        let best = cand
             .iter()
             .min_by(|a, b| {
-                (a.0 - t)
+                (a.1 - t)
                     .abs()
-                    .partial_cmp(&(b.0 - t).abs())
+                    .partial_cmp(&(b.1 - t).abs())
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
-            .cloned()
+            .unwrap();
+        Some((best.1, best.2.clone()))
+    }
+
+    /// append one frame of each rendered field at time t; the frames
+    /// arrive live during a run, so the ui can scrub while it marches.
+    pub fn frames_push(&self, frame: (&'static str, f64, Vec<u8>)) {
+        self.frames.lock().unwrap().push(frame);
+    }
+
+    /// drop all frames: a new run starts with an empty playback.
+    pub fn frames_clear(&self) {
+        self.frames.lock().unwrap().clear();
     }
 
     /// the sorted t values, for the ui slider ticks.
     pub fn times_json(&self) -> String {
         let frames = self.frames.lock().unwrap();
-        let ts: Vec<String> = frames.iter().map(|(t, _)| format!("{t:.3}")).collect();
+        let mut ts: Vec<f64> = frames.iter().map(|(_, t, _)| *t).collect();
+        ts.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        ts.dedup();
+        let ts: Vec<String> = ts.iter().map(|t| format!("{t:.3}")).collect();
         format!("[{}]", ts.join(","))
     }
-}
-
-/// render one 2d field (mach or density) from a conserved state.
-pub fn render_field2d(g: &Grid2d, st: &ConservedState2d, field: &str) -> Vec<u8> {
-    let (lo, hi) = if field == "mach" {
-        (0.0, 1.4)
-    } else {
-        (0.85, 3.0)
-    };
-    let data: Vec<f64> = match field {
-        "mach" => (0..g.nx * g.ny)
-            .map(|k| {
-                let rho = st.rho[k];
-                let u = st.mx[k] / rho;
-                let v = st.my[k] / rho;
-                let p = (GAMMA - 1.0) * (st.e[k] - 0.5 * rho * (u * u + v * v));
-                (u * u + v * v).sqrt() / (GAMMA * p / rho).sqrt().max(1e-12)
-            })
-            .collect(),
-        _ => st.rho.clone(),
-    };
-    render_png_rect(&data, g.nx, g.ny, lo, hi).unwrap_or_default()
 }
 
 /// the mesh description the mesh pane draws: face coordinates for the active

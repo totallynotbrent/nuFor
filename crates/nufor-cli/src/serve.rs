@@ -100,6 +100,10 @@ pub struct Server {
     pub plates: std::sync::Arc<crate::plates::PlateCache>,
     pub runs: std::sync::Arc<crate::runstate::RunState>,
     pub meshview: std::sync::Arc<crate::meshview::MeshViewState>,
+    pub cases: std::sync::Arc<crate::casework::CaseState>,
+    /// the current request's POST body, set by the serve loop before
+    /// handle_request runs.
+    pub post_body: Vec<u8>,
 }
 
 /// the left/right primitive states for a case.
@@ -737,6 +741,11 @@ fn compare_json(fields: &[String], n_list: &[usize], line: &str, samples: usize)
     format!(r#"{{"line":"{}","series":[{}]}}"#, line, series.join(","))
 }
 
+/// the stashed POST body as text, for the case save/create routes.
+fn casework_body(server: &Server) -> String {
+    String::from_utf8_lossy(&server.post_body).into_owned()
+}
+
 /// (status, content-type, body) for a request path with its query string.
 pub fn handle_request(path: &str, server: &mut Server) -> (String, &'static str, Vec<u8>) {
     let (route, query) = match path.split_once('?') {
@@ -842,6 +851,90 @@ pub fn handle_request(path: &str, server: &mut Server) -> (String, &'static str,
                 )
             }
         }
+        "/api/cases" => respond("200 OK", "application/json", server.cases.list_json()),
+        "/api/cases/load" => {
+            // one case's raw toml, for the editor form.
+            match get("name").map(String::as_str).unwrap_or("") {
+                "" => respond(
+                    "400 Bad Request",
+                    "application/json",
+                    "\"name required\"".to_string(),
+                ),
+                n => match server.cases.load(n) {
+                    Ok(text) => respond("200 OK", "text/plain; charset=utf-8", text),
+                    Err(e) => respond("404 Not Found", "application/json", format!("\"{e}\"")),
+                },
+            }
+        }
+        "/api/cases/save" => {
+            // the edited toml text back to the case file, validated first.
+            let name = get("name").map(String::as_str).unwrap_or("").to_string();
+            let body = casework_body(server);
+            match server.cases.save(&name, &body) {
+                Ok(()) => respond("200 OK", "application/json", "\"saved\"".to_string()),
+                Err(e) => respond("400 Bad Request", "application/json", format!("\"{e}\"")),
+            }
+        }
+        "/api/cases/create" => {
+            let name = get("name").map(String::as_str).unwrap_or("").to_string();
+            let body = casework_body(server);
+            match server.cases.create(&name, &body) {
+                Ok(()) => respond("200 OK", "application/json", "\"created\"".to_string()),
+                Err(e) => respond("400 Bad Request", "application/json", format!("\"{e}\"")),
+            }
+        }
+        "/api/cases/delete" => {
+            let name = get("name").map(String::as_str).unwrap_or("").to_string();
+            match server.cases.delete(&name) {
+                Ok(()) => respond("200 OK", "application/json", "\"deleted\"".to_string()),
+                Err(e) => respond("400 Bad Request", "application/json", format!("\"{e}\"")),
+            }
+        }
+        "/api/cases/run" => {
+            // async: start the case march, return immediately.
+            let name = get("name").map(String::as_str).unwrap_or("").to_string();
+            match server.cases.start(&name) {
+                Ok(job) => respond("202 Accepted", "application/json", job.status_json()),
+                Err(e) => respond("400 Bad Request", "application/json", format!("\"{e}\"")),
+            }
+        }
+        "/api/cases/run-status" => {
+            respond("200 OK", "application/json", server.cases.status_json())
+        }
+        "/api/cases/surface" => respond("200 OK", "application/json", server.cases.surface_json()),
+        "/api/cases/restore" => {
+            let name = get("name").map(String::as_str).unwrap_or("");
+            match server.cases.restore(name) {
+                Ok(_) => respond(
+                    "200 OK",
+                    "application/json",
+                    "{\"restored\":true}".to_string(),
+                ),
+                Err(e) => respond("404 Not Found", "application/json", format!("\"{e}\"")),
+            }
+        }
+        "/api/cases/probe" => {
+            let field = get("field").map(String::as_str).unwrap_or("rho");
+            let p: Vec<f64> = [("x0", 0.0), ("y0", 0.0), ("x1", 9.5), ("y1", 2.0)]
+                .iter()
+                .map(|(k, d)| get(k).and_then(|s| s.parse().ok()).unwrap_or(*d))
+                .collect();
+            let samples = get("samples").and_then(|s| s.parse().ok()).unwrap_or(64);
+            respond(
+                "200 OK",
+                "application/json",
+                server
+                    .cases
+                    .probe_json(field, p[0], p[1], p[2], p[3], samples),
+            )
+        }
+        "/api/cases/mesh" => {
+            let name = get("name").map(String::as_str).unwrap_or("");
+            match server.cases.mesh_json(name) {
+                Ok(body) => respond("200 OK", "application/json", body),
+                Err(e) => respond("404 Not Found", "application/json", format!("\"{e}\"")),
+            }
+        }
         "/api/run-case" => {
             // async: start the background march, return immediately.
             let dim = get("dim").map(String::as_str).unwrap_or("2d").to_string();
@@ -857,7 +950,8 @@ pub fn handle_request(path: &str, server: &mut Server) -> (String, &'static str,
         "/api/run-status" => respond("200 OK", "application/json", server.runs.status_json()),
         "/api/frames" => {
             let t = get("t").and_then(|s| s.parse().ok()).unwrap_or(0.10);
-            match server.runs.frames.frame_near(t) {
+            let field = get("field").map(String::as_str).unwrap_or("");
+            match server.runs.frames.frame_near(field, t) {
                 Some((_, png)) => ("200 OK".to_string(), "image/png", png),
                 None => respond(
                     "503 Service Unavailable",
@@ -990,6 +1084,7 @@ pub fn handle_request(path: &str, server: &mut Server) -> (String, &'static str,
         }
         "/api/plates/turbulent/image" => {
             let field = get("field").map(String::as_str).unwrap_or("mach");
+            server.plates.ensure_warm();
             let guard = server.plates.turbulent.lock().unwrap();
             match guard.as_ref() {
                 Some(plate) => match crate::plates::plate_image(plate, field) {
@@ -1062,11 +1157,17 @@ pub fn handle_request(path: &str, server: &mut Server) -> (String, &'static str,
 /// serves requests on all interfaces (0.0.0.0:port) until the process is stopped.
 pub fn run(port: u16) -> std::io::Result<()> {
     let (snap, info) = solve(&RunConfig::default());
+    // the turbulent plate bakes lazily: the first request for its
+    // image starts the solve, so an idle server costs no cpu (the
+    // old eager warmup burned a full core on every restart).
     let plates = std::sync::Arc::new(crate::plates::PlateCache::new());
-    plates.spawn_warmup();
     let runs = std::sync::Arc::new(crate::runstate::RunState::new());
-    runs.frames.spawn_bake(160, "mach");
     let meshview = std::sync::Arc::new(crate::meshview::MeshViewState::new());
+    let case_dir = std::path::PathBuf::from("cases");
+    let cases = std::sync::Arc::new(crate::casework::CaseState::new(
+        case_dir,
+        std::sync::Arc::clone(&runs.frames),
+    ));
     let mut server = Server {
         config: RunConfig::default(),
         snap,
@@ -1074,6 +1175,8 @@ pub fn run(port: u16) -> std::io::Result<()> {
         plates,
         runs,
         meshview,
+        cases,
+        post_body: Vec::new(),
     };
     let listener = TcpListener::bind(("0.0.0.0", port))?;
     println!("serving on http://0.0.0.0:{port}/ (Ctrl-C to stop)");
@@ -1119,6 +1222,7 @@ fn serve_one(stream: &mut TcpStream, server: &mut Server) -> std::io::Result<()>
     if let Some((status, ctype, body)) = crate::meshview::handle(&path, &[], &server.meshview) {
         return write_response(stream, &status, &ctype, &body);
     }
+    server.post_body = body;
     let (status, ctype, body) = handle_request(&path, server);
     write_response(stream, &status, ctype, &body)
 }
@@ -1152,6 +1256,11 @@ mod tests {
             plates: std::sync::Arc::new(crate::plates::PlateCache::new()),
             runs: std::sync::Arc::new(crate::runstate::RunState::new()),
             meshview: std::sync::Arc::new(crate::meshview::MeshViewState::new()),
+            cases: std::sync::Arc::new(crate::casework::CaseState::new(
+                std::env::temp_dir().join(format!("nf-cases-{}", std::process::id())),
+                std::sync::Arc::new(crate::runstate::FrameCache::new()),
+            )),
+            post_body: Vec::new(),
         }
     }
 
@@ -1279,7 +1388,8 @@ mod tests {
         assert_eq!(st, "200 OK");
         assert_eq!(ct, "text/html; charset=utf-8");
         assert!(body(&b).contains("viewport"));
-        assert!(body(&b).contains("Simulation"));
+        assert!(body(&b).contains("Load case"));
+        assert!(body(&b).contains("Setup"));
         let (st, _, b) = handle_request("/nope", &mut s);
         assert_eq!(st, "404 Not Found");
         assert!(body(&b) == "not found");

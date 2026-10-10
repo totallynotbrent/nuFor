@@ -36,6 +36,12 @@ The template defaults to a 1D Sod shock tube. Change `physics.equations` to
 solves the higher-dimensional blast case. Results (CSV, VTK, and a PNG for 2D)
 are written next to the case file.
 
+Every case run also writes two small logs next to the `case.toml`:
+`run-log.txt` is a human-readable summary (grid, timestep count, wall clock,
+freestream state, peak pressure and temperature), and `run-log.csv` appends
+the same numbers as one row per run so a report or spreadsheet can diff
+runs head-to-head.
+
 | What you want | Key fields to change |
 |---|---|
 | A 2D/3D blast | `equations = "euler_2d"` or `"euler_3d"`, add `mesh.ny`/`nz`, `initial_condition.type = "blast"` |
@@ -53,10 +59,23 @@ The full schema is documented in [the case format reference](formats/case-toml.m
 cargo run --release --bin nufor -- serve 8060
 ```
 
-Then open `http://localhost:8060`. The page is a single CFD workspace: a flow
-viewport (2D animation or 3D slices with a toggleable mesh overlay), a left
-sidebar for simulation and display controls, and a diagnostics dock. The **Run**
-button solves your configured case and saves `results/<name>.vtk`.
+Then open `http://localhost:8060`. The page is a solver workbench:
+**Load case** in the header opens the case directory, the setup tree
+edits the selected case, and the graphics window has two modes:
+**Mesh** (the grid with cell edges, the body filled, boundaries
+colored by condition, wheel zoom and drag pan) and **Results** (the
+field at true aspect with time playback, which fills in live while
+the run is still marching).
+
+The **Setup** tree is the case editor: pick a case and its sections
+appear as nodes (mesh, body, physics, boundary conditions, numerics,
+run control), each with property inputs. Change the mach number, the
+grid, the body dimensions, hit Run, and the march streams frames into
+the viewport. Save writes the edits back to the case file; New saves
+the current setup under a fresh name. "Edit raw TOML" flips to the
+full file text for anything the tree does not expose yet. The table
+above applies here too: the same keys you would edit in a file, edited
+in the browser.
 
 ## Bring your own mesh
 

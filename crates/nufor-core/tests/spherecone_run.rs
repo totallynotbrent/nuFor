@@ -6,7 +6,7 @@
 
 use nufor_core::{
     advance2d_axi_rk2, apply_solid_fn, cons_to_prim2d, eos_pressure2d, grid2d, prim_to_cons2d,
-    Bc2d, Boundaries2d, ConservedState2d, SphereCone, SphereConeSdf,
+    Bc2d, Boundaries2d, ConservedState2d, SphereCone, SphereConeSdf, ThermoModel,
 };
 
 const GAMMA: f64 = 1.4;
@@ -68,7 +68,17 @@ fn aeroshell_peak_q_bow_shock_forms() {
     let mut t = 0.0;
     let mut steps = 0usize;
     while t < t_end {
-        let (dt, _) = advance2d_axi_rk2(&mut st, &g, GAMMA, 0.4, true, &bc).unwrap();
+        let (dt, _) = advance2d_axi_rk2(
+            &mut st,
+            &g,
+            ThermoModel::Perfect { gamma: GAMMA },
+            0.4,
+            true,
+            &bc,
+            1,
+            None,
+        )
+        .unwrap();
         apply_solid_fn(&mut st, &g, &dist, &normal, GAMMA);
         t += dt;
         steps += 1;
