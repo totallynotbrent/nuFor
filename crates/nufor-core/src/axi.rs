@@ -72,6 +72,7 @@ fn face_states(p: &[f64], n: usize, muscl: bool) -> (Vec<f64>, Vec<f64>) {
     (fl, fr)
 }
 
+#[allow(clippy::too_many_arguments)]
 /// the model-aware laminar viscous step: euler sub-steps through
 /// advance2d_model_capped and the diffusive half-steps through
 /// add_viscous_cells_mu with a per-cell sutherland viscosity from the
@@ -103,7 +104,7 @@ pub fn advance2d_model_visc_rk2(
     }
     // fused (p, t, mu) pass; on eqair this replaces the temperature
     // bisection with one table read per cell.
-    let (p0, _t0, mu_cells) = match model {
+    let (_p0, _t0, mu_cells) = match model {
         ThermoModel::EqAir => crate::eqair_cea::fused_state_mu(&state.rho, &e_int, |t| {
             crate::viscous2d::sutherland_mu(mu0, t.max(1.0), t0_ref, s_param)
         }),
@@ -117,14 +118,18 @@ pub fn advance2d_model_visc_rk2(
             (p0, t0, mc)
         }
     };
-    let rho_min = state
+    // the explicit viscous stability bound is per-cell: dt from the worst
+    // mu/rho in the same cell. pairing the global mu max (shock layer) with
+    // the global rho min (wake floor, a different cell) overstated nu by
+    // orders of magnitude and crushed dt far below the true bound.
+    let nu_max = state
         .rho
         .iter()
-        .cloned()
-        .fold(f64::INFINITY, f64::min)
-        .max(1e-6);
-    let mu_max = mu_cells.iter().cloned().fold(0.0f64, f64::max);
-    let nu_max = mu_max / rho_min;
+        .zip(&mu_cells)
+        .fold(0.0f64, |m, (&r, &mu)| {
+            let r = r.max(1e-6);
+            m.max(mu / r)
+        });
     let dt_visc = 0.25 * g.dx.min(g.dy).powi(2) / nu_max.max(1e-12);
     let mut s1 = state.clone();
     let (dt1, _) =
@@ -147,6 +152,7 @@ pub fn advance2d_model_visc_rk2(
         crate::solver2d::TimeControl::Global(dt1),
         Some(model),
         wall_temperature,
+        nthreads,
     )?;
     let (dt2, _) =
         advance2d_model_capped(&mut s1, g, model, cfl, muscl, bc, dt_visc, nthreads, wall)?;
@@ -168,6 +174,7 @@ pub fn advance2d_model_visc_rk2(
         crate::solver2d::TimeControl::Global(dt2),
         Some(model),
         wall_temperature,
+        nthreads,
     )?;
     for k in 0..n {
         state.rho[k] = 0.5 * state.rho[k] + 0.5 * s1.rho[k];
@@ -178,6 +185,7 @@ pub fn advance2d_model_visc_rk2(
     Ok((dt1, 0.0))
 }
 
+#[allow(clippy::too_many_arguments)]
 /// closure-aware coupled spalart-allmaras march: the viscous mean-flow
 /// advance above plus the sa transport, each heun stage consuming the
 /// other's updated state. the eddy viscosity is rebuilt from nu_tilde
@@ -264,6 +272,7 @@ pub fn advance2d_sa_model_rk2(
         crate::solver2d::TimeControl::Global(dt1),
         Some(model),
         wall_temperature,
+        nthreads,
     )?;
     advance_turb(&mut t1, &s1, g, bc, dt1, None)?;
     // stage 2 re-evaluates both operators at the stage-1 state (heun).
@@ -296,6 +305,7 @@ pub fn advance2d_sa_model_rk2(
         crate::solver2d::TimeControl::Global(dt2),
         Some(model),
         wall_temperature,
+        nthreads,
     )?;
     advance_turb(&mut t1, &s1, g, bc, dt2, None)?;
     // heun average of the original and the twice-advanced state.
@@ -309,6 +319,7 @@ pub fn advance2d_sa_model_rk2(
     Ok(dt1)
 }
 
+#[allow(clippy::too_many_arguments)]
 /// like `advance2d_model` but with an external step cap, the viscous
 /// path's way to interleave euler and diffusive half-steps at the
 /// stiffer of the two bounds. single-advance.
@@ -324,10 +335,11 @@ fn advance2d_model_capped(
     wall: Option<&dyn Fn(f64, f64) -> f64>,
 ) -> Result<(f64, f64), Error> {
     let (nx, ny) = (g.nx, g.ny);
-    let idx = |i: usize, j: usize| j * nx + i;
     let n = nx * ny;
     let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
     let mut e_int = vec![0.0; n];
+    #[allow(unused_variables)]
+    let idx = |i: usize, j: usize| j * nx + i;
     // the prim->closure pass is per-cell: shard it with disjoint windows.
     crate::solver2d::shard_slice(&mut e_int, nthreads, |s, win| {
         for (w, k) in win.iter_mut().zip(s..) {
@@ -338,7 +350,7 @@ fn advance2d_model_capped(
     // log10-pair sweeps; both outputs are written through disjoint windows.
     let (mut p, mut a) = (vec![0.0f64; n], vec![0.0f64; n]);
     {
-        let e_int = &e_int[..];
+        let e_int = &e_int;
         let threads = if nthreads <= 1 || n < 2 {
             1
         } else {
@@ -361,7 +373,7 @@ fn advance2d_model_capped(
         let rho = &state.rho[..];
         std::thread::scope(|sc| {
             for (s, pw, aw) in offs {
-                let e_int = &e_int[..];
+                let e_int = &e_int;
                 sc.spawn(move || {
                     for ((w, wa), k) in pw.iter_mut().zip(aw.iter_mut()).zip(s..) {
                         let (pk, ak) = match model {
@@ -454,6 +466,7 @@ fn advance2d_model_capped(
     Ok((dt, resid))
 }
 
+#[allow(clippy::too_many_arguments)]
 /// one axisymmetric euler step; compose with two half-steps for heun the
 /// same way `advance2d_rk2` composes `advance2d`.
 ///
@@ -470,6 +483,7 @@ pub fn advance2d_axi(
     wall: Option<&dyn Fn(f64, f64) -> f64>,
 ) -> Result<(f64, f64), Error> {
     let (nx, ny) = (g.nx, g.ny);
+    #[allow(unused_variables)]
     let idx = |i: usize, j: usize| j * nx + i;
     let n = nx * ny;
     let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
@@ -598,6 +612,7 @@ fn face_pair(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 /// the face fluxes for both sweep directions, per unit area: the shared
 /// machinery between the staircase update and the cut-cell update.
 /// `p` and `e_int` are the precomputed cell fields of the closure.
@@ -614,6 +629,7 @@ pub(crate) fn compute_axi_fluxes(
     wall: Option<&dyn Fn(f64, f64) -> f64>,
 ) -> Result<(Vec<Sweep>, Vec<Sweep>), Error> {
     let (nx, ny) = (g.nx, g.ny);
+    #[allow(unused_variables)]
     let idx = |i: usize, j: usize| j * nx + i;
     let (u, v, _et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
     let gamma = match model {
@@ -754,6 +770,7 @@ pub(crate) fn compute_axi_fluxes(
             let mut handles = Vec::new();
             for start in (0..n).step_by(chunk) {
                 let end = (start + chunk).min(n);
+                #[allow(clippy::redundant_locals)]
                 let job = job;
                 handles.push(s.spawn(move || (start, (start..end).map(job).collect::<Vec<_>>())));
             }
@@ -822,6 +839,7 @@ pub(crate) fn compute_axi_fluxes(
     Ok((fx, fy))
 }
 
+#[allow(clippy::too_many_arguments)]
 /// heun two-stage step over the axisymmetric step, mirroring
 /// `advance2d_rk2`'s composition over `advance2d`: the increment comes
 /// from the pre-step state (the first advance call returns it).
@@ -841,6 +859,7 @@ pub fn advance2d_model(
     wall: Option<&dyn Fn(f64, f64) -> f64>,
 ) -> Result<(f64, f64), Error> {
     let (nx, ny) = (g.nx, g.ny);
+    #[allow(unused_variables)]
     let idx = |i: usize, j: usize| j * nx + i;
     let n = nx * ny;
     let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
@@ -886,6 +905,7 @@ pub fn advance2d_model(
     Ok((dt, resid))
 }
 
+#[allow(clippy::too_many_arguments)]
 /// heun (rk2) wrapper around the planar model-aware step, matching
 /// the axi march's time integration.
 pub fn advance2d_model_rk2(
@@ -919,6 +939,7 @@ pub fn advance2d_model_rk2(
     Ok((dt, 0.0))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn advance2d_axi_rk2(
     state: &mut ConservedState2d,
     g: &Grid2d,

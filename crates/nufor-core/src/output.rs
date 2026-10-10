@@ -148,7 +148,7 @@ pub fn write_vtk2d_model(
             let (p_, t_, _) = crate::eqair_cea::fused_state_mu(&st.rho, &e_int, |_| 0.0);
             (p_, t_)
         }
-        crate::thermo::ThermoModel::Perfect { gamma } => {
+        crate::thermo::ThermoModel::Perfect { .. } => {
             let p_ = crate::thermo::pressure(model, &st.rho, &e_int, &u, &v)?;
             let t_ = crate::thermo::temperature(model, &st.rho, &p_)?;
             (p_, t_)

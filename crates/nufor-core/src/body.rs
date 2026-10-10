@@ -323,36 +323,6 @@ pub fn apply_solid_fn(
             state.my[*k] -= un * ny * state.rho[*k];
         }
     }
-    return;
-    for j in 0..g.ny {
-        for i in 0..g.nx {
-            let k = j * g.nx + i;
-            let (x, y) = (g.centers_x[k], g.centers_y[k]);
-            let d = dist(x, y);
-            if d <= 0.0 {
-                // solid cell: keep it inert; wall faces carry no advective
-                // flux (compute_axi_fluxes zeroes them), so this state
-                // never enters the fluid.
-                state.rho[k] = ref_.rho;
-                state.mx[k] = 0.0;
-                state.my[k] = 0.0;
-                state.e[k] = e_ref;
-            } else if d <= band {
-                // fluid cell bordering the surface: remove the normal velocity.
-                let (nx, ny) = normal(x, y);
-                let u = state.mx[k] / state.rho[k];
-                let v = state.my[k] / state.rho[k];
-                let un = u * nx + v * ny;
-                if un > 0.0 {
-                    state.mx[k] -= 2.0 * un * nx * state.rho[k];
-                    state.my[k] -= 2.0 * un * ny * state.rho[k];
-                } else {
-                    state.mx[k] -= un * nx * state.rho[k];
-                    state.my[k] -= un * ny * state.rho[k];
-                }
-            }
-        }
-    }
 }
 
 /// per-grid body classification cache: which cells are solid, which sit in

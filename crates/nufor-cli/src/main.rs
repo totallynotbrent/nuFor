@@ -1486,7 +1486,7 @@ fn write_run_log_2d(
     t: f64,
     wall: f64,
 ) {
-    let n = (g.nx * g.ny) as usize;
+    let n = g.nx * g.ny;
     let (rho, mx, my, e) = (&st.rho, &st.mx, &st.my, &st.e);
     let (u, v, et) = match nufor_core::cons_to_prim2d(rho, mx, my, e) {
         Ok(x) => x,
@@ -1496,11 +1496,11 @@ fn write_run_log_2d(
     for k in 0..n {
         e_int[k] = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
     }
-    let p = match nufor_core::thermo_pressure(model, &rho, &e_int, &u, &v) {
+    let p = match nufor_core::thermo_pressure(model, rho, &e_int, &u, &v) {
         Ok(x) => x,
         Err(_) => return,
     };
-    let temp = nufor_core::thermo_temperature(model, &rho, &p).unwrap_or_default();
+    let temp = nufor_core::thermo_temperature(model, rho, &p).unwrap_or_default();
     // flow cells exclude the staircase-locked body band (rho pinned at 1).
     let flow: Vec<usize> = (0..n).filter(|&k| (rho[k] - 1.0).abs() > 1e-9).collect();
     if flow.is_empty() {

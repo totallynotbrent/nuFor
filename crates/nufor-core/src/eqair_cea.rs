@@ -44,13 +44,13 @@ fn parse() -> Vec<Vec<Cell>> {
     let lines: Vec<&str> = TABLE.lines().collect();
     let mut out = vec![vec![Cell { t: 0.0, p: 0.0 }; NE]; NR];
     let mut idx = 4;
-    for i in 0..NR {
-        for j in 0..NE {
+    for row in out.iter_mut() {
+        for cell in row.iter_mut() {
             let ln = lines.get(idx).copied().unwrap_or("300.0 101325.0");
             let mut it = ln.split_whitespace();
             let t: f64 = it.next().and_then(|s| s.parse().ok()).unwrap_or(300.0);
             let p: f64 = it.next().and_then(|s| s.parse().ok()).unwrap_or(101325.0);
-            out[i][j] = Cell { t, p };
+            *cell = Cell { t, p };
             idx += 1;
         }
     }

@@ -124,6 +124,7 @@ impl CutField {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 /// one cut-cell axisymmetric euler step: the shared flux machinery plus
 /// the fractional update and the redistribution pass.
 pub fn advance2d_axi_cut(
