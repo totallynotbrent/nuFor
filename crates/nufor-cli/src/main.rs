@@ -17,11 +17,11 @@ use nufor_core::{
     advance2d_axi_rk2, advance2d_model_rk2, advance2d_model_visc_rk2, advance2d_sa_lts,
     advance2d_sa_model_rk2, advance2d_sa_rk2, advance3d_rk2, advance_ugrid, apply_solid_fn,
     body_cache, cons_to_prim2d, eos_pressure2d, euler_solve, grid1d, grid2d, grid3d, prim_to_cons,
-    prim_to_cons2d, prim_to_cons3d, read_restart, render_png, wall_distance2d, write_csv, write_h5,
-    write_restart, write_vtk, write_vtk2d_model, write_vtk3d, Bc2d, Boundaries2d, Boundary,
-    Bounds3d, ConservedState, ConservedState2d, ConservedState3d, Error, EulerConfig, Grid1d,
-    Grid2d, Grid3d, OutputState, SaParams, SolidPolygon, SolidShape, SphereCone, SphereConeSdf,
-    TurbState, Ugrid,
+    prim_to_cons2d, prim_to_cons3d, read_restart, read_restart2d, render_png, wall_distance2d,
+    write_csv, write_h5, write_restart, write_restart2d, write_vtk, write_vtk2d_model, write_vtk3d,
+    Bc2d, Boundaries2d, Boundary, Bounds3d, ConservedState, ConservedState2d, ConservedState3d,
+    Error, EulerConfig, Grid1d, Grid2d, Grid3d, OutputState, SaParams, SolidPolygon, SolidShape,
+    SphereCone, SphereConeSdf, TurbState, Ugrid,
 };
 use nufor_core::{model_from_config, ThermoModel};
 
@@ -1333,12 +1333,37 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     };
     let gamma = cfg.physics.gamma;
     let model = model_from_config(cfg);
-    let mut st = match ic2d_from_case_model(&cfg.initial_condition, &g, gamma, model) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("initial condition error: {e}");
-            return 2;
+    // a [time] restart_in seeds the march from a prior run's state; the
+    // mesh dims must match the case file's.
+    let mut restart_step = 0u64;
+    let mut restart_time = 0.0f64;
+    let mut st = match &cfg.time.restart_in {
+        Some(rpath) => {
+            let rd = match read_restart2d(Path::new(rpath)) {
+                Ok(rd) => rd,
+                Err(e) => {
+                    eprintln!("restart read error: {e}");
+                    return 2;
+                }
+            };
+            if rd.nx != g.nx || rd.ny != g.ny {
+                eprintln!(
+                    "restart mesh {}x{} does not match case {}x{}",
+                    rd.nx, rd.ny, g.nx, g.ny
+                );
+                return 2;
+            }
+            restart_step = rd.step;
+            restart_time = rd.time;
+            rd.state
         }
+        None => match ic2d_from_case_model(&cfg.initial_condition, &g, gamma, model) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("initial condition error: {e}");
+                return 2;
+            }
+        },
     };
     let body = case_body_fns(&cfg.body);
     if let Some((dist, normal)) = &body {
@@ -1415,7 +1440,7 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
             }
         }
         let t0m = Instant::now();
-        let mut t = 0.0f64;
+        let mut t = restart_time;
         let mut steps = 0usize;
         let mut ok = true;
         while t < t_end && steps < max_steps {
@@ -1424,7 +1449,9 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
                     if let Some(gathered) = r.state {
                         st = gathered;
                     }
-                    t = r.time;
+                    // one step per call: the march's internal clock starts
+                    // at zero each call, so accumulate the step's dt here.
+                    t += r.dt_last;
                     if is_root {
                         eprintln!(
                             "chunk {steps}: t={t:.6e} dt_last={:.6e} rho_min={:.6} rho_max={:.6}",
@@ -1472,6 +1499,19 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
         if rc == 0 {
             write_run_log_2d(cfg, path, &g, &st, model, steps, t, wall);
         }
+        if let Some(rpath) = &cfg.time.restart_out {
+            if let Err(e) = write_restart2d(
+                Path::new(rpath),
+                &st,
+                g.nx,
+                g.ny,
+                gamma,
+                t,
+                restart_step + steps as u64,
+            ) {
+                eprintln!("restart write error: {e}");
+            }
+        }
         mpi_shutdown();
         return rc;
     }
@@ -1486,7 +1526,7 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     }
 
     let t0 = Instant::now();
-    let mut t = 0.0;
+    let mut t = restart_time;
     let mut steps = 0usize;
     let mut ok = true;
     while t < t_end && steps < max_steps {
@@ -1578,6 +1618,19 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
         let rc = write_case_vtk2d_model(path, &cfg.metadata.name, &g, &st, model);
         if rc == 0 {
             write_run_log_2d(cfg, path, &g, &st, model, steps, t, wall);
+        }
+        if let Some(rpath) = &cfg.time.restart_out {
+            if let Err(e) = write_restart2d(
+                Path::new(rpath),
+                &st,
+                g.nx,
+                g.ny,
+                gamma,
+                t,
+                restart_step + steps as u64,
+            ) {
+                eprintln!("restart write error: {e}");
+            }
         }
         rc
     } else {

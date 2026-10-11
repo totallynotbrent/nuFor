@@ -17,26 +17,31 @@ point.
 
 | station | steps | wall (s) | max density ratio | peak p (Pa) | max T (K) |
 |---------|-------|----------|-------------------|-------------|-----------|
-| 30.0 km | 1440  | 98.5     | 27.0              | 1.00e6      | 6623      |
-| 34.6 km | 1148  | 168.9    | 15.6              | 5.69e5      | 7533      |
-| 40.0 km | 2554  | 177.5    | 56.2              | 1.00e6      | 8131      |
-| 42.5 km | 2703  | 188.4    | 64.6              | 1.00e6      | 7425      |
+| 30.0 km | 1387  | 110.8    | 27.5              | 6.54e5      | 5149      |
+| 34.6 km | 1976  | 160.7    | 35.7              | 9.63e5      | 7776      |
+| 40.0 km | 2474  | 202.8    | 54.1              | 9.89e5      | 10271     |
+| 42.5 km | 2632  | 219.4    | 67.0              | 1.09e6      | 14031     |
 
-The step count grows with altitude because the density ratio across the bow
-shock does: thinner shock layers need smaller time steps to stay stable, and
-the higher stations more than double the march length. The 30 km station is
-the cheapest despite the densest freestream because its shock stands close to
-the body with a modest ratio.
+The march length now tracks the shock layer rather than a table ceiling.
+Under the old table the two highest stations clamped at its 1 MPa top;
+with the rebuilt grid (101 pressures to 10.1 MPa, 30 temperatures to
+30000 K, sensible internal energy) the same stations read peak pressures
+up to 1.09 MPa and the shock-layer temperatures rise accordingly. The
+42.5 km station pays the most: its thin, hot shock layer needs the
+smallest time steps, and its density ratio of 67 is the sternest test of
+the march's positivity.
 
-Peak pressure saturates at the 1e6 Pa table ceiling on the two highest
-stations; the closed-form read of those runs treats peak pressure as
-"at or above" the ceiling rather than an exact value.
+Lift-to-drag across the sweep runs 0.55, 0.61, 0.65, 0.72 from sea level
+to 42.5 km: the cleaner freestream at altitude rewards the same 22.5
+degree shell with a better ratio.
 
 ## The trim anchor
 
 The finest shipped case is the trimmed capsule: 384x192, viscous, a 1600 K
-radiation-equilibrium wall, 1750 steps to t = 2 ms in 293.7 s. Peak surface
-temperature 27194 K at the nose shoulder, maximum field temperature 28935 K.
+radiation-equilibrium wall, 1772 steps to t = 2 ms in 239.1 s. Peak surface
+pressure 2.07 MPa at (x=1.622, y=1.219), maximum field temperature 29379 K,
+peak wall heat flux 12.2 MW/m2, C_D 0.501 with L/D 0.335. The peak pressure
+sits far above the old table's ceiling, which used to clamp it at 1 MPa.
 This is the case the wake visualizations come from, including the header
 render on the repository front page.
 

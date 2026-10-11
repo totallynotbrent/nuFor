@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+The equilibrium-air closure table rebuilt from a wider CEA sweep:
+101 pressures from 0.01 Pa to 10.1 MPa (was 100 Pa to 1 MPa) and 30
+temperatures from 200 K to 30000 K (was 200 K to 12000 K), with the
+energy axis converted to sensible internal energy so it matches the
+march's conserved variable. Peak pressures above the old 1 MPa ceiling
+no longer clamp, and cold-region temperatures read physically instead
+of inflated.
+
+2D restart files: `[time] restart_in` seeds a run from a prior run's
+state and `restart_out` writes one at the end, on both the serial and
+MPI paths. The NUF2 layout stores rho, mx, my, e with the grid shape,
+time, and step count; a restarted run resumes at the file's time and
+continues bit-consistently (verified exact against an uninterrupted
+run). Also fixes the chunked MPI march's clock, which reset every call
+so time-based stop criteria never fired on body cases.
+
 MPI-parallel Fortran march for the equilibrium-air 2D Euler path.
 `mpirun -np N nufor run case.toml` splits the grid into column slabs with
 two ghost columns per side; the Fortran core owns the decomposition, the

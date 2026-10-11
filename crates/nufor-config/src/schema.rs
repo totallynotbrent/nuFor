@@ -370,7 +370,7 @@ pub enum Reconstruction {
     Muscl,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TimeControl {
     /// stop time; 0.0 with no other criterion is rejected.
@@ -382,6 +382,13 @@ pub struct TimeControl {
     /// stop early when the residual drops below this.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub residual_target: Option<f64>,
+    /// seed the run from this 2d restart file instead of the initial
+    /// condition; the mesh dims must match the case.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restart_in: Option<String>,
+    /// write a 2d restart file to this path when the run ends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restart_out: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

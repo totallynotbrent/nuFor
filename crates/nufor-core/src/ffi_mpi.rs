@@ -225,11 +225,9 @@ pub fn ship_cea_table() {
     }
     let mut t = Vec::with_capacity(nr * ne);
     let mut p = Vec::with_capacity(nr * ne);
-    // replicate the eqair_cea parser exactly: it starts at line index 4
-    // (0-based), dropping the first data line, and pads any shortfall with
-    // the (300.0, 101325.0) default. bit-identity with the rust table
-    // requires the same quirk.
-    for ln in lines.iter().skip(4).take(nr * ne) {
+    // replicate the eqair_cea parser exactly: data begins on line index 3
+    // (0-based). parity with the rust table requires the same start.
+    for ln in lines.iter().skip(3).take(nr * ne) {
         let mut it = ln.split_whitespace();
         t.push(it.next().and_then(|s| s.parse().ok()).unwrap_or(300.0));
         p.push(it.next().and_then(|s| s.parse().ok()).unwrap_or(101325.0));
