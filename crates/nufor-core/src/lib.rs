@@ -21,6 +21,7 @@ pub mod eqair_cea;
 mod error;
 mod exact;
 mod ffi;
+pub mod ffi_mpi;
 mod flux;
 mod grid;
 mod grid2d;
@@ -58,7 +59,9 @@ pub use axi::{
     advance2d_model_visc_rk2, advance2d_sa_model_rk2,
 };
 pub use blasius::{BlasiusProfile, BlasiusTable, CF_CONST};
-pub use body::{apply_solid, apply_solid_fn, SolidBody, SolidPolygon, SolidShape};
+pub use body::{
+    apply_solid, apply_solid_fn, body_cache, BodyCache, SolidBody, SolidPolygon, SolidShape,
+};
 pub use cfl::{cfl_dt, CflStep};
 pub use cutcell::{cut_fractions, cut_fractions_corner, CutFractions};
 pub use cutcell_march::{advance2d_axi_cut, redistribute_weight, CutField, SMALL_CELL_EPS};

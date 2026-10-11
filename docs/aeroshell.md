@@ -2,8 +2,8 @@
 title: Aeroshell cross-check
 ---
 
-The sphere-cone capsule cross-check: the user's entry-vehicle aerodynamics
-(a modified-Newtonian panel method over the 10080-facet STL) against a
+The sphere-cone capsule cross-check: entry-vehicle aerodynamics from a
+modified-Newtonian panel method over the 10080-facet STL against a
 perfect-gas axisymmetric CFD run at the peak-q trajectory point. It is the
 sprint deliverable for rungs 2 and 3 of the roadmap.
 
@@ -30,7 +30,7 @@ field is meaningful, which is exactly what this cross-check uses.
   mechanism (the true stagnation value cannot exceed the pitot
   value). The honest read: the surface stagnation Cp converges
   non-monotonically and grid refinement alone does not settle it.
-- The user's Cp_max 1.816 (effective gamma 1.2, entry conditions)
+- The panel method's Cp_max 1.816 (effective gamma 1.2, entry conditions)
   sits within 1.2 percent of the perfect-gas Rayleigh value: at Mach 22
   real-air effects move the stagnation pressure only slightly.
 
@@ -84,8 +84,8 @@ h-box), not a configuration change.
 ## Honesty boundaries
 
 Perfect gas only. No chemistry, no heat flux, no temperature claims,
-alpha 0. The heating numbers for the capsule come from the user's own
-trajectory tooling. Every figure states perfect gas.
+alpha 0. The heating numbers for the capsule come from the trajectory
+tooling behind the panel method. Every figure states perfect gas.
 
 ## See also
 
