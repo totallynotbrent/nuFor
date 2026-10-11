@@ -2,20 +2,17 @@
 title: nuFor
 ---
 
-> **Work in progress.** nuFor is not complete. The web UI is a solver
-> workbench: load a case from the directory, edit its setup in the
-> tree (mesh, body, physics, boundary conditions, numerics), inspect
-> the mesh in the graphics window (cell edges, colored boundaries,
-> zoom and pan), run it, scrub the result in time, and read the
-> surface Cp when the case has a body. Everything runs from
-> `case.toml` files, so the shipped cases (the 1D Sod shock tube, the
-> flat plates, the axisymmetric capsule) are the same kind of file as
-> anything you create. Mesh import works for rectilinear 2D and 3D
-> grids (view, solve on them); gmsh meshes render as wireframes. What
-> is still missing: solving on unstructured meshes from the browser.
-> Thermodynamics now covers two closures: the perfect gas and
-> equilibrium air (the Srinivasan-Tannehill curve fits, valid 250 K to
-> 15000 K), selected per case with `physics.eos`.
+> **Work in progress.** nuFor is not complete. The validated core today:
+> 1D/2D/3D Euler, 2D/3D viscous Navier-Stokes, Spalart-Allmaras RANS,
+> masked bodies and cut cells, an axisymmetric solver, an equilibrium-air
+> closure (CEA table + TGAS1 fits) on the hypersonic 2D paths, and an
+> MPI-parallel Fortran march for the 2D equilibrium-air cases,
+> exercised across a four-station atmospheric-entry sweep with a
+> 1280x640 anchor run. Spalart-Allmaras 3D, two-temperature
+> nonequilibrium, and unstructured meshes are the next rungs on the
+> [roadmap](roadmap.md). Cases run from the CLI today; the web UI
+> covers the fixed case set with field visualization, probes, and
+> CSV / VTK / HDF5 export.
 
 nuFor is a CPU-first computational fluid dynamics code: finite-volume solvers
 for the compressible Euler and Navier-Stokes equations, written as Fortran
@@ -45,6 +42,10 @@ prototype and turbulence research. Follow the progression:
 The full ladder, with what is explicitly out of scope, lives in the
 [roadmap](roadmap.md).
 
+## Research
+
+- [Research results](research/results.md) - measured numbers behind the features: the station sweep, the trim anchor, MPI scaling, threading
+
 ## Verification
 
 Every milestone closes against an analytical or benchmark case:
@@ -70,13 +71,14 @@ Every milestone closes against an analytical or benchmark case:
 - [HLL flux](numerics/fluxes/flux-hll.md) · [HLL vs HLLC](numerics/fluxes/hll-vs-hllc.md)
 - [State and grid](numerics/foundations/state-grid.md) · [Time step](numerics/foundations/time-step.md)
 - [Restart](numerics/foundations/restart.md) · [HDF5 output](numerics/foundations/hdf5.md)
-- [Threading](numerics/parallel/threading.md) · [SIMD](numerics/parallel/simd.md)
+- [Threading](numerics/parallel/threading.md) · [SIMD](numerics/parallel/simd.md) · [MPI](numerics/parallel/mpi.md)
 
 ## Status
 
-v1.2.0 (2026-09-09) is the current build: 1D/2D/3D structured Euler, 2D
-viscous terms, CPU threading and AVX2 kernels, case-driven runs, and a web UI
-with live field views. Open work includes turbulence implementation, a general
-unstructured solver, thermochemistry, MPI, and broad experimental validation.
-That remaining scope is tracked in the repository. See the
+The current build adds the MPI-parallel Fortran march to the 1.5.0 base:
+1D/2D/3D structured Euler, 2D viscous terms on the equilibrium-air
+closure, CPU threading and AVX2 kernels, case-driven runs, and a web UI
+with live field views. Open work includes turbulence implementation, a
+general unstructured solver, thermochemistry, and broad experimental
+validation. That remaining scope is tracked in the
 [full changelog](https://github.com/totallynotbrent/nuFor/blob/main/CHANGELOG.md).

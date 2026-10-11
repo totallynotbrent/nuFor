@@ -10,7 +10,6 @@ configuration:
   baseUrl: totallynotbrent.github.io/nuFor
   ignorePatterns:
     - README.md
-    - research
     - private
     - templates
     - .obsidian

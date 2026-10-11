@@ -53,6 +53,16 @@ runs head-to-head.
 
 The full schema is documented in [the case format reference](formats/case-toml.md).
 
+Equilibrium-air 2D Euler cases can also run multi-rank. Build once, then
+launch the same binary under `mpirun` (OpenMPI required):
+
+```bash
+mpirun -np 4 nufor run case.toml
+```
+
+np=1 takes the same code path, so results are identical either way; the
+measured scaling and the parity gates are on [the MPI page](numerics/parallel/mpi.md).
+
 ## See it in the browser
 
 ```bash

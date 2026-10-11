@@ -461,3 +461,55 @@ pub fn eqair_sound_at(rho: f64, e: f64) -> f64 {
     }
     asq.sqrt()
 }
+
+/// the tgas1 face-fit tables in flat form for the fortran bridge: 12 blocks
+/// of polynomial + grabau coefficients, the region z-breaks, the cold-limit
+/// gammas, and the (rho0, e0) normalization.
+pub(crate) struct Tgas1Tables {
+    pub g1: [(f64, f64); 12],
+    pub g2: [(f64, f64); 12],
+    pub g3: [(f64, f64, f64); 12],
+    pub g4: [(f64, f64, f64); 12],
+    pub g5: [(f64, f64); 12],
+    pub g6: [(f64, f64); 12],
+    pub g7: [(f64, f64, f64); 12],
+    pub g8: [(f64, f64, f64); 12],
+    pub s: [(f64, f64, f64, f64); 12],
+    pub minus: [bool; 12],
+    pub z_breaks: [[f64; 5]; 3],
+    pub cold_gamm: [f64; 3],
+    pub rho0: f64,
+    pub e0: f64,
+}
+
+/// snapshot the tables (clone; called once per process at mpi init).
+pub(crate) fn tgas1_tables() -> Tgas1Tables {
+    let blocks = &BLOCKS;
+    let mut minus = [false; 12];
+    for (i, b) in blocks.iter().enumerate() {
+        if let Some(g) = &b.grabau {
+            minus[i] = g.minus;
+        }
+    }
+    Tgas1Tables {
+        g1: std::array::from_fn(|i| blocks[i].g1),
+        g2: std::array::from_fn(|i| blocks[i].g2),
+        g3: std::array::from_fn(|i| blocks[i].g3),
+        g4: std::array::from_fn(|i| blocks[i].g4),
+        g5: std::array::from_fn(|i| blocks[i].grabau.as_ref().map_or((0.0, 0.0), |g| g.g5)),
+        g6: std::array::from_fn(|i| blocks[i].grabau.as_ref().map_or((0.0, 0.0), |g| g.g6)),
+        g7: std::array::from_fn(|i| blocks[i].grabau.as_ref().map_or((0.0, 0.0, 0.0), |g| g.g7)),
+        g8: std::array::from_fn(|i| blocks[i].grabau.as_ref().map_or((0.0, 0.0, 0.0), |g| g.g8)),
+        s: std::array::from_fn(|i| {
+            blocks[i]
+                .grabau
+                .as_ref()
+                .map_or((0.0, 0.0, 0.0, 0.0), |g| g.s)
+        }),
+        minus,
+        z_breaks: Z_BREAKS,
+        cold_gamm: COLD_GAMM,
+        rho0: RHO0,
+        e0: E0,
+    }
+}

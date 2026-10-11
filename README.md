@@ -1,11 +1,14 @@
 # nuFor
 
+![Supersonic wake behind an aeroshell, density field from nuFor](docs/img/wake-16x9.jpg)
+
 A CPU-first computational fluid dynamics research code built in Rust and Fortran.
 
 > **Work in progress.** nuFor is not complete. The validated core today:
 > 1D/2D/3D Euler, 2D/3D viscous Navier-Stokes, Spalart-Allmaras RANS,
-> masked bodies and cut cells, an axisymmetric solver, and an
-> equilibrium-air closure (CEA table) on the hypersonic 2D paths —
+> masked bodies and cut cells, an axisymmetric solver, an equilibrium-air
+> closure (CEA table + TGAS1 fits) on the hypersonic 2D paths, and an
+> MPI-parallel Fortran march for the 2D equilibrium-air cases,
 > exercised across a four-station atmospheric-entry sweep with a
 > 1280x640 anchor run. Spalart-Allmaras 3D, two-temperature
 > nonequilibrium, and unstructured meshes are the next rungs on the
@@ -16,12 +19,14 @@ A CPU-first computational fluid dynamics research code built in Rust and Fortran
 ## Summary
 
 nuFor solves the compressible Euler and Navier-Stokes equations on structured
-grids in one, two, and three dimensions, with an axisymmetric form and a
-tabulated equilibrium-air closure for hypersonic flows. A Rust application
+grids in one, two, and three dimensions, with an axisymmetric form, a
+tabulated equilibrium-air closure for hypersonic flows, and an MPI-parallel
+Fortran march. A Rust application
 layer handles the CLI, the web UI, and case orchestration, while Fortran owns
 the numerical kernels across a narrow C ABI. Python is used for reference
 solutions and verification, never the hot path. It builds with cargo, requires
-gfortran and CMake (HDF5 optional), and runs on Linux.
+gfortran and CMake (HDF5 optional; OpenMPI for the parallel path), and runs on
+Linux.
 
 ## Project structure
 

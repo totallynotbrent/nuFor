@@ -10,10 +10,13 @@ use nufor_config::{
     load_case_config, BoundaryKind, CaseConfig, Equations, InflowProfileSpec, InitialCondition,
     Mesh, OutputFormat,
 };
+use nufor_core::ffi_mpi::{
+    march_euler2d_mpi, mpi_bcast_state, mpi_launched, mpi_rank, mpi_shutdown,
+};
 use nufor_core::{
     advance2d_axi_rk2, advance2d_model_rk2, advance2d_model_visc_rk2, advance2d_sa_lts,
     advance2d_sa_model_rk2, advance2d_sa_rk2, advance3d_rk2, advance_ugrid, apply_solid_fn,
-    cons_to_prim2d, eos_pressure2d, euler_solve, grid1d, grid2d, grid3d, prim_to_cons,
+    body_cache, cons_to_prim2d, eos_pressure2d, euler_solve, grid1d, grid2d, grid3d, prim_to_cons,
     prim_to_cons2d, prim_to_cons3d, read_restart, render_png, wall_distance2d, write_csv, write_h5,
     write_restart, write_vtk, write_vtk2d_model, write_vtk3d, Bc2d, Boundaries2d, Boundary,
     Bounds3d, ConservedState, ConservedState2d, ConservedState3d, Error, EulerConfig, Grid1d,
@@ -1372,6 +1375,116 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
         }
         _ => None,
     };
+    // mpi path: under mpirun (or NFOR_MPI=1) the eqair euler march runs in
+    // the fortran core across ranks; inviscid closure only this phase. body
+    // cases march in single-step chunks so rank 0 can re-project the band
+    // cells between steps and broadcast the refreshed state; body-free
+    // cases march in one call.
+    if mpi_launched()
+        && matches!(model, ThermoModel::EqAir)
+        && cfg.physics.mu.map_or(true, |m| m == 0.0)
+        && turb.is_none()
+    {
+        let is_root = mpi_rank().unwrap_or(0) == 0;
+        let mut solid_mask = vec![false; g.nx * g.ny];
+        if let Some((dist, _)) = &body {
+            let band = 1.5 * g.dx.min(g.dy);
+            solid_mask = body_cache(&g, dist.as_ref(), band).mask.clone();
+        }
+        {
+            // rank-0-only trace: the mpi branch runs on every rank but only
+            // rank 0 holds the gathered full-domain state worth reporting.
+            if mpi_rank().unwrap_or(0) == 0 {
+                let ke: Vec<f64> = st
+                    .mx
+                    .iter()
+                    .zip(&st.my)
+                    .zip(&st.rho)
+                    .map(|((mx, my), r)| 0.5 * (mx * mx + my * my) / r)
+                    .collect();
+                let ein: Vec<f64> =
+                    st.e.iter()
+                        .zip(&st.rho)
+                        .zip(ke)
+                        .map(|((e, r), k)| e / r - k)
+                        .collect();
+                eprintln!(
+                    "dbg: IC rho[0]={:.6} e[0]={:.6e} ein[0]={:.6e} mx[0]={:.6}",
+                    st.rho[0], st.e[0], ein[0], st.mx[0]
+                );
+            }
+        }
+        let t0m = Instant::now();
+        let mut t = 0.0f64;
+        let mut steps = 0usize;
+        let mut ok = true;
+        while t < t_end && steps < max_steps {
+            match march_euler2d_mpi(&st, &g, model, &bc, cfl, f64::INFINITY, 1, &solid_mask) {
+                Ok(r) => {
+                    if let Some(gathered) = r.state {
+                        st = gathered;
+                    }
+                    t = r.time;
+                    if is_root {
+                        eprintln!(
+                            "chunk {steps}: t={t:.6e} dt_last={:.6e} rho_min={:.6} rho_max={:.6}",
+                            r.dt_last,
+                            st.rho.iter().cloned().fold(f64::INFINITY, f64::min),
+                            st.rho.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+                        );
+                    }
+                }
+                Err(e) => {
+                    eprintln!("solver error at step {steps}: {e}");
+                    ok = false;
+                    break;
+                }
+            }
+            if let Some((dist, normal)) = &body {
+                apply_solid_fn(&mut st, &g, dist.as_ref(), normal.as_ref(), gamma);
+            }
+            // refresh every rank's full state from rank 0 so the next chunk
+            // carves identical slabs (and band projection lands everywhere)
+            let _ = mpi_bcast_state(&mut st);
+            steps += 1;
+        }
+        if !ok {
+            mpi_shutdown();
+            return 1;
+        }
+        let wall = t0m.elapsed().as_secs_f64();
+        if !is_root {
+            mpi_shutdown();
+            return 0;
+        }
+        println!(
+            "case {} ({}) [mpi]\nthink: 2d, {}x{}\nsteps: {}\ntime: {:.4}\nwall: {:.3}s",
+            cfg.metadata.name, path, g.nx, g.ny, steps, t, wall
+        );
+        eprintln!(
+            "dbg: rank0 state rho [{:.6},{:.6}] e [{:.6e},{:.6e}] steps={steps} t={t:.6e}",
+            st.rho.iter().cloned().fold(f64::INFINITY, f64::min),
+            st.rho.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+            st.e.iter().cloned().fold(f64::INFINITY, f64::min),
+            st.e.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+        );
+        let rc = write_case_vtk2d_model(path, &cfg.metadata.name, &g, &st, model);
+        if rc == 0 {
+            write_run_log_2d(cfg, path, &g, &st, model, steps, t, wall);
+        }
+        mpi_shutdown();
+        return rc;
+    }
+
+    // under mpirun but NOT routed through the mpi branch (viscous,
+    // non-eqair closure, or turbulence): only rank 0 marches and
+    // writes. non-root ranks would just duplicate the serial run and
+    // clobber the output files.
+    if mpi_launched() && mpi_rank().unwrap_or(0) != 0 {
+        mpi_shutdown();
+        return 0;
+    }
+
     let t0 = Instant::now();
     let mut t = 0.0;
     let mut steps = 0usize;

@@ -15,9 +15,9 @@ dates. Milestones land when their gates pass.
 - Masked bodies (rung 2): done, validated on the cylinder bow shock and
   the sphere-cone trade-study geometry.
 - Axisymmetric solver (rung 3): done, validated on the sphere bow shock
-  against the Ambrosio-Wortman standoff. The user's capsule ran at the
+  against the Ambrosio-Wortman standoff. The capsule ran at the
   peak-q point, Mach 22 perfect gas: bow shock, post-shock states, and
-  the surface Cp cross-check against his modified-Newtonian numbers.
+  the surface Cp cross-check against the modified-Newtonian numbers.
 - Equilibrium air (CEA closure): done. The planar and axisymmetric 2D
   paths run the CEA table under `eos = "eqair"`; the legacy TGAS1 fits
   remain as the face-state extrapolation the wake needs. A four-station
@@ -54,10 +54,10 @@ dates. Milestones land when their gates pass.
    t_rxn, and the shock-layer T/Tv split reported per station.
    Validation: an energy-conservation relaxation box (analytic
    Landau-Teller decay), then the Mach 20 nitrogen cylinder (Casseau et
-   al. 2016) as the external anchor — the canonical hy2Foam case, same
+   al. 2016) as the external anchor: the canonical hy2Foam case, same
    physics, published numbers. License note: hyStrath is GPL-3.0, the
    same license as nuFor; the borrow is the validation target and the
-   physics constants, not code — the codebases (OpenFOAM C++ vs a
+   physics constants, not code; the codebases (OpenFOAM C++ vs a
    self-contained Rust structured-grid core) are too alien to port.
 6. **Fay-Riddell stagnation heating gate**: a wall-resolved viscous
    sphere at entry conditions, validated against the Fay-Riddell
@@ -102,7 +102,7 @@ dates. Milestones land when their gates pass.
 12. **Unstructured meshes**: triangles in 2D, tets in 3D. The gmsh
     prototype exists and the research note is written; promoting it to
     a validated rung is the largest single lift. Arbitrary geometries
-    without the staircase are the payoff — the structural advantage
+    without the staircase are the payoff: the structural advantage
     OpenFOAM-based solvers inherit for free.
 13. **Cut cells**: fractional-cell geometry at curved walls instead of
     the staircase, so surface pressures sample the true surface. Built
@@ -111,6 +111,15 @@ dates. Milestones land when their gates pass.
     straddle defeat it. The next solver step here is a wall-local
     redistribution (multi-level flux redistribution or h-box) that
     keeps the shock layer out of the averaging.
+14. **MPI-parallel Fortran core**: the parallelism rung. Fortran owns
+    the parallel solver core (domain decomposition, halo
+    exchange, the march) behind one coarse FFI; Rust stays the front
+    door (case files, CLI, UI, output) and never calls MPI. Design,
+    gates, and measured scaling: [the MPI page](numerics/parallel/mpi.md).
+    Phase F1 parallelizes the euler_2d march (the capsule path) with the
+    np=1 bit-identity anchor; phase F2 adds viscous+SA; phase F3 lands
+    all new physics (live 2T, species) MPI-native from day one, which
+    reorders rungs 5 and 8 to sit inside this one.
 
 ## What we deliberately do not borrow
 

@@ -2,17 +2,41 @@
 
 ## [Unreleased]
 
-Laminar viscous flow meets the thermodynamic closure. A planar 2D case
-with `physics.mu` above zero now steps with a viscous march that closes
+MPI-parallel Fortran march for the equilibrium-air 2D Euler path.
+`mpirun -np N nufor run case.toml` splits the grid into column slabs with
+two ghost columns per side; the Fortran core owns the decomposition, the
+halo exchange, and the RK2 step, with a global CFL reduce for the time
+step. Body cases march in single-step chunks: gather on rank 0, solid-cell
+projection, broadcast back out. Three parity gates lock the Fortran march
+to the serial Rust march: sod 2D and a uniform equilibrium-air field at
+exact zero, and a capsule body at 22.5 degrees angle of attack at 4e-15
+worst relative difference. Measured on the 34.6 km station case
+(320x176, 30 steps): 1.88x at two ranks, with four ranks plateauing at
+the same wall time because 80-column slabs are too thin to pay for the
+exchange. See [the MPI page](docs/numerics/parallel/mpi.md).
+
+The closure-aware viscous march landed before that: a planar 2D case with
+`physics.mu` above zero steps with a viscous march that closes over
+whichever EOS the case names, per-cell Sutherland viscosity against the
+cell temperature, conductivity following `physics.pr`. The wall thermal
+side is the new `physics.wall_temperature` key; zero keeps the adiabatic
+wall, any positive value a fixed cold wall. Every case run now writes a
+`run-log.txt` summary and appends a `run-log.csv` row next to the case
+file: case, grid, step count, wall clock, viscous/eos flags, freestream
+state, peak-pressure and peak-temperature extrema with locations, and the
+body force coefficients (C_D, C_L, C_m) when the case has a body. The
+equilibrium-air closure is a CEA-derived table for cell thermodynamics
+plus TGAS1 curve fits at faces, and the four-station aeroshell sweep
+(30.0 to 42.5 km, 0 and 22.5 degrees) runs against it with a 1280x640
+grid-convergence anchor.
+
+Laminar viscous flow met the thermodynamic closure first: a planar 2D
+case with `physics.mu` above zero steps with a viscous march that closes
 over whichever closure the case names: per-cell Sutherland viscosity
 against the cell temperature, conductivity following `physics.pr`
 scaled by the closure's cold-air gas constant. The wall thermal side
 is a new `physics.wall_temperature` key (K); zero keeps the adiabatic
-wall, any positive value a fixed cold wall. Every case run writes a
-`run-log.txt` summary and appends a `run-log.csv` row next to the case
-file: case, grid, step count, wall clock, viscous/eos flags, freestream
-state, and the peak-pressure and peak-temperature extrema with their
-locations.
+wall, any positive value a fixed cold wall.
 
 Axisymmetric Euler solver and masked solid bodies. The 2D planar flux
 machinery now drives an annular update for bodies of revolution: radial
@@ -38,7 +62,7 @@ on all four lateral walls (worst error under one percent). A symmetry
 contract drains a y-shear exactly like the z-shear, guarding the axis
 path the channel case cannot see. The 2D Spalart-Allmaras march also
 gained a threaded counterpart, bit-identical to the serial march at
-every thread count, worth about 1.4x on fine grids on this machine.
+every thread count, worth about 1.4x on fine 384x384 grids.
 
 ## [1.5.0] - 2026-09-27
 
