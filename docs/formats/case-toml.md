@@ -118,6 +118,8 @@ silently change a run.
 | `time.final_time` | float | no (default 0) | >= 0 | Stop time. |
 | `time.max_steps` | int | no (default 0) | >= 0 | Hard cap on iterations. |
 | `time.residual_target` | float | no | > 0 | Early stop when the residual drops below this. |
+| `time.restart_in` | string | no | | Seed the 2D run from this restart file instead of the initial condition; the file's mesh must match the case grid, and the run resumes at the file's time. |
+| `time.restart_out` | string | no | | Write a restart file to this path when the run ends (serial and MPI paths). |
 | `body` | table | no | | Optional immersed body; the shape set (`sphere_cone`, `sphere`, `polygon`) and keys live in [[case-body]]. |
 | `boundaries.inflow_state` | table | with a `supersonic_inflow` side | rho, p > 0 | The fixed state a supersonic inflow side carries (`v` optional, default 0). |
 | `output.interval_steps` | int | yes | >= 1 | Write cadence in solver steps. |

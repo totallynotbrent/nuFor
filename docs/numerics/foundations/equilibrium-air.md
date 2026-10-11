@@ -61,6 +61,24 @@ against its neighbors). Two acceptance gates pin the implementation:
 
 Both are enforced in `crates/nufor-core/tests/eqair.rs`.
 
+## The CEA grid behind the 2D march
+
+The planar and axisymmetric 2D marches close from a tabulated
+equilibrium-air grid instead of the fits. The table in
+`nufor-core/data/cea_eqair_table.tsv` was generated with NASA CEA
+(release 2024, Gibbs free-energy minimization over N2/O2/NO/N/O) over
+101 pressures from 0.01 Pa to 10.1 MPa and 30 temperatures from 200 K
+to 30000 K, then inverted onto a uniform 40x60 grid in
+(log10 rho, log10 e). The energy axis is sensible internal energy:
+CEA's tabulated `u` shifted by its 298.15 K reference (+299.6 kJ/kg)
+so the table reads the same conserved variable the march carries,
+`e = p/((gamma-1) rho)`. The march bilinearly interpolates (rho, e)
+to (p, T) per cell and per face state, with sound speed from finite
+differences on the same grid. Parity gates in
+`crates/nufor-core/tests/mpi_parity.rs` pin the Fortran and Rust
+readers to identical numbers (sod and uniform cases exact, the
+capsule-body case at 4e-15 relative).
+
 ## Selecting it in a case
 
 ```toml

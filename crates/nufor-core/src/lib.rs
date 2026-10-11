@@ -89,7 +89,10 @@ pub use rectilinear::{
     channel_grid2d, rectilinear_grid2d, rectilinear_grid3d, stretched_grid2d, Clustering,
 };
 pub use render2d::{colormap, render_line1d, render_png, render_png_rect};
-pub use restart::{read_restart, write_restart, RestartData, RESTART_VERSION};
+pub use restart::{
+    read_restart, read_restart2d, write_restart, write_restart2d, RestartData, RestartData2d,
+    RESTART_VERSION,
+};
 pub use sa::{
     chi, eddy_viscosity, fv1, fv2, fw, g_func, r_func, source, stilde, C_B1, C_B2, C_V1, C_W1,
     C_W2, C_W3, KAPPA, SIGMA,

@@ -173,16 +173,17 @@ detailed gates live in the working goal file for the session.
 ## Aeroshell work, now
 
 The four-station trajectory sweep at alpha 22.5 is validated at
-320x176 with a 1280x640 anchor on the peak-heating station. The honest
-reads: L/D 0.385 at the anchor, inside the modified-Newtonian trim band
-0.35-0.40 (the coarse grids over-read it at 0.60-0.72); peak
-shock-layer temperatures 6.5-8.1 kK confirm the thermal environment
-scale; peak pressure reads the CEA table's 1 MPa pressure-axis cap and
-needs the table rebuilt from the raw isobar data before it is citable;
-wall heat flux is not citable until the Fay-Riddell gate (rung 6)
-passes. The defensible report posture: Newtonian numbers stay the
-design basis, the CFD sweep is the confirmatory run with a limitations
-paragraph, and rungs 5-6 are the upgrade path.
+320x176. The honest reads: L/D 0.55-0.72 rising with altitude across
+the sweep; peak shock-layer temperatures 5.1-14.0 kK confirm the
+thermal environment scale; peak pressures to 1.09 MPa now read off the
+rebuilt CEA grid (101 pressures to 10.1 MPa, 30 temperatures to
+30000 K, sensible internal energy) instead of clamping at the old
+table's 1 MPa cap; the 1280x640 anchor numbers predate the table
+rebuild and are being re-measured on the new grid; wall heat flux is
+not citable until the Fay-Riddell gate (rung 6) passes. The defensible
+report posture: Newtonian numbers stay the design basis, the CFD sweep
+is the confirmatory run with a limitations paragraph, and rungs 5-6
+are the upgrade path.
 
 ## Rocket engine CFD, later
 
