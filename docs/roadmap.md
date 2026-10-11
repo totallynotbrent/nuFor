@@ -111,6 +111,16 @@ dates. Milestones land when their gates pass.
     straddle defeat it. The next solver step here is a wall-local
     redistribution (multi-level flux redistribution or h-box) that
     keeps the shock layer out of the averaging.
+14. **MPI-parallel Fortran core**: the parallelism rung (decided with
+    the user, deliberately not based on the existing threading).
+    Fortran owns the parallel solver core — domain decomposition, halo
+    exchange, the march — behind one coarse FFI; Rust stays the front
+    door (case files, CLI, UI, output) and never calls MPI. Full plan,
+    audit, and phase gates: [the MPI port plan](numerics/parallel/mpi-port-plan.md).
+    Phase F1 parallelizes the euler_2d march (the capsule path) with the
+    np=1 bit-identity anchor; phase F2 adds viscous+SA; phase F3 lands
+    all new physics (live 2T, species) MPI-native from day one, which
+    reorders rungs 5 and 8 to sit inside this one.
 
 ## What we deliberately do not borrow
 

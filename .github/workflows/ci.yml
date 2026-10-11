@@ -51,7 +51,7 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gfortran cmake libhdf5-dev
+          sudo apt-get install -y --no-install-recommends gfortran cmake libhdf5-dev libopenmpi-dev openmpi-bin
           rustup component add rustfmt clippy
       - name: Lint + format
         shell: bash
@@ -61,3 +61,23 @@ jobs:
       - name: Build + FFI integration tests
         shell: bash
         run: cargo test --workspace
+      - name: MPI parity smoke (np=1 + np=2)
+        shell: bash
+        run: |
+          bin=$(ls -t target/debug/deps/mpi_parity-* | grep -v '\.d$' | head -1)
+          check() {
+            local np="$1" test="$2" log
+            log=$(mpirun --allow-run-as-root --oversubscribe -np "$np" "$bin" --exact "$test" --nocapture --ignored 2>&1) || true
+            echo "$log"
+            # every rank must report a passing test with exact parity;
+            # mpirun's own exit code is launcher-noise (prte aborts when
+            # one rank tears down faster than the others' finalize)
+            ok=$(echo "$log" | grep -c 'test result: ok. 1 passed')
+            worst=$(echo "$log" | grep -c 'rel diff (rho): 0.000e0')
+            if [ "$ok" -lt 1 ] || [ "$worst" -lt 1 ]; then
+              echo "::error::np=$np $test failed (ok=$ok worst=$worst)"
+              exit 1
+            fi
+          }
+          check 1 mpi_np1_matches_rust_sod2d
+          check 2 mpi_np1_matches_rust_uniform_eqair
