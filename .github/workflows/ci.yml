@@ -81,6 +81,10 @@ jobs:
           }
           check 1 mpi_np1_matches_rust_sod2d
           check 2 mpi_np1_matches_rust_uniform_eqair
+          # the laminar viscous march: fortran vs the rust viscous twin,
+          # exact on the body-free class (sutherland + cea closure T)
+          check 1 mpi_np1_visc_matches_rust
+          check 2 mpi_np1_visc_matches_rust
           # the capsule body gate asserts its own 1e-6 tolerance inside
           # the test (roundoff at the wall faces is not exact zero)
           caplog=$(mpirun --allow-run-as-root --oversubscribe -np 1 "$bin" --exact mpi_np1_matches_rust_capsule --nocapture --ignored 2>&1) || true

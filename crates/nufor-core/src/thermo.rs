@@ -121,7 +121,7 @@ pub fn sound_speed(
 pub fn model_from_config(cfg: &nufor_config::CaseConfig) -> ThermoModel {
     use nufor_config::Eos;
     match cfg.physics.eos {
-        Eos::Perfect => ThermoModel::Perfect {
+        Eos::Perfect | Eos::Park2t => ThermoModel::Perfect {
             gamma: cfg.physics.gamma,
         },
         Eos::EqAir => ThermoModel::EqAir,

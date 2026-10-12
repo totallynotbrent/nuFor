@@ -23,13 +23,44 @@ gathers the full state, applies the solid-cell projection, and broadcasts the
 state back out so every rank re-carves identical slabs. Wall-face fluxes are
 zeroed inside the Fortran step, with the same cells the serial closure kills.
 
+## The viscous lane
+
+Laminar equilibrium-air cases (`physics.mu` set, no turbulence model) route
+through a Fortran twin of the serial viscous march: `nfor_mpi_step_visc` runs
+the full two-stage Heun step inside one call — Euler advance, halo refresh,
+viscous divergence add, second stage, Heun average. Sutherland viscosity and
+conductivity come from the CEA closure temperature on the slab, so the
+transport physics is identical to the serial path. The viscous stencil needs
+one cell, well inside the two-cell halos; a second halo refresh after each
+viscous add keeps the next stage's neighbors current at slab seams.
+
+![viscous lane timing on the trim capsule](../../research/mpi-viscous-timing.png)
+
+On the body-free class the viscous lane is bit-exact against the serial Rust
+march at np=1 and np=2 (the gate below). On strong-shock body cases a separate
+mechanism dominates: the serial lane integrates with Heun (two stages plus an
+average) while the MPI Euler lane takes one forward-Euler step per call. The
+one-step gap between the two integrators is first-order in dt and reads about
+19 percent on the trim capsule shock layer, independent of rank count. The
+gates compare against the single-step twin deliberately, so they pin the shared
+flux kernel exactly (sod, uniform, capsule all machine-exact); the integrator
+gap is a known limitation of the MPI Euler lane, not a kernel bug. Closing it
+needs a second Euler stage inside the bridge call, and a naive second stage
+diverges at wall-band cells because the stage-2 reconstruction next to
+reference-state solid cells amplifies through the y sweep; that port needs
+its own body-case gate before it lands. The viscous lane does not share the
+problem: its bridge runs the full two-stage Heun in one call and tracks the
+serial twin to machine zero on the body-free class.
+
 ## The parity gates
 
-Three tests in `crates/nufor-core/tests/mpi_parity.rs` lock the Fortran march
+Four tests in `crates/nufor-core/tests/mpi_parity.rs` lock the Fortran march
 to the serial Rust march:
 
 - sod 2D shock tube, exact-zero parity
 - a uniform equilibrium-air field, exact-zero parity
+- a laminar viscous uniform field (Sutherland transport, CEA closure
+  temperature), exact-zero parity at np=1 and np=2
 - a capsule body at 22.5 degrees angle of attack, worst relative difference
   4e-15 (machine roundoff; the wall faces churn every step)
 

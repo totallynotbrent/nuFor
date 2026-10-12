@@ -118,6 +118,10 @@ pub enum Eos {
     /// equilibrium air curve fits: p, T, a as functions of (rho, e).
     #[serde(rename = "eqair")]
     EqAir,
+    /// park two-temperature: perfect-gas n2 fluxes with a live
+    /// vibrational energy field (landau-teller relaxation).
+    #[serde(rename = "park2t")]
+    Park2t,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

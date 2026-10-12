@@ -61,12 +61,16 @@ dates. Milestones land when their gates pass.
    self-contained Rust structured-grid core) are too alien to port.
 6. **Fay-Riddell stagnation heating gate**: a wall-resolved viscous
    sphere at entry conditions, validated against the Fay-Riddell
-   correlation. This is the gate that makes any wall heat flux the
+   closed form. This is the gate that makes any wall heat flux the
    solver prints citable; without it the Euler-wall probe stays a grid
    artifact (it reads a fraction of Sutton-Graves by construction).
    The cold isothermal wall exists; the work is wall-normal resolution
    that holds a boundary layer (the Blasius hold is the pattern).
-   Highest report value per hour of work.
+   Highest report value per hour of work. The closed form itself is
+   now in the tree (`nufor-core::fay_riddell`): the perfect-gas
+   Lewis-one form with Sutherland transport, pinned to the
+   Rankine-Hugoniot shock tables and scaling checks; the
+   equilibrium-air enthalpy bracket activates with the species rung.
 7. **Continuum-validity probe per station**: Knudsen number and Bird's
    breakdown parameter from the freestream, one line in the run log.
    Cheap, and it puts a number behind "continuum CFD applies here"
@@ -178,8 +182,10 @@ the sweep; peak shock-layer temperatures 5.1-14.0 kK confirm the
 thermal environment scale; peak pressures to 1.09 MPa now read off the
 rebuilt CEA grid (101 pressures to 10.1 MPa, 30 temperatures to
 30000 K, sensible internal energy) instead of clamping at the old
-table's 1 MPa cap; the 1280x640 anchor numbers predate the table
-rebuild and are being re-measured on the new grid; wall heat flux is
+table's 1 MPa cap. The 1280x640 anchor re-measured on the new grid
+reads C_D 0.406, L/D 0.371, peak pressure 1.17 MPa at 8217 K, and
+lands inside the Newtonian trim band; the previous anchor numbers
+(3.96 h for 11549 steps) predate the rebuild. Wall heat flux is
 not citable until the Fay-Riddell gate (rung 6) passes. The defensible
 report posture: Newtonian numbers stay the design basis, the CFD sweep
 is the confirmatory run with a limitations paragraph, and rungs 5-6
