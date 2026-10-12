@@ -102,12 +102,10 @@ contains
     integer(c_int), intent(out) :: ierr
     logical :: sl(nx_l+4, ny_)
     real(RP) :: rin(nx_l+4, ny_), min_(nx_l+4, ny_), myin(nx_l+4, ny_), ein(nx_l+4, ny_)
-    real(RP) :: rout(nx_l+4, ny_), mout(nx_l+4, ny_), myout(nx_l+4, ny_), eout(nx_l+4, ny_)
-    real(RP) :: dt
+    real(RP) :: r1(nx_l+4, ny_), m1(nx_l+4, ny_), my1(nx_l+4, ny_), e1(nx_l+4, ny_)
+    real(RP) :: dt1, dt
     integer :: j, i
-    ! unpack rust flat (nx_l x ny, row-major) into the padded slab: interiors
-    ! 3..nx_l+2, ghosts seeded as copies of the edge interiors (halo exchange
-    ! overwrites at np>1)
+
     do j = 1, ny_
       do i = 1, nx_l
         rin(i+2,j) = rho((j-1)*nx_l + i)
@@ -128,17 +126,113 @@ contains
       sl(nx_l+3,j) = .false.; sl(nx_l+4,j) = .false.
     end do
     call halo_exchange_cons(rin, min_, myin, ein, nx_l, ny_)
+
+    ! two-stage heun: the serial lane integrates with
+    ! advance2d_model_rk2, so the euler stage runs twice and the
+    ! result heun-averages with the input; a single euler call here
+    ! made the mpi lane a forward-euler march with first-order local
+    ! error against the serial twin.
     call euler2d_step_rk2(rin, min_, myin, ein, nx_l, ny_, &
                           dx, dy, gamma, cfl, dt_cap, g_decomp, &
                           bc_w, bc_e, bc_s, bc_n, bc_vals, sl, &
-                          rout, mout, myout, eout, dt, 1)
-    ! pack back to flat (interior only)
+                          r1, m1, my1, e1, dt1, 1)
+    ! pack stage-1 straight out: one euler step per call. the serial
+    ! lane runs heun (two stages plus average); a naive second stage
+    ! here diverges at wall-band cells (the stage-2 reconstruction
+    ! next to reference-state solid cells amplifies through the y
+    ! sweep), so the euler lane stays single-stage until the staging
+    ! is ported with its own body-case gate.
     do j = 1, ny_
       do i = 1, nx_l
-        rho2((j-1)*nx_l + i) = rout(i+2,j)
-        mx2((j-1)*nx_l + i) = mout(i+2,j)
-        my2((j-1)*nx_l + i) = myout(i+2,j)
-        e2((j-1)*nx_l + i) = eout(i+2,j)
+        rho2((j-1)*nx_l + i) = r1(i+2,j)
+        mx2((j-1)*nx_l + i) = m1(i+2,j)
+        my2((j-1)*nx_l + i) = my1(i+2,j)
+        e2((j-1)*nx_l + i) = e1(i+2,j)
+      end do
+    end do
+    dt_out = dt
+    ierr = 0
+  end subroutine
+
+  ! two-stage heun viscous step on this rank's slab: stage = one euler
+  ! step (the same kernel the inviscid call runs) followed by a halo
+  ! refresh and the viscous divergence add; the final state heun-averages
+  ! the input with the twice-advanced state, matching
+  ! axi::advance2d_model_visc_rk2. viscosity follows sutherland from the
+  ! cea closure temperature; tw <= 0 means an adiabatic wall.
+  subroutine nfor_mpi_step_visc(rho, mx, my, e, nloc, nx_l, ny_, &
+                                dx, dy, gamma, cfl, dt_cap, &
+                                bc_w, bc_e, bc_s, bc_n, bc_vals, solid, &
+                                mu0, t0_ref, s_par, pr, tw, &
+                                rho2, mx2, my2, e2, dt_out, ierr) &
+      bind(c, name="nfor_mpi_step_visc")
+    integer(c_int), value, intent(in) :: nloc, nx_l, ny_
+    real(c_double), intent(in) :: rho(nloc), mx(nloc), my(nloc), e(nloc)
+    real(c_double), value, intent(in) :: dx, dy, gamma, cfl, dt_cap
+    integer(c_int), value, intent(in) :: bc_w, bc_e, bc_s, bc_n
+    real(c_double), intent(in) :: bc_vals(5, 4)
+    integer(c_int), intent(in) :: solid(nloc)
+    real(c_double), value, intent(in) :: mu0, t0_ref, s_par, pr, tw
+    real(c_double), intent(out) :: rho2(nloc), mx2(nloc), my2(nloc), e2(nloc)
+    real(c_double), intent(out) :: dt_out
+    integer(c_int), intent(out) :: ierr
+    logical :: sl(nx_l+4, ny_)
+    real(RP) :: rin(nx_l+4, ny_), min_(nx_l+4, ny_), myin(nx_l+4, ny_), ein(nx_l+4, ny_)
+    real(RP) :: r1(nx_l+4, ny_), m1(nx_l+4, ny_), my1(nx_l+4, ny_), e1(nx_l+4, ny_)
+    real(RP) :: r2(nx_l+4, ny_), m2(nx_l+4, ny_), my2_(nx_l+4, ny_), e2_(nx_l+4, ny_)
+    real(RP) :: dt1, dt2, dt
+    integer :: j, i
+
+    do j = 1, ny_
+      do i = 1, nx_l
+        rin(i+2,j) = rho((j-1)*nx_l + i)
+        min_(i+2,j) = mx((j-1)*nx_l + i)
+        myin(i+2,j) = my((j-1)*nx_l + i)
+        ein(i+2,j) = e((j-1)*nx_l + i)
+        sl(i+2,j) = solid((j-1)*nx_l + i) == 1
+      end do
+      rin(1,j) = rin(3,j);   rin(2,j) = rin(3,j)
+      rin(nx_l+3,j) = rin(nx_l+2,j); rin(nx_l+4,j) = rin(nx_l+2,j)
+      min_(1,j) = min_(3,j); min_(2,j) = min_(3,j)
+      min_(nx_l+3,j) = min_(nx_l+2,j); min_(nx_l+4,j) = min_(nx_l+2,j)
+      myin(1,j) = myin(3,j); myin(2,j) = myin(3,j)
+      myin(nx_l+3,j) = myin(nx_l+2,j); myin(nx_l+4,j) = myin(nx_l+2,j)
+      ein(1,j) = ein(3,j);   ein(2,j) = ein(3,j)
+      ein(nx_l+3,j) = ein(nx_l+2,j); ein(nx_l+4,j) = ein(nx_l+2,j)
+      sl(1,j) = .false.; sl(2,j) = .false.
+      sl(nx_l+3,j) = .false.; sl(nx_l+4,j) = .false.
+    end do
+    call halo_exchange_cons(rin, min_, myin, ein, nx_l, ny_)
+
+    ! stage 1: euler + viscous
+    call euler2d_step_rk2(rin, min_, myin, ein, nx_l, ny_, &
+                          dx, dy, gamma, cfl, dt_cap, g_decomp, &
+                          bc_w, bc_e, bc_s, bc_n, bc_vals, sl, &
+                          r1, m1, my1, e1, dt1, 1)
+    call halo_exchange_cons(r1, m1, my1, e1, nx_l, ny_)
+    call viscous_add_slab(r1, m1, my1, e1, nx_l, ny_, dx, dy, dt1, &
+                          mu0, t0_ref, s_par, pr, tw, bc_s, bc_n, sl)
+    ! refresh again so stage-2's euler sees the post-viscous neighbors
+    ! at slab seams (serial reads the full post-viscous state).
+    call halo_exchange_cons(r1, m1, my1, e1, nx_l, ny_)
+
+    ! stage 2: euler + viscous from the stage-1 state
+    call euler2d_step_rk2(r1, m1, my1, e1, nx_l, ny_, &
+                          dx, dy, gamma, cfl, dt_cap, g_decomp, &
+                          bc_w, bc_e, bc_s, bc_n, bc_vals, sl, &
+                          r2, m2, my2_, e2_, dt2, 1)
+    call halo_exchange_cons(r2, m2, my2_, e2_, nx_l, ny_)
+    call viscous_add_slab(r2, m2, my2_, e2_, nx_l, ny_, dx, dy, dt2, &
+                          mu0, t0_ref, s_par, pr, tw, bc_s, bc_n, sl)
+
+    ! heun average of the input and the twice-advanced state
+    dt = dt1
+    do j = 1, ny_
+      do i = 1, nx_l
+        rho2((j-1)*nx_l + i) = 0.5_RP * (rin(i+2,j) + r2(i+2,j))
+        mx2((j-1)*nx_l + i) = 0.5_RP * (min_(i+2,j) + m2(i+2,j))
+        my2((j-1)*nx_l + i) = 0.5_RP * (myin(i+2,j) + my2_(i+2,j))
+        e2((j-1)*nx_l + i) = 0.5_RP * (ein(i+2,j) + e2_(i+2,j))
       end do
     end do
     dt_out = dt

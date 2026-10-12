@@ -2,9 +2,10 @@
 //! rel-diff < 1e-12 on the sod 2d case (bit-identity across languages is not
 //! possible; the within-fortran np=1-vs-np=8 bit-identity gate runs under
 //! mpirun, see scratch/hermes-mpi-gates.sh).
-use nufor_core::ffi_mpi::march_euler2d_mpi;
+use nufor_core::ffi_mpi::{march_euler2d_mpi, march_viscous2d_mpi};
 use nufor_core::{
-    advance2d_model, grid2d, prim_to_cons2d, Bc2d, Boundaries2d, ConservedState2d, ThermoModel,
+    advance2d_model, advance2d_model_visc_rk2, grid2d, prim_to_cons2d, Bc2d, Boundaries2d,
+    ConservedState2d, ThermoModel,
 };
 
 fn uniform_eqair_state(g: &nufor_core::Grid2d, rho: f64, u: f64, p: f64) -> ConservedState2d {
@@ -254,6 +255,96 @@ fn mpi_np1_matches_rust_uniform_eqair() {
     std::thread::Builder::new()
         .stack_size(64 * 1024 * 1024)
         .spawn(mpi_np1_matches_rust_uniform_eqair_inner)
+        .expect("spawn mpi test thread")
+        .join()
+        .expect("mpi test thread panicked");
+}
+
+// the laminar viscous gate: the fortran viscous heun march vs the rust
+// advance2d_model_visc_rk2 twin on a body-free eqair case with sutherland
+// transport. this is the lane the viscous mpi port added; the euler gates
+// above never touch the viscous kernels.
+fn mpi_np1_visc_matches_rust_inner() {
+    let g = grid2d(64, 64, 0.0, 1.0, 0.0, 1.0).unwrap();
+    let bc = Boundaries2d {
+        west: Bc2d::Transmissive,
+        east: Bc2d::Transmissive,
+        south: Bc2d::Transmissive,
+        north: Bc2d::Transmissive,
+    };
+    let (mu0, t0_ref, s_par, pr, tw) = (1.716e-5, 273.15, 110.4, 0.71, 0.0);
+    let nsteps: usize = std::env::var("NF_MPI_STEPS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(5);
+    let mut st_ref = uniform_eqair_state(&g, 1.0, 100.0, 1000.0);
+    let mut dt_ref_last = 0.0;
+    for _ in 0..nsteps {
+        let (dt, _) = advance2d_model_visc_rk2(
+            &mut st_ref,
+            &g,
+            ThermoModel::EqAir,
+            0.4,
+            true,
+            &bc,
+            mu0,
+            t0_ref,
+            s_par,
+            pr,
+            tw,
+            1,
+            None,
+        )
+        .unwrap();
+        dt_ref_last = dt;
+    }
+    println!("rust visc dt last: {dt_ref_last:.6e}");
+    let n = g.nx * g.ny;
+    let solid = vec![false; n];
+    let st0 = uniform_eqair_state(&g, 1.0, 100.0, 1000.0);
+    let r = march_viscous2d_mpi(
+        &st0,
+        &g,
+        ThermoModel::EqAir,
+        &bc,
+        0.4,
+        1e30,
+        nsteps,
+        &solid,
+        mu0,
+        pr,
+        tw,
+    )
+    .unwrap();
+    println!("fortran visc dt last: {:.6e}", r.dt_last);
+    let st_mpi = match r.state {
+        Some(s) => s,
+        None => return,
+    };
+    let mut worst: f64 = 0.0;
+    let mut worst_k: usize = 0;
+    for k in 0..n {
+        let d = (st_mpi.rho[k] - st_ref.rho[k]).abs() / st_ref.rho[k].abs().max(1e-30);
+        if d > worst {
+            worst = d;
+            worst_k = k;
+        }
+    }
+    println!(
+        "viscous mpi-vs-rust worst rel diff (rho): {worst:.3e} at cell i={} j={}",
+        worst_k % g.nx,
+        worst_k / g.nx
+    );
+    assert!(worst < 1e-6, "viscous mpi-vs-rust drift {worst:.3e}");
+    nufor_core::ffi_mpi::mpi_shutdown();
+}
+
+#[test]
+#[ignore] // run under mpirun, see the ci parity-smoke step
+fn mpi_np1_visc_matches_rust() {
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(mpi_np1_visc_matches_rust_inner)
         .expect("spawn mpi test thread")
         .join()
         .expect("mpi test thread panicked");

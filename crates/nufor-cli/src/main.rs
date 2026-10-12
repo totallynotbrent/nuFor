@@ -11,7 +11,7 @@ use nufor_config::{
     Mesh, OutputFormat,
 };
 use nufor_core::ffi_mpi::{
-    march_euler2d_mpi, mpi_bcast_state, mpi_launched, mpi_rank, mpi_shutdown,
+    march_euler2d_mpi, march_viscous2d_mpi, mpi_bcast_state, mpi_launched, mpi_rank, mpi_shutdown,
 };
 use nufor_core::{
     advance2d_axi_rk2, advance2d_model_rk2, advance2d_model_visc_rk2, advance2d_sa_lts,
@@ -23,7 +23,7 @@ use nufor_core::{
     Error, EulerConfig, Grid1d, Grid2d, Grid3d, OutputState, SaParams, SolidPolygon, SolidShape,
     SphereCone, SphereConeSdf, TurbState, Ugrid,
 };
-use nufor_core::{model_from_config, ThermoModel};
+use nufor_core::{model_from_config, park2t, ThermoModel};
 
 mod casework;
 mod mesh_io;
@@ -1401,13 +1401,16 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
         _ => None,
     };
     // mpi path: under mpirun (or NFOR_MPI=1) the eqair euler march runs in
-    // the fortran core across ranks; inviscid closure only this phase. body
-    // cases march in single-step chunks so rank 0 can re-project the band
-    // cells between steps and broadcast the refreshed state; body-free
-    // cases march in one call.
+    // the fortran core across ranks. laminar viscous eqair cases route
+    // through the fortran viscous step (two-stage heun euler + viscous per
+    // call); turbulence stays serial until its port. body cases march in
+    // single-step chunks so rank 0 can re-project the band cells between
+    // steps and broadcast the refreshed state; body-free cases march in
+    // one call.
+    let visc_lam = cfg.physics.mu.is_some_and(|m| m > 0.0) && turb.is_none();
     if mpi_launched()
         && matches!(model, ThermoModel::EqAir)
-        && cfg.physics.mu.map_or(true, |m| m == 0.0)
+        && (cfg.physics.mu.map_or(true, |m| m == 0.0) || visc_lam)
         && turb.is_none()
     {
         let is_root = mpi_rank().unwrap_or(0) == 0;
@@ -1416,35 +1419,34 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
             let band = 1.5 * g.dx.min(g.dy);
             solid_mask = body_cache(&g, dist.as_ref(), band).mask.clone();
         }
-        {
-            // rank-0-only trace: the mpi branch runs on every rank but only
-            // rank 0 holds the gathered full-domain state worth reporting.
-            if mpi_rank().unwrap_or(0) == 0 {
-                let ke: Vec<f64> = st
-                    .mx
-                    .iter()
-                    .zip(&st.my)
-                    .zip(&st.rho)
-                    .map(|((mx, my), r)| 0.5 * (mx * mx + my * my) / r)
-                    .collect();
-                let ein: Vec<f64> =
-                    st.e.iter()
-                        .zip(&st.rho)
-                        .zip(ke)
-                        .map(|((e, r), k)| e / r - k)
-                        .collect();
-                eprintln!(
-                    "dbg: IC rho[0]={:.6} e[0]={:.6e} ein[0]={:.6e} mx[0]={:.6}",
-                    st.rho[0], st.e[0], ein[0], st.mx[0]
-                );
-            }
-        }
         let t0m = Instant::now();
         let mut t = restart_time;
         let mut steps = 0usize;
         let mut ok = true;
+        // the viscous lane: same chunked loop, the fortran viscous heun
+        // step per call. the mu/pr/wall params mirror the serial
+        // advance2d_model_visc_rk2 call site.
+        let mu0 = cfg.physics.mu.filter(|m| *m > 0.0);
+        let pr = 0.71f64;
+        let tw = cfg.physics.wall_temperature.unwrap_or(0.0);
         while t < t_end && steps < max_steps {
-            match march_euler2d_mpi(&st, &g, model, &bc, cfl, f64::INFINITY, 1, &solid_mask) {
+            let r = match mu0 {
+                Some(m) => march_viscous2d_mpi(
+                    &st,
+                    &g,
+                    model,
+                    &bc,
+                    cfl,
+                    f64::INFINITY,
+                    1,
+                    &solid_mask,
+                    m,
+                    pr,
+                    tw,
+                ),
+                None => march_euler2d_mpi(&st, &g, model, &bc, cfl, f64::INFINITY, 1, &solid_mask),
+            };
+            match r {
                 Ok(r) => {
                     if let Some(gathered) = r.state {
                         st = gathered;
@@ -1523,6 +1525,30 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     if mpi_launched() && mpi_rank().unwrap_or(0) != 0 {
         mpi_shutdown();
         return 0;
+    }
+
+    // the park two-temperature field: vibrational energy per cell, J/kg,
+    // seeded at the freestream equilibrium value for the initial
+    // translational temperature. the lane advances with the euler march
+    // (perfect-gas fluxes) plus the landau-teller substep per step.
+    let park_lane = matches!(cfg.physics.eos, nufor_config::Eos::Park2t);
+    let mut park = park2t::Park2tState::from_uniform(&g, 0.0);
+    let mut park_solid = vec![false; g.nx * g.ny];
+    if park_lane {
+        // seed the vibrational pool at the initial translational
+        // temperature: freestream equilibrium (casseau: vibrational
+        // modes excited at 220 K already).
+        let t_seed = match cfg.initial_condition {
+            nufor_config::InitialCondition::Uniform { rho, p, .. } => {
+                p / (rho * cfg.physics.gas_constant)
+            }
+            _ => 220.0,
+        };
+        park = park2t::Park2tState::from_uniform(&g, park2t::e_vib_of_t_v(t_seed));
+        if let Some((dist, _)) = &body {
+            let band = 1.5 * g.dx.min(g.dy);
+            park_solid = body_cache(&g, dist.as_ref(), band).mask.clone();
+        }
     }
 
     let t0 = Instant::now();
@@ -1607,6 +1633,15 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
         if let Some((dist, normal)) = &body {
             apply_solid_fn(&mut st, &g, dist.as_ref(), normal.as_ref(), gamma);
         }
+        if park_lane {
+            let dt_last = match stepped {
+                Ok((dt, _)) => dt,
+                Err(_) => break,
+            };
+            park2t::park2t_substep(&mut st, &mut park, &g, gamma, dt_last, &park_solid, false)
+                .map_err(|e| eprintln!("park2t substep error: {e}"))
+                .ok();
+        }
         steps += 1;
     }
     if ok {
@@ -1616,6 +1651,21 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
             cfg.metadata.name, path, g.nx, g.ny, steps, t, wall
         );
         let rc = write_case_vtk2d_model(path, &cfg.metadata.name, &g, &st, model);
+        if rc == 0 && park_lane {
+            // the vibrational temperature field: the two-temperature
+            // readout (t_v per cell from the stored vibrational energy).
+            let tv: Vec<f64> = park.e_v.iter().map(|e| park2t::t_vib_of_e_v(*e)).collect();
+            match write_scalar_vtk2d(
+                &case_dir(path).join(format!("{}-tv.vtk", cfg.metadata.name)),
+                &cfg.metadata.name,
+                &g,
+                &tv,
+                "t_vib",
+            ) {
+                Ok(()) => println!("wrote: t_vib field appended"),
+                Err(e) => eprintln!("t_vib write error: {e}"),
+            }
+        }
         if rc == 0 {
             write_run_log_2d(cfg, path, &g, &st, model, steps, t, wall);
         }
@@ -2628,6 +2678,32 @@ fn case_dir(path: &str) -> PathBuf {
         Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
         _ => PathBuf::from("."),
     }
+}
+
+/// write one scalar field as a standalone structured-points vtk
+/// (the two-temperature readout: t_vib per cell).
+fn write_scalar_vtk2d(
+    path: &Path,
+    name: &str,
+    g: &Grid2d,
+    f: &[f64],
+    label: &str,
+) -> std::io::Result<()> {
+    let n = g.nx * g.ny;
+    let mut s = String::with_capacity(n * 24);
+    s.push_str("# vtk DataFile Version 3.0\n");
+    s.push_str(&format!("{name} {label} snapshot\n"));
+    s.push_str("ASCII\nDATASET STRUCTURED_POINTS\n");
+    s.push_str(&format!(
+        "DIMENSIONS {} {} 1\nORIGIN {} {} 0\nSPACING {} {} 1\n",
+        g.nx, g.ny, g.xmin, g.ymin, g.dx, g.dy
+    ));
+    s.push_str(&format!("POINT_DATA {n}\n"));
+    s.push_str(&format!("SCALARS {label} double 1\nLOOKUP_TABLE default\n"));
+    for v in f {
+        s.push_str(&format!("{v:.6}\n"));
+    }
+    std::fs::write(path, s)
 }
 
 fn min_of(v: &[f64]) -> f64 {

@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### Added
+- `nufor-core::fay_riddell`: the stagnation-point cold-wall heating
+  closed form (perfect-gas Lewis-one, Sutherland transport) with the
+  post-shock edge chain, pinned by Rankine-Hugoniot table gates and
+  scaling gates. The rung-6 anchor; docs in
+  `docs/numerics/foundations/fay-riddell.md`.
+
+Rung 5, two-temperature relaxation: `physics.eos = "park2t"` carries a
+live vibrational energy field on the nitrogen Euler march (harmonic
+oscillator, Millikan-White plus Park cutoff relaxation, backward-Euler)
+and writes the vibrational temperature to `<case>-tv.vtk`. Gates pin the
+T_v inversion, the analytic Landau-Teller decay, and coupled-box energy
+conservation to the fixed point. The Mach 20 Casseau cylinder anchor
+shows the expected shock-layer T/T_v split.
+
+The MPI march gained a laminar viscous lane: equilibrium-air cases with
+`physics.mu` set and no turbulence model now run their two-stage Heun
+viscous step inside the Fortran core across ranks (Sutherland transport
+from the CEA closure temperature), instead of falling back to the serial
+Rust march under `mpirun`. Bit-exact against the serial viscous march on
+the body-free class at np=1 and np=2, pinned by a new parity gate wired
+into CI alongside the existing Euler gates.
+
 The equilibrium-air closure table rebuilt from a wider CEA sweep:
 101 pressures from 0.01 Pa to 10.1 MPa (was 100 Pa to 1 MPa) and 30
 temperatures from 200 K to 30000 K (was 200 K to 12000 K), with the
