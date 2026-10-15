@@ -163,9 +163,13 @@ impl CurvGrid {
         let mut xfaces = Vec::with_capacity(ny * (nx + 1));
         for j in 0..ny {
             for i in 0..=nx {
-                // edge from the bottom node to the top node; the ccw
-                // rotation of a +r-pointing edge points +x (outward
-                // toward the next column).
+                // edge from the bottom node to the top node; the
+                // cw rotation of a +r-pointing edge points +x
+                // (outward toward the next column). the stored normal
+                // convention is "pointing from the lower cell index
+                // to the higher one" for both face families, which is
+                // what the conservative update's (right - left)
+                // differencing assumes.
                 let a = nodes[j * (nx + 1) + i];
                 let b = nodes[(j + 1) * (nx + 1) + i];
                 let (dx, dr) = (b.0 - a.0, b.1 - a.1);
@@ -174,8 +178,8 @@ impl CurvGrid {
                     x: 0.5 * (a.0 + b.0),
                     r: 0.5 * (a.1 + b.1),
                     len,
-                    nx: -dr / len,
-                    nr: dx / len,
+                    nx: dr / len,
+                    nr: -dx / len,
                 });
             }
         }
@@ -183,7 +187,9 @@ impl CurvGrid {
         for i in 0..nx {
             for j in 0..=ny {
                 // edge from the left node to the right node; the ccw
-                // rotation points +r (outward toward the next row).
+                // rotation points +r (outward toward the next row),
+                // matching the x-face convention: stored normals point
+                // from the lower cell index to the higher one.
                 let a = nodes[j * (nx + 1) + i];
                 let b = nodes[j * (nx + 1) + i + 1];
                 let (dx, dr) = (b.0 - a.0, b.1 - a.1);
@@ -356,10 +362,13 @@ pub fn advance2d_axi_curv(
     }
     let mut hmin = f64::INFINITY;
     for k in 0..n {
-        // approximate the smaller face spacing from area / face length
-        let xf = g.xfaces[k];
+        // approximate the smaller face spacing from area / face length.
+        // faces live in their own [j*(nx+1)+i] / [i*(ny+1)+j] layouts:
+        // index them by the cell's (i, j), not by the flat cell id.
+        let i = k % nx;
         let j = k / nx;
-        let yf = g.yfaces[k % nx * (ny + 1) + j];
+        let xf = g.xfaces[j * (nx + 1) + i];
+        let yf = g.yfaces[i * (ny + 1) + j];
         hmin = hmin.min(g.cells[k].area / xf.len.max(yf.len).max(1e-12));
     }
     let dt = cfl * hmin / smax.max(1e-12);
@@ -423,15 +432,18 @@ pub fn advance2d_axi_curv(
             // the upstream end (i=0) is the nose seam of the
             // O-grid: a symmetry plane through the stagnation
             // streamline, not an inflow. the flow enters through the
-            // outer bow. mirror the interior state with the normal
-            // velocity reflected (slip wall), which is exact for the
-            // on-axis stagnation streamline.
+            // outer bow. the correct face pair is the symmetric
+            // riemann problem: ghost = interior with the normal
+            // velocity reflected, interior = unflipped. the star
+            // state is u* = 0, so exactly zero mass crosses the
+            // plane and the face carries the wall pressure. (passing
+            // the reflected state as BOTH sides leaves a nonzero
+            // advective mass flux straight through the seam, which
+            // evacuated the nose band.)
             let (left, right) = if i == 0 {
-                // seam: reflect normal velocity OUT so the riemann
-                // solver doesn't believe there is momentum entering
-                // through the body. utl stays (tangential slip).
-                let l = face_prim(model, rl, -unl, utl, xl);
-                (l, l)
+                let g = face_prim(model, rl, -unl, utl, xl);
+                let c = face_prim(model, rl, unl, utl, xl);
+                (g, c)
             } else {
                 let l = face_prim(model, rl, unl, utl, xl);
                 let r = if same {
@@ -443,11 +455,14 @@ pub fn advance2d_axi_curv(
             };
             let q = hllc_flux(gamma, left, right, 0);
             let (fm, fmx, fmy, fe) = (q.mass, q.mx, q.my, q.e);
-            // rotate the momentum flux back to the lab frame
-            fx_mass[j * (nx + 1) + i] = fm * f.len;
-            fx_mx[j * (nx + 1) + i] = (fmx * f.nx - fmy * f.nr) * f.len;
-            fx_my[j * (nx + 1) + i] = (fmx * f.nr + fmy * f.nx) * f.len;
-            fx_e[j * (nx + 1) + i] = fe * f.len;
+            // rotate the momentum flux back to the lab frame. the
+            // face length stays OUT of the flux arrays: the update
+            // weighs each face by its own annular area sa_f, and
+            // folding len in here too counted it twice.
+            fx_mass[j * (nx + 1) + i] = fm;
+            fx_mx[j * (nx + 1) + i] = fmx * f.nx - fmy * f.nr;
+            fx_my[j * (nx + 1) + i] = fmx * f.nr + fmy * f.nx;
+            fx_e[j * (nx + 1) + i] = fe;
         }
     }
 
@@ -481,10 +496,10 @@ pub fn advance2d_axi_curv(
                 let wall = face_prim(model, rl, 0.0, utl, xl);
                 let q = hllc_flux(gamma, wall, wall, 0);
                 let (fm, fmx, fmy, fe) = (q.mass, q.mx, q.my, q.e);
-                fy_mass[i * (ny + 1) + j] = fm * f.len;
-                fy_mx[i * (ny + 1) + j] = (fmx * f.nx - fmy * f.nr) * f.len;
-                fy_my[i * (ny + 1) + j] = (fmx * f.nr + fmy * f.nx) * f.len;
-                fy_e[i * (ny + 1) + j] = fe * f.len;
+                fy_mass[i * (ny + 1) + j] = fm;
+                fy_mx[i * (ny + 1) + j] = fmx * f.nx - fmy * f.nr;
+                fy_my[i * (ny + 1) + j] = fmx * f.nr + fmy * f.nx;
+                fy_e[i * (ny + 1) + j] = fe;
                 continue;
             }
             let same = kl == kr;
@@ -512,10 +527,10 @@ pub fn advance2d_axi_curv(
             };
             let q = hllc_flux(gamma, left, right, 0);
             let (fm, fmx, fmy, fe) = (q.mass, q.mx, q.my, q.e);
-            fy_mass[i * (ny + 1) + j] = fm * f.len;
-            fy_mx[i * (ny + 1) + j] = (fmx * f.nx - fmy * f.nr) * f.len;
-            fy_my[i * (ny + 1) + j] = (fmx * f.nr + fmy * f.nx) * f.len;
-            fy_e[i * (ny + 1) + j] = fe * f.len;
+            fy_mass[i * (ny + 1) + j] = fm;
+            fy_mx[i * (ny + 1) + j] = fmx * f.nx - fmy * f.nr;
+            fy_my[i * (ny + 1) + j] = fmx * f.nr + fmy * f.nx;
+            fy_e[i * (ny + 1) + j] = fe;
         }
     }
 
@@ -553,14 +568,33 @@ pub fn advance2d_axi_curv(
                 + fy_my[i * (ny + 1) + j + 1] * sa_t
                 - fy_my[i * (ny + 1) + j] * sa_b)
                 / vol;
-            // the geometric source: the pressure thrust on the
-            // r-projected face areas. sa_* above are the full annular
-            // areas; the radial source needs the r-projection, i.e.
-            // each face's area weighted by its radial normal.
+            // the geometric source: the axisymmetric radial pressure
+            // thrust. the stored face normals use a mixed convention
+            // (x-faces outward +i, y-faces outward +j), so the closed
+            // polygon identity that closes the discrete divergence is
+            //   A = -a_R + a_L + a_T - a_B,   a_f = r_f len_f nr_f.
+            // the y-faces alone only close the identity on straight
+            // columns; everywhere the grid curves (the nose cap, the
+            // shoulder) the x-face terms are O(A) themselves, and
+            // dropping them left a spurious p*(A - a_T + a_B)/vol that
+            // scales like 1/vol on the tiny pole cells: this was the
+            // nose seam poisoning.
+            // the geometric source: the axisymmetric radial pressure
+            // thrust. with the stored normals all pointing from the
+            // lower cell index to the higher one, the closed-polygon
+            // identity is  A = a_R - a_L + a_T - a_B,  a_f = r len nr,
+            // exact for any quad; the source is p * 2pi * A / vol.
+            // the y-faces alone only close the identity on straight
+            // columns; everywhere the grid curves (the nose cap, the
+            // shoulder) the x-face terms are O(A), and dropping them
+            // left a spurious radial force that scaled like 1/vol on
+            // the tiny pole cells: this was the nose seam poisoning.
             let src_y = p[k]
                 * 2.0
                 * std::f64::consts::PI
-                * (yf_t.r * yf_t.len * yf_t.nr - yf_b.r * yf_b.len * yf_b.nr)
+                * (yf_t.r * yf_t.len * yf_t.nr - yf_b.r * yf_b.len * yf_b.nr
+                    + xf_r.r * xf_r.len * xf_r.nr
+                    - xf_l.r * xf_l.len * xf_l.nr)
                 / vol;
             let fe = -(fx_e[j * (nx + 1) + i + 1] * sa_r - fx_e[j * (nx + 1) + i] * sa_l
                 + fy_e[i * (ny + 1) + j + 1] * sa_t
