@@ -20,5 +20,5 @@ verification ladder.
 ## See also
 
 - [[numerics/1d/sod||Sod verification]]
-- [[numerics/foundations/verification||Verification ladder]]
+- [[verification|Verification ladder]]
 - [[numerics/1d/1d-euler||1D Euler]]

@@ -203,6 +203,6 @@ plays for the aeroshell.
 ## See also
 
 - [Architecture](architecture.md)
-- [Verification](numerics/foundations/verification.md)
+- [Verification](verification/index.md)
 - [Regression suite](verification/regression-suite.md)
 - [Equilibrium air](numerics/foundations/equilibrium-air.md)

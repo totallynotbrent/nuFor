@@ -30,7 +30,7 @@ hand wave.
   positivity holds. ([[numerics/1d/sod|sod]])
 - Lax: the stronger tube stays positive and converges.
 - Verification ladder: constant state, uniform advection, stationary shock,
-  isentropic expansion. ([[numerics/foundations/verification|verification]])
+  isentropic expansion. ([[verification|verification]])
 - Conservation to machine precision on a closed/reflective run.
 
 ## Performance evidence
@@ -48,6 +48,6 @@ into two dimensions.
 
 ## See also
 
-- [[numerics/foundations/verification||Verification ladder]]
+- [[verification|Verification ladder]]
 - [[numerics/1d/1d-euler||1D Euler]]
 - [[numerics/1d/sod||Sod verification]]

@@ -39,4 +39,4 @@ it is exactly the sensitivity that a body-fitted or AMR grid removes.
 
 - [[numerics/2d/oblique-shock||Oblique shock]]
 - [[numerics/2d/2d-euler||2D Euler solver]]
-- [[numerics/foundations/verification||Verification ladder]]
+- [[verification|Verification ladder]]

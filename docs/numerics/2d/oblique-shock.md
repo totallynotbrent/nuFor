@@ -40,4 +40,4 @@ state follows the relations until the shock detaches.
 
 - [[numerics/2d/2d-euler||2D Euler solver]]
 - [[numerics/2d/shock-reflection||Shock reflection]]
-- [[numerics/foundations/verification||Verification ladder]]
+- [[verification|Verification ladder]]

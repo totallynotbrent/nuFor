@@ -50,7 +50,8 @@ The full ladder, with what is explicitly out of scope, lives in the
 
 ## Verification
 
-Every milestone closes against an analytical or benchmark case:
+Every milestone closes against an analytical or benchmark case, tracked on the
+[verification ladder](verification/index.md):
 
 - [Sod](numerics/1d/sod.md) and [Lax](numerics/1d/lax.md) - 1D shock tubes vs the exact Riemann solution
 - [Oblique shock](numerics/2d/oblique-shock.md) - supersonic wedge vs θ-β-M theory
