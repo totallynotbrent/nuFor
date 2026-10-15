@@ -32,6 +32,14 @@ when their gates pass.
   planar closed form 8.5 on the march's own edge state (+27%, the
   conductor still converging downward); wall heat flux is citable
   output now.
+- Body-fitted O-grid: the sphere-cone capsule runs on a curvilinear
+  O-grid (`cases/capsule-reentry-ogrid`) with the nose seam treated
+  as a symmetry plane. Four geometry/flux defects that poisoned the
+  pole region are fixed and pinned by contract tests: the face-normal
+  convention, the closed-polygon identity behind the axisymmetric
+  source, the seam Riemann pair, and a double face-length weighting
+  in the update. The full capsule march is steady at the stagnation
+  corner with zero floor hits end to end.
 - Unstructured 2D: a gmsh-driven finite-volume path exists
   (`ugrid.rs`, advance_ugrid) with the Sod gate; a prototype, not yet a
   validated rung.

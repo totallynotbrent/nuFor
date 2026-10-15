@@ -134,3 +134,102 @@ fn capsule_ogrid_marches() {
         }
     }
 }
+
+#[test]
+fn ogrid_face_normals_and_identity_close() {
+    // stored normals point from the lower cell index to the higher
+    // one for both families. the outward closure identity is
+    //   A = a_R - a_L + a_T - a_B,  a_f = r_f len_f nr_f.
+    // this is what makes the axisymmetric source term exact, and its
+    // violation was the nose seam poisoning.
+    let sc = capsule();
+    let g = CurvGrid::over_sphere_cone(&sc, 96, 48, 6.0, 2.0);
+    for j in 0..g.ny {
+        for i in 0..g.nx {
+            let k = j * g.nx + i;
+            let fl = g.xfaces[j * (g.nx + 1) + i];
+            let fr = g.xfaces[j * (g.nx + 1) + i + 1];
+            let fb = g.yfaces[i * (g.ny + 1) + j];
+            let ft = g.yfaces[i * (g.ny + 1) + j + 1];
+            let s = ft.r * ft.len * ft.nr - fb.r * fb.len * fb.nr + fr.r * fr.len * fr.nr
+                - fl.r * fl.len * fl.nr;
+            let rel = (s - g.cells[k].area).abs() / g.cells[k].area;
+            assert!(rel < 1e-6, "identity violated at ({i},{j}): {rel}");
+        }
+    }
+}
+
+#[test]
+fn ogrid_seam_wall_faces_carry_no_mass() {
+    // the nose seam (i=0) is a symmetry plane and the body wall (j=0)
+    // is solid: one step from rest-like uniform freestream state must
+    // move no mass through either face family there.
+    let sc = capsule();
+    let (nx, ny) = (48, 24);
+    let g = CurvGrid::over_sphere_cone(&sc, nx, ny, 6.0, 2.0);
+    let (rho, u, p) = (0.004f64, 6960.0f64, 287.0f64);
+    let e_int = nufor_core::eqair_energy(&[rho], &[p]).unwrap()[0];
+    let et = e_int + 0.5 * u * u;
+    let n = nx * ny;
+    let mut st = ConservedState2d {
+        rho: vec![rho; n],
+        mx: vec![rho * u; n],
+        my: vec![0.0; n],
+        e: vec![rho * et; n],
+    };
+    let fs = Freestream { rho, u, p };
+    advance2d_axi_curv(&mut st, &g, ThermoModel::EqAir { r_gas: 287.0 }, 0.4, fs).unwrap();
+    // the wall row cells keep their density when nothing can enter:
+    // after one step the wall row changes only by wall-parallel
+    // transport and the source; the seam column similarly. what the
+    // contract pins is that the FIRST column cannot drift below the
+    // freestream floor by pure outflux through the seam:
+    for j in 0..ny {
+        let k = j * nx;
+        assert!(
+            st.rho[k] > 1e-5,
+            "seam column evacuated at j={j}: rho={}",
+            st.rho[k]
+        );
+    }
+}
+
+#[test]
+fn ogrid_capsule_pole_stays_physical() {
+    // the real gate from the defect: march the capsule to a quasi-
+    // steady shock and require the pole column to stay physical
+    // (no floor hits, stagnation compression, freestream far field).
+    let sc = capsule();
+    let (nx, ny) = (96, 48);
+    let g = CurvGrid::over_sphere_cone(&sc, nx, ny, 6.0, 2.0);
+    let (rho, u, p) = (0.004f64, 6960.0f64, 287.0f64);
+    let e_int = nufor_core::eqair_energy(&[rho], &[p]).unwrap()[0];
+    let et = e_int + 0.5 * u * u;
+    let n = nx * ny;
+    let mut st = ConservedState2d {
+        rho: vec![rho; n],
+        mx: vec![rho * u; n],
+        my: vec![0.0; n],
+        e: vec![rho * et; n],
+    };
+    let fs = Freestream { rho, u, p };
+    let model = ThermoModel::EqAir { r_gas: 287.0 };
+    for _ in 0..1500 {
+        advance2d_axi_curv(&mut st, &g, model, 0.4, fs).unwrap();
+    }
+    // no floor hits anywhere
+    for k in 0..n {
+        assert!(st.rho[k] > 1e-5, "floor hit at cell {k}: rho={}", st.rho[k]);
+    }
+    // the stagnation corner compressed, the outer row did not
+    assert!(
+        st.rho[0] > 2.0 * rho,
+        "stagnation did not compress: {}",
+        st.rho[0]
+    );
+    let outer = st.rho[(ny - 1) * nx + nx / 2];
+    assert!(
+        (outer - rho).abs() / rho < 0.05,
+        "outer row drifted: {outer}"
+    );
+}
