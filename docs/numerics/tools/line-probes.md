@@ -62,6 +62,6 @@ panel, and its test in the same change.
 ## See also
 
 - [[numerics/tools/web-ui|Web UI skeleton]]
-- [[numerics/2d/2d|2D foundations]]
-- [[numerics/2d/2d-euler|2D Euler solver]]
+- [[numerics/2d/state-grid|2D foundations]]
+- [[numerics/2d/euler|2D Euler solver]]
 - [[numerics/2d/oblique-shock|Oblique shock]]

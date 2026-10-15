@@ -71,5 +71,5 @@ real findings to chase next; neither is a resolution problem.
 
 ## See also
 
-- [[turbulent-plate|Turbulent flat plate]]
-- [[regression-suite|Regression suite]]
+- [[numerics/2d/turbulent-plate|Turbulent flat plate]]
+- [[verification/regression-suite|Regression suite]]

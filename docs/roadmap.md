@@ -1,4 +1,6 @@
-# Roadmap
+---
+title: Roadmap
+---
 
 nuFor's trajectory is a ladder: each rung is a validated solver
 capability with its analytic gates, in an order where every milestone
@@ -133,7 +135,7 @@ flowchart LR
     the parallel solver core (domain decomposition, halo
     exchange, the march) behind one coarse FFI; Rust stays the front
     door (case files, CLI, UI, output) and never calls MPI. Design,
-    gates, and measured scaling: [the MPI page](numerics/parallel/mpi.md).
+    gates, and measured scaling: [[numerics/parallel/mpi|the MPI page]].
     Phase F1 parallelizes the euler_2d march (the capsule path) with the
     np=1 bit-identity anchor; phase F2 adds viscous+SA; phase F3 lands
     all new physics (live 2T, species) MPI-native from day one, which
@@ -217,7 +219,7 @@ plays for the aeroshell.
 
 ## See also
 
-- [Architecture](architecture.md)
-- [Verification](verification/index.md)
-- [Regression suite](verification/regression-suite.md)
-- [Equilibrium air](numerics/foundations/equilibrium-air.md)
+- [[architecture|Architecture]]
+- [[verification/index|Verification]]
+- [[verification/regression-suite|Regression suite]]
+- [[numerics/foundations/equilibrium-air|Equilibrium air]]

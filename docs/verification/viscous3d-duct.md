@@ -54,5 +54,5 @@ path; the duct and this symmetry contract can.
 
 ## See also
 
-- [[numerics/3d/3d-viscous|3D Navier-Stokes]]
-- [3D channel validation](viscous3d-channel.md)
+- [[numerics/3d/viscous|3D Navier-Stokes]]
+- [[verification/viscous3d-channel|3D channel validation]]

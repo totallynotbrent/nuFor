@@ -38,5 +38,5 @@ onto the same physics, not a separate solver.
 ## See also
 
 - [[numerics/unstructured/unstructured-mesh|Unstructured meshes]]
-- [[numerics/unstructured/spalart-allmaras|Spalart-Allmaras]]
-- [[numerics/2d/2d-euler|2D Euler solver]]
+- [[numerics/2d/sa-research|Spalart-Allmaras]]
+- [[numerics/2d/euler|2D Euler solver]]

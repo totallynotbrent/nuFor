@@ -119,4 +119,4 @@ long marches on the fine grids.
 
 - [[numerics/parallel/threading|Threading]]
 - [[numerics/foundations/memory-layout|Memory layout]]
-- [[numerics/3d/3d-solver|3D solver]]
+- [[numerics/3d/solver|3D solver]]

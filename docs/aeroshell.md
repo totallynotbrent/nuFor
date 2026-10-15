@@ -89,6 +89,6 @@ tooling behind the panel method. Every figure states perfect gas.
 
 ## See also
 
-- [Axisymmetric Euler](numerics/2d/axisymmetric.md)
-- [Sphere validation](verification/axisymmetric-sphere.md)
-- [Roadmap](roadmap.md)
+- [[numerics/2d/axisymmetric|Axisymmetric Euler]]
+- [[verification/axisymmetric-sphere|Sphere validation]]
+- [[roadmap|Roadmap]]

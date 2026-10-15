@@ -123,26 +123,20 @@ orders of magnitude, and a global march cannot afford per-cell step
 sizes. Three families were built and measured on the Mach-2 sphere
 (180x90, the sphere validation case):
 
-- Improvised redistribution variants, a stashed numerator, keep-rate
-  scaling, large-cell-only receivers, receiver eligibility gating: all
-  failed. The excess a flux update hands off is not a gas state, it is
-  mass-rich and energy-poor, it poisons the receivers' thermodynamics,
-  and handoffs chained through small cells concentrate the excess
-  instead of spreading it.
-- Chern-Colella flux redistribution: diverged within `t = 0.7`. The
-  face fluxes have already moved the gas, and the excess handoff moves
-  it again, so the receivers take a double extraction.
-- Berger-Giuliani state redistribution: stable through the full sphere
-  run, `t = 4.0` in 17229 steps. A cut cell grows a ring of fluid
-  neighbors until the pooled fluid volume reaches one full cell, each
-  neighborhood takes a volume-weighted average of the updated states,
-  and the final state is the average of the covering neighborhoods,
-  with overlap counts so shared cells are not counted twice. The paper
-  pools only cells below half a volume. In the axisymmetric setting the
-  annular divergence near the axis amplifies the fractional update past
-  what that half-cell rule tolerates, and the paper's threshold ran
-  stable only to about `t = 1.1` on this case, so the march pools every
-  cut cell.
+| stabilization | outcome |
+|---|---|
+| improvised variants (stashed numerator, keep-rate scaling, receiver gating) | all failed: the handed-off excess is mass-rich and energy-poor, poisons receivers, and concentrates through chains |
+| Chern-Colella flux redistribution | diverged by t = 0.7: fluxes already moved the gas, the handoff moves it again |
+| Berger-Giuliani state redistribution | stable through t = 4.0, 17229 steps |
+
+Berger-Giuliani wins: a cut cell grows a ring of fluid neighbors until
+the pooled fluid volume reaches one full cell, each neighborhood takes a
+volume-weighted average of the updated states, and the final state is
+the average of the covering neighborhoods, with overlap counts so
+shared cells are not counted twice. The paper pools only cells below
+half a volume; near the axis the annular divergence amplifies the
+fractional update past what that threshold tolerates (stable only to
+about t = 1.1 on this case), so I pool every cut cell.
 
 What the stable scheme buys is the surface read. At the stagnation
 point the cut march reads a density of about 4.0, the isentropic
@@ -157,17 +151,10 @@ the Ambrosio-Wortman reference at 0.321.
 At Mach 22 two mechanisms defeat the scheme, both measured on the
 capsule case at two resolutions:
 
-- The wall pump. The reflected-ghost pair at a hypersonic wall is a
-  mirror-state Riemann problem, not a wall reflection: its star pressure
-  pushes the surface cells toward roughly twice the stagnation
-  pressure. Measured on the 160-cell grid, stagnation Cp 3.91 to 3.99
-  where the physical value at that resolution is about 1.7 to 1.9, and
-  C_A 1.86 to 1.91 against the Newtonian 0.603. It over-reads about as
-  badly as the staircase under-reads.
-- The pool straddle. The redistribution neighborhoods span 9 to 15
-  cells while the shock layer is 1 to 2 cells thick at practical
-  resolutions, so the pooled surface reads average pre-shock and
-  post-shock states.
+| mechanism | measurement |
+|---|---|
+| the wall pump: the reflected-ghost pair becomes a mirror-state Riemann problem whose star pressure pushes surface cells toward twice the stagnation pressure | 160-cell grid: stagnation Cp 3.91 to 3.99 (physical: about 1.7 to 1.9), C_A 1.86 to 1.91 (Newtonian: 0.603) |
+| the pool straddle: redistribution neighborhoods span 9 to 15 cells while the shock layer is 1 to 2 cells thick | the pooled surface reads average pre-shock and post-shock states |
 
 The outcome: at 160 cells the run completes but over-reads the
 surface; at 640 it destroys the field within 700 steps, with more than

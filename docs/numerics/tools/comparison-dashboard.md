@@ -62,5 +62,5 @@ probe tests cover the numerics underneath the comparison.
 
 - [[numerics/tools/line-probes|Line probes]]
 - [[numerics/tools/web-ui|Web UI skeleton]]
-- [[numerics/2d/2d-euler|2D Euler solver]]
+- [[numerics/2d/euler|2D Euler solver]]
 - [[verification/regression-suite|Regression suite]]

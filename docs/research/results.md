@@ -65,7 +65,7 @@ render on the repository front page.
 ## MPI scaling
 
 The multi-rank Fortran march measured on the 34.6 km station case, 320x176,
-30 steps, on the 8-core development box at its 35 W package limit:
+30 steps, on my 8-core desktop:
 
 ![MPI strong scaling on the station case](mpi-scaling.png)
 
@@ -93,4 +93,4 @@ The thread-sharded 2D step, measured in the 1.5.0 era on a 384x384 mesh,
 40 steps: 1.86x at four physical cores, 2.04x at six threads, backsliding to
 1.75x at eight (hyperthread oversubscription). The step is memory-bound, so
 the plateau tracks memory bandwidth rather than core count. Full table on the
-[threading page](numerics/parallel/threading.md).
+[[numerics/parallel/threading|threading page]].

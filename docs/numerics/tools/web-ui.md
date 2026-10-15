@@ -50,6 +50,16 @@ one large graphics window that serves both the mesh and the result.
   renders in the same mesh viewer, and rectilinear grids can run a
   blast march on it.
 
+The layout at a glance:
+
+```mermaid
+flowchart LR
+    H["header: load / save / new / run<br/>case name + progress"] --- G
+    S["setup sidebar:<br/>case tree + raw TOML"] --- G
+    G["graphics window:<br/>mesh mode | results mode"]
+    R["results panel:<br/>Cp stations + C_A"] --- G
+```
+
 ## Data API
 
 All routes answer on `0.0.0.0:<port>`:
@@ -108,14 +118,14 @@ All routes answer on `0.0.0.0:<port>`:
 - `GET /api/meshview/slice?field=..&axis=..&u=..` - the solved field as a
   PNG: the full 2D field, or the plane at `u` along `axis` for 3D.
 
-The rule going forward: whenever a new feature lands (2D HLLC, wedge cases,
+My rule for this server: when a feature lands (2D HLLC, wedge cases,
 viscous terms), it gets an API route and a panel in the same commit, so the
-skeleton stays a faithful mirror of the solver.
+UI stays a faithful mirror of the solver.
 
 ## See also
 
 - [[architecture|Architecture]]
-- [[numerics/2d/2d|2D foundations]]
-- [[numerics/1d/1d-euler|1D Euler]]
+- [[numerics/2d/state-grid|2D foundations]]
+- [[numerics/1d/euler|1D Euler]]
 - [[numerics/tools/line-probes|Line probes]]
 - [[numerics/tools/comparison-dashboard|Comparison dashboard]]

@@ -10,6 +10,12 @@ by its reflection off a slip wall.
 
 ## Two-shock theory
 
+```mermaid
+flowchart LR
+    A["oncoming stream<br/>M1 = 2.5, rho = 1"] -->|"incident shock<br/>beta1 = 33.8 deg"| B["turned region<br/>M2 = 2.00"]
+    B -->|"reflected shock<br/>beta2 = 41.5 deg"| C["doubly shocked<br/>rho3 = 2.617, p3 = 3.948"]
+```
+
 For an incoming M1 = 2.5 stream turned twelve degrees by the incident shock,
 the oblique-shock relations give the shock at beta1 = 33.8 degrees and a
 post-incident stream of M2 = 2.00. That turned stream then reflects off the
@@ -32,11 +38,11 @@ coarse Cartesian grid resolves that corner only approximately, so weak waves
 bleed outward from it as the run continues: the agreement is tightest over a
 short horizon and degrades slowly (about four percent of density over a run of
 one image time). The short-march check captures the steady two-shock state
-where it actually holds, and that slow degradation is itself instructive.
+where it actually holds, and that slow degradation is itself instructive:
 it is exactly the sensitivity that a body-fitted or AMR grid removes.
 
 ## See also
 
 - [[numerics/2d/oblique-shock|Oblique shock]]
-- [[numerics/2d/2d-euler|2D Euler solver]]
-- [[verification|Verification ladder]]
+- [[numerics/2d/euler|2D Euler solver]]
+- [[verification/index|Verification ladder]]

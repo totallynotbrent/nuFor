@@ -4,7 +4,7 @@ title: Memory budget
 
 A CPU-first CFD code lives or dies by how big the working set can get before it
 starts thrashing. This page records the 3D solver's memory footprint per cell
-and the practical ceiling on the development box's 8 GB.
+and the practical ceiling of my desktop's 8 GB of RAM.
 
 ## Bytes per cell
 
@@ -38,10 +38,9 @@ That is the number that matters for year-3 planning: a 300-ish-cubed mesh is
 the largest full 3D solve the 8 GB box will carry without swapping, so a
 research case at that size is the deliberate target, and anything bigger is
 flagged as needing the distributed-memory path (or accepting a coarser grid).
-(spec 189)
 
 ## See also
 
-- [[numerics/3d/3d-solver|3D solver]]
+- [[numerics/3d/solver|3D solver]]
 - [[numerics/foundations/memory-layout|Memory layout]]
-- [[numerics/3d/3d|3D foundations]]
+- [[numerics/3d/state-grid|3D foundations]]

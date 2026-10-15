@@ -78,7 +78,7 @@ stations accordingly.
 
 ## See also
 
-- [[numerics/2d/2d-euler|2D Euler solver]]
+- [[numerics/2d/euler|2D Euler solver]]
 - [[numerics/2d/blasius|Blasius flat plate]]
 - [[numerics/2d/viscous|Viscous terms]]
 - [[numerics/2d/oblique-shock|Oblique shock]]

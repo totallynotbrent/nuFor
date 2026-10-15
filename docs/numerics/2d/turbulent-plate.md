@@ -38,7 +38,7 @@ the validated path and the flag stays documented as experimental.
 
 Two references bound the answer honestly:
 
-- the Schlichting power law `cf = 0.0592 Re_x^(-1/5)` (valid roughly
+- the Schlichting power law $c_f = 0.0592\,Re_x^{-1/5}$ (valid roughly
   5e5 to 1e7, so it is stretched at the low end of this band), and
 - the NASA TMR CFL3D SA solution, the same model solved by a production
   code on a far finer grid.
@@ -74,5 +74,5 @@ stiff wall layers and is not on the validated path.
 ## See also
 
 - [[numerics/2d/blasius|Blasius flat plate]]
-- [[numerics/unstructured/sa-implementation|SA implementation]]
-- [[numerics/2d/2d-boundaries|2D boundary conditions]]
+- [[numerics/2d/sa-model|Spalart-Allmaras model]]
+- [[numerics/2d/boundaries|2D boundary conditions]]

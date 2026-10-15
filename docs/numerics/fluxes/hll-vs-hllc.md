@@ -50,6 +50,6 @@ precisely so that cost and accuracy can be traded per use rather than fixed.
 
 ## See also
 
-- [[numerics/fluxes/flux-hll|HLL flux]]
-- [[numerics/2d/2d-euler|2D Euler solver]]
-- [[numerics/1d/1d-euler|1D Euler]]
+- [[numerics/fluxes/hll|HLL flux]]
+- [[numerics/2d/euler|2D Euler solver]]
+- [[numerics/1d/euler|1D Euler]]

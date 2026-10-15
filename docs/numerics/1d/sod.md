@@ -9,8 +9,19 @@ rarefaction, a right-moving contact, and a right-moving shock.
 ## Setup
 
 - Domain [-0.5, 0.5], gamma = 1.4.
-- Left: rho = 1.0, u = 0, p = 1.0.  Right: rho = 0.125, u = 0, p = 0.1.
+- Left: rho = 1.0, u = 0, p = 1.0. Right: rho = 0.125, u = 0, p = 0.1.
 - Time: t = 0.22, transmissive outer boundaries.
+
+The evolved tube carries five regions separated by three waves:
+
+```mermaid
+flowchart LR
+    L["left state<br/>(p = 1.0)"] --> R1["rarefaction fan<br/>(spreads left)"]
+    R1 --> S["star region<br/>(p* = 0.303, u* = 0.927)"]
+    S --> C["contact<br/>(density jump)"]
+    C --> Sh["shock<br/>(right-moving)"]
+    Sh --> Rt["right state<br/>(p = 0.1)"]
+```
 
 ## Verification
 
@@ -27,5 +38,5 @@ the first rung of the verification ladder.
 ## See also
 
 - [[numerics/1d/lax|Lax verification]]
-- [[verification|Verification ladder]]
-- [[numerics/1d/1d-euler|1D Euler]]
+- [[verification/index|Verification ladder]]
+- [[numerics/1d/euler|1D Euler]]

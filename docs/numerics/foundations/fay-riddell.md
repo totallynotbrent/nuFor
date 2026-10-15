@@ -1,4 +1,6 @@
-# Fay-Riddell stagnation heating
+---
+title: Fay-Riddell stagnation heating
+---
 
 The rung-6 validation anchor: the closed form for stagnation-point
 cold-wall heat flux on a blunt nose, which I implemented in

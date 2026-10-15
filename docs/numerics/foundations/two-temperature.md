@@ -10,21 +10,22 @@ carries that lag as a live field.
 
 ## The model
 
-One vibrational energy per cell, `e_v` in J/kg, for the nitrogen
-molecule (harmonic oscillator, characteristic temperature 3393 K).
-The field is advected with the Euler mass fluxes (donor-cell) and
-relaxed toward the translational pool with the Landau-Teller source,
-integrated backward-Euler:
+One vibrational energy per cell, $e_v$ in J/kg, for the nitrogen
+molecule (harmonic oscillator, characteristic temperature 3393 K). The
+field is advected with the Euler mass fluxes (donor-cell) and relaxed
+toward the translational pool with the Landau-Teller source
 
-```
-e_v_new = (e_v + (dt/tau) e_eq(T)) / (1 + dt/tau)
-```
+$$\frac{d e_v}{d t} = \frac{e_{eq}(T) - e_v}{\tau}$$
 
-`tau` is the Millikan-White correlation with Park's high-temperature
-collision-limited cutoff, evaluated per cell from the local
-translational temperature, pressure, and number density. Backward-Euler
-is unconditionally stable and exact in both limits (frozen flow at
-small dt, equilibrium at large dt).
+integrated backward-Euler each step,
+
+$$e_v^{new} = \frac{e_v + (\Delta t/\tau)\, e_{eq}(T)}{1 + \Delta t/\tau}$$
+
+$\tau$ is the Millikan-White correlation with Park's high-temperature
+collision-limited cutoff, evaluated per cell from the local translational
+temperature, pressure, and number density. Backward-Euler is
+unconditionally stable and exact in both limits: frozen flow at small
+$\Delta t$, equilibrium at large $\Delta t$.
 
 The vibrational pool lives inside the conserved total energy: the
 translational temperature reads `ein_tr = ein_full - e_v`, so the
@@ -47,8 +48,9 @@ Three gates pin the rung:
 
 - the `T_v(e_v)` inversion round-trips the caloric form to 1e-9
 - a thermostatted box at fixed translational temperature tracks the
-  analytic Landau-Teller decay curve `e_eq(T)[1 - exp(-t/tau)]` over
-  three relaxation times
+  analytic Landau-Teller decay curve
+  $e_v(t) = e_{eq}(T)\left[1 - e^{-t/\tau}\right]$ over three
+  relaxation times
 - a coupled box (temperature free to drift) conserves energy to
   machine precision and converges to the analytic coupled fixed point
   `e_v = e_vib(T(ein0 - e_v))` to 0.1%

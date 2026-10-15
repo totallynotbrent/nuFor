@@ -57,6 +57,6 @@ The setup and the checked numbers are on
 
 ## See also
 
-- [2D Euler solver](2d-euler.md), the planar march whose fluxes the
+- [[numerics/2d/euler|2D Euler solver]], the planar march whose fluxes the
   annular update reuses
 - [[verification/axisymmetric-sphere|Sphere validation]]

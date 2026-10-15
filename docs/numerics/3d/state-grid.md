@@ -49,4 +49,4 @@ sound-speed / Mach values against hand-computed numbers.
 
 - [[numerics/foundations/state-grid|State and grid]]
 - [[numerics/foundations/eos|Ideal-gas EOS]]
-- [[numerics/3d/3d-solver|3D solver]]
+- [[numerics/3d/solver|3D solver]]

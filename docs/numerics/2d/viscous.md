@@ -131,5 +131,5 @@ computational cost of the channel-flow milestone's high-temperature cases.
 ## See also
 
 - [[numerics/2d/channel-flow|Channel flow]]
-- [[numerics/2d/2d-euler|2D Euler solver]]
+- [[numerics/2d/euler|2D Euler solver]]
 - [[numerics/foundations/positivity|Positivity]]

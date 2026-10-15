@@ -18,18 +18,16 @@ graph TD
 
 ## Language split
 
-- **Rust**: application framework, CLI, web/API, orchestration, integration
-  (spec 36).
-- **Fortran**: numerical and physics kernels and dense array operations
-  (spec 37).
+- **Rust**: application framework, CLI, web/API, orchestration, integration.
+- **Fortran**: numerical and physics kernels and dense array operations.
 - **Python**: analysis, reference solutions, plotting, verification,
-  automation (spec 38).
+  automation.
 
 ## Interop
 
 Rust and Fortran cross a deliberate C-compatible ABI: contiguous arrays with
 explicit lengths, structured error codes, no Fortran derived-type leakage.
-See  for the full design and its rules.
+See [[numerics/foundations/memory-layout|the memory layout]] for the full design and its rules.
 
 ## Build
 
@@ -40,12 +38,12 @@ Fortran kernels into a static archive and link them in. The tree is
 
 ## Areas
 
-- [Numerics - 1D Euler](numerics/1d/1d-euler.md)
-- [Formats - case.toml](formats/case-toml.md)
+- [[numerics/1d/euler|Numerics - 1D Euler]]
+- [[formats/case-toml|Formats - case.toml]]
 
 ## See also
 
 - [[numerics/tools/web-ui|Web UI]]
 - [[formats/case-toml|case.toml format]]
-- [[numerics/3d/3d|3D foundations]]
+- [[numerics/3d/state-grid|3D foundations]]
 - [[performance/optimization-ledger|Optimization ledger]]

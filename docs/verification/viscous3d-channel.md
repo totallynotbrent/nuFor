@@ -30,5 +30,5 @@ roundoff.
 
 ## See also
 
-- [[numerics/3d/3d-viscous|3D Navier-Stokes]]
+- [[numerics/3d/viscous|3D Navier-Stokes]]
 - [[numerics/2d/channel-flow|Channel flow (2D)]], the 2D original

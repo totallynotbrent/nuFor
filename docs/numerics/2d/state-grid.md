@@ -40,7 +40,7 @@ flux, MUSCL reconstruction, and TVD limiter build on top of them next.
 
 ## See also
 
-- [[numerics/2d/2d-euler|2D Euler solver]]
+- [[numerics/2d/euler|2D Euler solver]]
 - [[numerics/foundations/state-grid|State and grid]]
 - [[numerics/foundations/memory-layout|Memory layout]]
-- [[numerics/3d/3d|3D foundations]]
+- [[numerics/3d/state-grid|3D foundations]]
