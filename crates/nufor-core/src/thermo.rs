@@ -15,8 +15,10 @@ use crate::Error;
 pub enum ThermoModel {
     /// constant gamma, constant R.
     Perfect { gamma: f64 },
-    /// equilibrium air curve fits evaluated from (rho, e).
-    EqAir,
+    /// equilibrium air curve fits evaluated from (rho, e). `r_gas` is the
+    /// case gas constant: the state is dimensional, so it sets the
+    /// conduction cp (kappa = cp/pr) in the viscous pass.
+    EqAir { r_gas: f64 },
 }
 
 /// pressure for a whole field under the chosen closure.
@@ -46,7 +48,7 @@ pub fn pressure(
             }
             Ok(p)
         }
-        ThermoModel::EqAir => crate::eqair_cea::pressure(rho, e, u, v),
+        ThermoModel::EqAir { .. } => crate::eqair_cea::pressure(rho, e, u, v),
     }
 }
 
@@ -79,7 +81,7 @@ pub fn temperature(model: ThermoModel, rho: &[f64], p: &[f64]) -> Result<Vec<f64
             }
             Ok(out)
         }
-        ThermoModel::EqAir => crate::eqair_cea::temperature(rho, p),
+        ThermoModel::EqAir { .. } => crate::eqair_cea::temperature(rho, p),
     }
 }
 
@@ -99,7 +101,7 @@ pub fn sound_speed(
             let p_floored: Vec<f64> = p.iter().map(|x| x.max(1e-12)).collect();
             eos_sound_speed2d(gamma, &p_floored, rho)
         }
-        ThermoModel::EqAir => {
+        ThermoModel::EqAir { .. } => {
             let n = rho.len();
             if n == 0 || et.len() != n || u.len() != n || v.len() != n {
                 return Err(Error::InvalidArgs);
@@ -124,6 +126,8 @@ pub fn model_from_config(cfg: &nufor_config::CaseConfig) -> ThermoModel {
         Eos::Perfect | Eos::Park2t => ThermoModel::Perfect {
             gamma: cfg.physics.gamma,
         },
-        Eos::EqAir => ThermoModel::EqAir,
+        Eos::EqAir => ThermoModel::EqAir {
+            r_gas: cfg.physics.gas_constant,
+        },
     }
 }

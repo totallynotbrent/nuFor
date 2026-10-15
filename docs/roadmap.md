@@ -26,6 +26,11 @@ dates. Milestones land when their gates pass.
 - Performance: the static body classification is cached and the closure
   passes are threaded; the hi-res anchor runs 8x faster than the serial
   march (3.96 h for 11,549 steps at 1280x640 on the 35 W box).
+- Fay-Riddell stagnation heating gate (rung 6): done. The
+  wall-resolved cylinder gate closes at conductor 10.7 W/cm2 vs the
+  planar closed form 8.5 on the march's own edge state (+27%, the
+  conductor still converging downward); wall heat flux is citable
+  output now.
 - Unstructured 2D: a gmsh-driven finite-volume path exists
   (`ugrid.rs`, advance_ugrid) with the Sod gate; a prototype, not yet a
   validated rung.
@@ -44,33 +49,28 @@ dates. Milestones land when their gates pass.
 4. **Equilibrium air**: done (moved up from "out of scope": the
    aeroshell project needed it, and the CEA table plus the TGAS1 face
    fits are the validated form).
-5. **Live two-temperature nonequilibrium (Park 2T)**: the current
-   rung. park.rs already carries the 5-species air rates (Park 1990),
-   Millikan-White plus Park-cutoff relaxation times, and the
-   t_rxn = sqrt(T*Tv) mixing rule, but the vibrational field is a
-   placeholder (t_v pinned to t) and the march is not wired into the
-   CLI. This rung makes e_v a live field: unpinned t_v, per-step
-   relaxation into the vibrational reservoir, back-coupling through
-   t_rxn, and the shock-layer T/Tv split reported per station.
-   Validation: an energy-conservation relaxation box (analytic
-   Landau-Teller decay), then the Mach 20 nitrogen cylinder (Casseau et
-   al. 2016) as the external anchor: the canonical hy2Foam case, same
-   physics, published numbers. License note: hyStrath is GPL-3.0, the
-   same license as nuFor; the borrow is the validation target and the
-   physics constants, not code; the codebases (OpenFOAM C++ vs a
-   self-contained Rust structured-grid core) are too alien to port.
-6. **Fay-Riddell stagnation heating gate**: a wall-resolved viscous
-   sphere at entry conditions, validated against the Fay-Riddell
-   closed form. This is the gate that makes any wall heat flux the
-   solver prints citable; without it the Euler-wall probe stays a grid
-   artifact (it reads a fraction of Sutton-Graves by construction).
-   The cold isothermal wall exists; the work is wall-normal resolution
-   that holds a boundary layer (the Blasius hold is the pattern).
-   Highest report value per hour of work. The closed form itself is
-   now in the tree (`nufor-core::fay_riddell`): the perfect-gas
-   Lewis-one form with Sutherland transport, pinned to the
-   Rankine-Hugoniot shock tables and scaling checks; the
-   equilibrium-air enthalpy bracket activates with the species rung.
+5. **Live two-temperature nonequilibrium (Park 2T)**: done. `e_v` is a
+   live field (unpinned t_v) with Millikan-White + Park-cutoff
+   relaxation and the t_rxn = sqrt(T Tv) mixing rule; the 5-species
+   rates (Park 1990) sit in park.rs waiting for rung 8. Gates: the
+   analytic Landau-Teller decay box, energy conservation to machine
+   precision, then the Mach 20 nitrogen cylinder (Casseau et al. 2016)
+   as the external anchor. License note: hyStrath is GPL-3.0, same as
+   nuFor; the borrow is the validation target and the physics
+   constants, not code.
+6. **Fay-Riddell stagnation heating gate**: done. A
+   wall-resolved viscous cylinder at entry conditions, validated
+   against the planar Fay-Riddell closed form (0.57 Pr^-0.6 vs the
+   sphere's 0.763). The gate case runs a nose-only domain at global
+   dt: local time stepping detonates on this class at long times
+   (documented on the viscous page), and the nose-only cut holds the
+   march cost to hours on this box. The wall closures it exercised:
+   the reflected-riemann slip wall in the advective stage, the
+   one-sided conductor in the viscous stage, and closure-lane
+   conduction with real units. The planar closed form is in the tree
+   (`fay_riddell_q_2d`), pinned to the Beckwith-Cohen similarity
+   constant and the Rankine-Hugoniot tables. This is the gate that
+   makes any wall heat flux the solver prints citable.
 7. **Continuum-validity probe per station**: Knudsen number and Bird's
    breakdown parameter from the freestream, one line in the run log.
    Cheap, and it puts a number behind "continuum CFD applies here"

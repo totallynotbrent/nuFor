@@ -10,10 +10,10 @@ NaN.
 
 Every run ends with one of these, exposed as `EulerResult.reason`:
 
-- **Converged** — the residual dropped to or below `tol`.
-- **TimeEnd** — the accumulated simulated time reached `t_end`.
-- **MaxSteps** — the step budget (`max_steps`) ran out first.
-- **BlowUp** — a non-physical cell appeared mid-run; the run stopped at that
+- **Converged** - the residual dropped to or below `tol`.
+- **TimeEnd** - the accumulated simulated time reached `t_end`.
+- **MaxSteps** - the step budget (`max_steps`) ran out first.
+- **BlowUp** - a non-physical cell appeared mid-run; the run stopped at that
   step so the result state is inspectable.
 
 ## Physical-validity scan

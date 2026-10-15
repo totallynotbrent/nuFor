@@ -80,8 +80,17 @@ fn mpi_np1_matches_rust_sod2d_inner() {
     let mut t = 0.0;
     let mut dt_ref_last = 0.0;
     for _ in 0..nsteps {
-        let (dt, _) =
-            advance2d_model(&mut st_ref, &g, ThermoModel::EqAir, 0.4, true, &bc, 1, None).unwrap();
+        let (dt, _) = advance2d_model(
+            &mut st_ref,
+            &g,
+            ThermoModel::EqAir { r_gas: 287.0 },
+            0.4,
+            true,
+            &bc,
+            1,
+            None,
+        )
+        .unwrap();
         dt_ref_last = dt;
         t += dt;
     }
@@ -95,8 +104,17 @@ fn mpi_np1_matches_rust_sod2d_inner() {
     // the fortran march owns its slabs for the whole call, so march all
     // nsteps in one call; only rank 0 receives the gathered final state.
     let st0 = sod_state(&g);
-    let r =
-        march_euler2d_mpi(&st0, &g, ThermoModel::EqAir, &bc, 0.4, 1e30, nsteps, &solid).unwrap();
+    let r = march_euler2d_mpi(
+        &st0,
+        &g,
+        ThermoModel::EqAir { r_gas: 287.0 },
+        &bc,
+        0.4,
+        1e30,
+        nsteps,
+        &solid,
+    )
+    .unwrap();
     println!("fortran dt last: {:.6e}", r.dt_last);
     let st_mpi = match r.state {
         Some(s) => s,
@@ -165,8 +183,17 @@ fn mpi_np1_matches_rust_uniform_eqair_inner() {
     let mut st_ref = uniform_eqair_state(&g, 1.0, 100.0, 1000.0);
     let mut dt_ref_last = 0.0;
     for _ in 0..nsteps {
-        let (dt, _) =
-            advance2d_model(&mut st_ref, &g, ThermoModel::EqAir, 0.4, true, &bc, 1, None).unwrap();
+        let (dt, _) = advance2d_model(
+            &mut st_ref,
+            &g,
+            ThermoModel::EqAir { r_gas: 287.0 },
+            0.4,
+            true,
+            &bc,
+            1,
+            None,
+        )
+        .unwrap();
         dt_ref_last = dt;
     }
     println!("rust dt last: {dt_ref_last:.6e}");
@@ -181,7 +208,7 @@ fn mpi_np1_matches_rust_uniform_eqair_inner() {
             let r = march_euler2d_mpi(
                 &st,
                 &g,
-                ThermoModel::EqAir,
+                ThermoModel::EqAir { r_gas: 287.0 },
                 &bc,
                 0.4,
                 f64::INFINITY,
@@ -203,8 +230,17 @@ fn mpi_np1_matches_rust_uniform_eqair_inner() {
         }
         (st, dt_last, steps_done)
     } else {
-        let r = march_euler2d_mpi(&st0, &g, ThermoModel::EqAir, &bc, 0.4, 1e30, nsteps, &solid)
-            .unwrap();
+        let r = march_euler2d_mpi(
+            &st0,
+            &g,
+            ThermoModel::EqAir { r_gas: 287.0 },
+            &bc,
+            0.4,
+            1e30,
+            nsteps,
+            &solid,
+        )
+        .unwrap();
         println!("fortran dt last: {:.6e}", r.dt_last);
         let st = match r.state {
             Some(s) => s,
@@ -283,7 +319,7 @@ fn mpi_np1_visc_matches_rust_inner() {
         let (dt, _) = advance2d_model_visc_rk2(
             &mut st_ref,
             &g,
-            ThermoModel::EqAir,
+            ThermoModel::EqAir { r_gas: 287.0 },
             0.4,
             true,
             &bc,
@@ -305,7 +341,7 @@ fn mpi_np1_visc_matches_rust_inner() {
     let r = march_viscous2d_mpi(
         &st0,
         &g,
-        ThermoModel::EqAir,
+        ThermoModel::EqAir { r_gas: 287.0 },
         &bc,
         0.4,
         1e30,
@@ -441,7 +477,7 @@ fn mpi_np1_matches_rust_capsule_inner() {
         let (dt, _) = advance2d_model(
             &mut st_ref,
             &g,
-            ThermoModel::EqAir,
+            ThermoModel::EqAir { r_gas: 287.0 },
             0.4,
             true,
             &bc,
@@ -461,7 +497,7 @@ fn mpi_np1_matches_rust_capsule_inner() {
         let r = march_euler2d_mpi(
             &st,
             &g,
-            ThermoModel::EqAir,
+            ThermoModel::EqAir { r_gas: 287.0 },
             &bc,
             0.4,
             f64::INFINITY,

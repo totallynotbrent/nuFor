@@ -58,11 +58,12 @@ mod wall_dist;
 
 pub use axi::{
     advance2d_axi, advance2d_axi_rk2, advance2d_model, advance2d_model_rk2,
-    advance2d_model_visc_rk2, advance2d_sa_model_rk2,
+    advance2d_model_visc_lts, advance2d_model_visc_rk2, advance2d_sa_model_rk2, model_local_dts,
 };
 pub use blasius::{BlasiusProfile, BlasiusTable, CF_CONST};
 pub use body::{
-    apply_solid, apply_solid_fn, body_cache, BodyCache, SolidBody, SolidPolygon, SolidShape,
+    apply_solid, apply_solid_fn, apply_solid_ref, body_cache, solid_mask, BodyCache, SolidBody,
+    SolidPolygon, SolidShape,
 };
 pub use cfl::{cfl_dt, CflStep};
 pub use cutcell::{cut_fractions, cut_fractions_corner, CutFractions};
@@ -123,8 +124,8 @@ pub use turb2d::{advance_turb, SaParams, TurbState};
 pub use ugrid::{MeshDiagnostics, Ugrid};
 pub use vectorize::{apply_divergence, simd_capability};
 pub use viscous2d::{
-    add_viscous, add_viscous_bc, add_viscous_cells, advance2d_sa_lts, advance2d_sa_rk2,
-    advance2d_visc_rk2, local_dts, sa_dt_cap, sutherland_mu, TurbCtx, ViscParams,
+    add_viscous, add_viscous_bc, add_viscous_cells, add_viscous_cells_mu, advance2d_sa_lts,
+    advance2d_sa_rk2, advance2d_visc_rk2, local_dts, sa_dt_cap, sutherland_mu, TurbCtx, ViscParams,
 };
 pub use viscous2d_par::{
     add_viscous_cells_par, advance2d_sa_rk2_par, advance2d_visc_rk2_par, advance_turb_par,

@@ -451,10 +451,27 @@ contains
     do j = 1, ny_
       do f = 1, nx_l+2
         if (solid(f+1,j) .or. solid(f+2,j)) then
-          fx(1,f,j) = 0.0_DP
-          fx(2,f,j) = 0.0_DP
-          fx(3,f,j) = 0.0_DP
-          fx(4,f,j) = 0.0_DP
+          ! the mirrored slip-wall riemann, same as the rust wall
+          ! closure: reflect the fluid state about the face and run the
+          ! same hllc the interior uses. the solve returns the wall
+          ! pressure the reflection builds, so the wall is impermeable
+          ! but not force-free.
+          ! the rust wall closure puts the mirror on the same side as the
+          ! solid: left-solid runs (mirror, fluid), right-solid runs
+          ! (fluid, mirror).
+          if (solid(f+1,j)) then
+            call hllc_face_x(rho_in(f+2,j), -u(f+2,j), -v(f+2,j), p(f+2,j), &
+                             ein(f+2,j), a(f+2,j), &
+                             rho_in(f+2,j), u(f+2,j), v(f+2,j), p(f+2,j), &
+                             ein(f+2,j), a(f+2,j), &
+                             gamma, fx(1,f,j), fx(2,f,j), fx(3,f,j), fx(4,f,j))
+          else
+            call hllc_face_x(rho_in(f+1,j), u(f+1,j), v(f+1,j), p(f+1,j), &
+                             ein(f+1,j), a(f+1,j), &
+                             rho_in(f+1,j), -u(f+1,j), -v(f+1,j), p(f+1,j), &
+                             ein(f+1,j), a(f+1,j), &
+                             gamma, fx(1,f,j), fx(2,f,j), fx(3,f,j), fx(4,f,j))
+          end if
           nzf = nzf + 1
         end if
       end do
@@ -465,10 +482,29 @@ contains
         ! ghost below and face ny_+1 a ghost above, so only test the
         ! cell indices that exist (no out-of-bounds solid reads).
         if ((j > 1 .and. solid(f+2,j-1)) .or. (j <= ny_ .and. solid(f+2,j))) then
-          fy(1,f,j) = 0.0_DP
-          fy(2,f,j) = 0.0_DP
-          fy(3,f,j) = 0.0_DP
-          fy(4,f,j) = 0.0_DP
+          ! mirrored slip-wall riemann on the y face: the u-slot takes
+          ! the y-normal velocity v, the v-slot the tangential u, and
+          ! the fluid-side normal velocity is reflected.
+          if (j > 1 .and. solid(f+2,j-1)) then
+            call hllc_face_x(rho_in(f+2,j), -v(f+2,j), -u(f+2,j), p(f+2,j), &
+                             ein(f+2,j), a(f+2,j), &
+                             rho_in(f+2,j), v(f+2,j), u(f+2,j), p(f+2,j), &
+                             ein(f+2,j), a(f+2,j), &
+                             gamma, fm, fmx2, fmy2, fe)
+          else
+            call hllc_face_x(rho_in(f+2,j-1), v(f+2,j-1), u(f+2,j-1), p(f+2,j-1), &
+                             ein(f+2,j-1), a(f+2,j-1), &
+                             rho_in(f+2,j-1), -v(f+2,j-1), -u(f+2,j-1), p(f+2,j-1), &
+                             ein(f+2,j-1), a(f+2,j-1), &
+                             gamma, fm, fmx2, fmy2, fe)
+          end if
+          ! hllc_face_x works in the face frame: fmx2 is the normal
+          ! (y) momentum flux and fmy2 the tangential (x) momentum flux,
+          ! so they land in swapped fy slots.
+          fy(1,f,j) = fm
+          fy(2,f,j) = fmy2
+          fy(3,f,j) = fmx2
+          fy(4,f,j) = fe
           nzf = nzf + 1
         end if
       end do
@@ -864,12 +900,12 @@ end subroutine
   ! no-slip wall shear + isothermal-wall conduction, divergence add.
   ! call right after a halo refresh of the post-euler state.
   subroutine viscous_add_slab(rho, mx, my, e, nx_l, ny_, dx, dy, dt, &
-                              mu0, t0_ref, s_par, pr, tw, &
+                              mu0, t0_ref, s_par, pr, tw, gamma, r_gas, &
                               bc_s, bc_n, solid)
     integer, intent(in) :: nx_l, ny_
     real(DP), intent(inout) :: rho(nx_l+4, ny_), mx(nx_l+4, ny_), &
                                my(nx_l+4, ny_), e(nx_l+4, ny_)
-    real(DP), intent(in) :: dx, dy, dt, mu0, t0_ref, s_par, pr, tw
+    real(DP), intent(in) :: dx, dy, dt, mu0, t0_ref, s_par, pr, tw, gamma, r_gas
     integer, intent(in) :: bc_s, bc_n
     logical, intent(in) :: solid(nx_l+4, ny_)
     real(DP), allocatable :: u(:,:), v(:,:), tt(:,:), mu(:,:)
@@ -880,9 +916,9 @@ end subroutine
     integer :: i, j, f, k, a, b
 
     if (mu0 <= 0.0_DP) return
-    ! kappa = gamma/((gamma-1) pr)/r0 with r0 = 78408.4/273.15, the
-    ! closure-path form add_viscous_cells_mu takes under a thermo model.
-    kap = 1.4_DP / (0.4_DP * pr) / (78408.4_DP / 273.15_DP)
+    ! kappa = mu-independent cp/pr with real units, mirroring the rust
+    ! closure lane: k = gamma r_gas / ((gamma-1) pr).
+    kap = gamma * r_gas / ((gamma - 1.0_DP) * pr)
 
     allocate(u(nx_l+4, ny_), v(nx_l+4, ny_), tt(nx_l+4, ny_), mu(nx_l+4, ny_))
     allocate(fxv(4, 0:nx_l+2, ny_), fyv(3, 0:nx_l-1, 0:ny_+1))

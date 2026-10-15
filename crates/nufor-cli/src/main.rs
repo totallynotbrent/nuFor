@@ -14,14 +14,15 @@ use nufor_core::ffi_mpi::{
     march_euler2d_mpi, march_viscous2d_mpi, mpi_bcast_state, mpi_launched, mpi_rank, mpi_shutdown,
 };
 use nufor_core::{
-    advance2d_axi_rk2, advance2d_model_rk2, advance2d_model_visc_rk2, advance2d_sa_lts,
-    advance2d_sa_model_rk2, advance2d_sa_rk2, advance3d_rk2, advance_ugrid, apply_solid_fn,
-    body_cache, cons_to_prim2d, eos_pressure2d, euler_solve, grid1d, grid2d, grid3d, prim_to_cons,
-    prim_to_cons2d, prim_to_cons3d, read_restart, read_restart2d, render_png, wall_distance2d,
-    write_csv, write_h5, write_restart, write_restart2d, write_vtk, write_vtk2d_model, write_vtk3d,
-    Bc2d, Boundaries2d, Boundary, Bounds3d, ConservedState, ConservedState2d, ConservedState3d,
-    Error, EulerConfig, Grid1d, Grid2d, Grid3d, OutputState, SaParams, SolidPolygon, SolidShape,
-    SphereCone, SphereConeSdf, TurbState, Ugrid,
+    advance2d_axi_rk2, advance2d_model_rk2, advance2d_model_visc_lts, advance2d_model_visc_rk2,
+    advance2d_sa_lts, advance2d_sa_model_rk2, advance2d_sa_rk2, advance3d_rk2, advance_ugrid,
+    apply_solid_fn, apply_solid_ref, body_cache, cons_to_prim2d, eos_pressure2d, euler_solve,
+    grid1d, grid2d, grid3d, prim_to_cons, prim_to_cons2d, prim_to_cons3d, read_restart,
+    read_restart2d, render_png, wall_distance2d, write_csv, write_h5, write_restart,
+    write_restart2d, write_vtk, write_vtk2d_model, write_vtk3d, Bc2d, Boundaries2d, Boundary,
+    Bounds3d, ConservedState, ConservedState2d, ConservedState3d, Error, EulerConfig, Grid1d,
+    Grid2d, Grid3d, OutputState, SaParams, SolidPolygon, SolidShape, SphereCone, SphereConeSdf,
+    TurbState, Ugrid,
 };
 use nufor_core::{model_from_config, park2t, ThermoModel};
 
@@ -1366,8 +1367,32 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
         },
     };
     let body = case_body_fns(&cfg.body);
+    // the viscous lane owns its wall: the solid fill takes the freestream
+    // reference (the eqair closure reads the scalar inert reference as a
+    // cold dense slug) and the slip band projection stays off so the
+    // no-slip wall fluxes do the braking.
+    let visc_no_slip = cfg.physics.mu.is_some_and(|m| m > 0.0);
+    let fs_ref = match (&cfg.initial_condition, model) {
+        (nufor_config::InitialCondition::Uniform { rho, u, p }, ThermoModel::EqAir { .. }) => {
+            Some((*rho, *p, *u))
+        }
+        _ => None,
+    };
     if let Some((dist, normal)) = &body {
-        apply_solid_fn(&mut st, &g, dist.as_ref(), normal.as_ref(), gamma);
+        if let Some((rho_fs, p_fs, u_fs)) = fs_ref {
+            apply_solid_ref(
+                &mut st,
+                &g,
+                dist.as_ref(),
+                normal.as_ref(),
+                gamma,
+                Some((rho_fs, p_fs)),
+                visc_no_slip,
+            );
+            let _ = u_fs;
+        } else {
+            apply_solid_fn(&mut st, &g, dist.as_ref(), normal.as_ref(), gamma);
+        }
     }
     let bc = case_boundaries(cfg);
     let cfl = cfg.numerics.cfl;
@@ -1406,10 +1431,14 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     // call); turbulence stays serial until its port. body cases march in
     // single-step chunks so rank 0 can re-project the band cells between
     // steps and broadcast the refreshed state; body-free cases march in
-    // one call.
+    // one call. viscous body cases stay on the serial rust lane: the
+    // fortran viscous kernel wall-treats domain faces only, so a masked
+    // body under mpirun would silently skip the no-slip band.
     let visc_lam = cfg.physics.mu.is_some_and(|m| m > 0.0) && turb.is_none();
+    let visc_body = visc_lam && body.is_some();
     if mpi_launched()
-        && matches!(model, ThermoModel::EqAir)
+        && matches!(model, ThermoModel::EqAir { .. })
+        && !visc_body
         && (cfg.physics.mu.map_or(true, |m| m == 0.0) || visc_lam)
         && turb.is_none()
     {
@@ -1577,6 +1606,26 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
                             .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
                     )
                     .map(|dt| (dt, 0.0))
+                } else if cfg.numerics.local_time_stepping {
+                    // steady-state acceleration: per-cell increments, so
+                    // only the converged state is meaningful.
+                    advance2d_model_visc_lts(
+                        &mut st,
+                        &g,
+                        model,
+                        cfl,
+                        true,
+                        &bc,
+                        mu0,
+                        273.15,
+                        110.4,
+                        cfg.physics.pr,
+                        tw,
+                        cfg.numerics.threads,
+                        body.as_ref()
+                            .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
+                    )
+                    .map(|(dt, _)| (dt, 0.0))
                 } else {
                     // sutherland reference: air at 273.15 K with S = 110.4 K.
                     advance2d_model_visc_rk2(
@@ -1595,6 +1644,7 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
                         body.as_ref()
                             .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
                     )
+                    .map(|(dt, _)| (dt, 0.0))
                 }
             } else {
                 advance2d_model_rk2(
@@ -1631,7 +1681,19 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
             }
         }
         if let Some((dist, normal)) = &body {
-            apply_solid_fn(&mut st, &g, dist.as_ref(), normal.as_ref(), gamma);
+            if let Some((rho_fs, p_fs, _u_fs)) = fs_ref {
+                apply_solid_ref(
+                    &mut st,
+                    &g,
+                    dist.as_ref(),
+                    normal.as_ref(),
+                    gamma,
+                    Some((rho_fs, p_fs)),
+                    visc_no_slip,
+                );
+            } else {
+                apply_solid_fn(&mut st, &g, dist.as_ref(), normal.as_ref(), gamma);
+            }
         }
         if park_lane {
             let dt_last = match stepped {
@@ -1759,7 +1821,7 @@ fn write_run_log_2d(
     let mut qwall_s = String::new();
     if visc && tw > 0.0 {
         let cb = case_body_fns(&cfg.body);
-        if let Some((dist, normal)) = cb {
+        if let Some((dist, _normal)) = cb {
             let cs: Vec<(f64, f64)> = (0..g.nx * g.ny)
                 .map(|k| {
                     let i = k % g.nx;
@@ -1771,28 +1833,61 @@ fn write_run_log_2d(
                 })
                 .collect();
             let mut q_rows: Vec<(f64, f64, f64)> = Vec::new();
-            let r0 = 78408.4 / 273.15;
+            // fourier conductivity from prandtl: k = mu * cp / pr with
+            // cp = R*gamma/(gamma-1) and the case gas constant.
             let kf = |t: f64| {
-                // fourier conductivity from prandtl: k = mu * cp / pr with
-                // cp = R*gamma/(gamma-1); r0 IS R, so it multiplies. the old
-                // division starved every heat-flux row by R^2 (~8e4).
-                nufor_core::sutherland_mu(1.716e-5, t, 273.15, 110.4) * cfg.physics.gamma * r0
+                nufor_core::sutherland_mu(1.716e-5, t, 273.15, 110.4)
+                    * cfg.physics.gamma
+                    * cfg.physics.gas_constant
                     / ((cfg.physics.gamma - 1.0) * cfg.physics.pr)
             };
+            // the solid mask the march itself used: a wall face is a fluid
+            // cell with a solid neighbor. the flux is the same one-sided
+            // quadratic through the pinned wall temperature and the first
+            // two fluid cells the solver's conductor evaluates, so the log
+            // matches the wall energy budget the march actually applied.
+            let mask = nufor_core::solid_mask(g, dist.as_ref());
+            let solid = |i: usize, j: usize| -> bool { i < g.nx && j < g.ny && mask[j * g.nx + i] };
+            let temp_at = |k: usize| temp.get(k).copied().unwrap_or(tw);
             for j in 0..g.ny {
                 for i in 0..g.nx {
                     let k = j * g.nx + i;
-                    let c = cs[k];
-                    let d = dist(c.0, c.1);
-                    let (nxk, nyk) = normal(c.0, c.1);
-                    // just-outside-the-wall: |d| in (0, ~1.5*dx)
-                    if d > 0.0 && d < 1.8 * (g.faces_x[1] - g.faces_x[0]) {
-                        let t0 = temp.get(k).copied().unwrap_or(tw);
-                        // distance to wall == d along the normal
-                        let q = kf(tw).abs() * (t0 - tw) / d.max(1e-6);
-                        if q.is_finite() && q > 0.0 && d > 0.0 {
-                            q_rows.push((c.0 - nxk * d, c.1 - nyk * d, q));
+                    if solid(i, j) {
+                        continue;
+                    }
+                    // wall faces on x: fluid cell with an east or west solid
+                    let (a, m, face_x) = if i + 1 < g.nx && solid(i + 1, j) {
+                        if i < 2 {
+                            continue;
                         }
+                        (i, i - 1, g.faces_x[i + 1])
+                    } else if i > 0 && solid(i - 1, j) {
+                        if i + 2 >= g.nx {
+                            continue;
+                        }
+                        (i, i + 1, g.faces_x[i])
+                    } else {
+                        continue;
+                    };
+                    let ka = j * g.nx + a;
+                    let km = j * g.nx + m;
+                    // lagrange derivative at the face through (tw@face,
+                    // T_a, T_m) on true centers
+                    let (y0, y1, y2) = (
+                        face_x,
+                        0.5 * (g.faces_x[a] + g.faces_x[a + 1]),
+                        0.5 * (g.faces_x[m] + g.faces_x[m + 1]),
+                    );
+                    let w0 = (2.0 * y0 - y1 - y2) / ((y0 - y1) * (y0 - y2));
+                    let w1 = (2.0 * y0 - y0 - y2) / ((y1 - y0) * (y1 - y2));
+                    let w2 = (2.0 * y0 - y0 - y1) / ((y2 - y0) * (y2 - y1));
+                    let dtdn = tw * w0 + temp_at(ka) * w1 + temp_at(km) * w2;
+                    // magnitude only: the sign carries which side of the
+                    // wall the cell sits on, not the direction of heating.
+                    let q = (kf(tw) * dtdn).abs();
+                    if q.is_finite() && q > 0.0 {
+                        let c = cs[k];
+                        q_rows.push((c.0, c.1, q));
                     }
                 }
             }
@@ -2433,7 +2528,7 @@ fn run_case_3d(cfg: &CaseConfig, path: &str) -> i32 {
 fn ic_uniform_energy(rho: f64, p: f64, model: ThermoModel) -> Result<f64, String> {
     match model {
         ThermoModel::Perfect { gamma } => Ok(p / ((gamma - 1.0) * rho)),
-        ThermoModel::EqAir => nufor_core::eqair_energy(&[rho], &[p])
+        ThermoModel::EqAir { .. } => nufor_core::eqair_energy(&[rho], &[p])
             .map(|v| v[0])
             .map_err(|e| e.to_string()),
     }

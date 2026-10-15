@@ -20,6 +20,24 @@ activates when the species rung lands, where the wall enthalpy picks
 up the formation-enthalpy difference between edge and wall
 composition.
 
+The planar (2D cylinder) stagnation-line form carries the same
+structure with the Hiemenz constant in place of the axisymmetric
+one:
+
+$$q_{2D} = 0.57\,\mathrm{Pr}^{-0.6} \sqrt{\rho_e \mu_e \beta}\;(h_{0e} - h_w)$$
+
+implemented as `fay_riddell_q_2d`. The gradient $\beta$ is the same
+Newtonian relation for sphere and cylinder of equal nose radius
+(Tauber's review states the identity explicitly); only the
+boundary-layer dimensionality differs, and the exact
+constant-property similarity solutions put the planar/axisymmetric
+ratio at 0.745-0.748 over Pr in [0.7, 1], against Reshotko's
+cold-wall $1/\sqrt{2} \approx 0.707$ as the systematic lower
+bound. Primary source for the 0.57: Beckwith and Cohen, Eq. (16),
+p. 409 (NTRS 19660082088); the verification script integrates the
+Hiemenz and Homann similarity equations directly
+(`plans/verify_2d_stagnation_similarity.py`).
+
 ## What is pinned
 
 - The Rankine-Hugoniot tables at M=20, gamma=1.4: post-shock
@@ -33,6 +51,8 @@ composition.
   (0.89 Pa, 220 K, 1 m nose, 1000 K wall) the closed form reads
   $1.15 \times 10^5$ W/m², the expected order for that class.
 
+![fay-riddell scaling across nose radius](../../research/fay-riddell-scaling.png)
+
 ## What is deliberately not claimed
 
 The correlation constant in the Detra-Kemp-Riddell / Sutton-Graves
@@ -43,16 +63,57 @@ anchors are the shock tables and the scaling laws above; the
 empirical comparison joins when a published table with stated units
 is pinned.
 
-## How the gate will close
+## How the gate closes
 
-Rung 6 runs a wall-resolved viscous sphere at entry conditions and
-compares the solver's stagnation-line wall heat flux against this
-closed form. The prerequisites are in the tree: the viscous lane
-(Sutherland transport, isothermal wall), the body mask, and this
-form. The remaining work is wall-normal resolution that holds a
-boundary layer; the Blasius hold on the flat-plate viscous gate is
-the resolution pattern.
+The gate case is `cases/cylinder-stagnation-fay`: the Casseau
+Mach-20 N2 freestream on an R = 1 m cylinder nose, 1000 K isothermal
+wall, wall-clustered mesh (250 um first cell), marched at global dt
+on a nose-only domain - the wake was the detonation source and the
+stagnation point does not need it.
 
-The Euler-wall heat probe in the research pages is a grid artifact
-by construction; nothing the solver prints about wall heating is
-citable until this gate passes.
+```mermaid
+flowchart TB
+    A["freestream<br/>M=20, 0.89 Pa, 220 K"] --> S["bow shock<br/>(eqair edge state)"]
+    S --> E["edge cell: rho_e, T_e, p_e<br/>from the field"]
+    E --> B["beta = sqrt(2(p_e - p_inf)/rho_e)/Rn"]
+    E --> MU["mu_e: Sutherland at T_e"]
+    B --> Q["q = 0.57 Pr^-0.6 sqrt(rho_e mu_e beta) (h0e - hw)"]
+    MU --> Q
+    W["wall conductor<br/>q_w = k dT/dn at the face"] --> C["compare"]
+    Q --> C
+```
+
+The solver's answer is the wall conductor flux at the stagnation
+face; the closed form is evaluated on the march's own edge state,
+so the comparison pins the whole chain (shock capture, edge state,
+conduction) rather than a handbook number.
+
+## The gate result
+
+420k steps at global dt, zero bad cells, the thermal sublayer
+resolved (~3 mm on a 250 um first cell). The march's own edge
+plateau: $\rho_e = 2.25 \times 10^{-4}$ kg/m³, $T_e$ = 5040 K,
+$p_e$ = 503 Pa, $\beta$ = 2114 s⁻¹.
+
+| quantity | value |
+|---|---|
+| planar closed form $q_{2D}$ on the sim's edge state | 8.48 W/cm² |
+| wall conductor $q_w$ at the stagnation face | 10.73 W/cm² |
+| ratio | 1.27 |
+
+The conductor reads high and converges downward across extensions
+(11.0 at 360k, 10.7 at 420k) as the stagnation-band momentum residue
+(~30 m/s, ~0.5% of the edge velocity) decays; the band velocity
+sloshes the one-sided temperature gradient steeper than the steady
+layer would. The +27% spread is the gate's honest first reading:
+the closed form assumes a steady Hiemenz layer, constant $c_p$, and
+Lewis number one; the march has none of those guarantees mid-transit.
+
+![the gate: stagnation-line thermal structure and wall heat flux vs the planar closed form](../../research/fay-riddell-gate.png)
+
+What the gate pins: the eqair bow shock forms at the right standoff
+(~0.43 m vs Casseau's), the sublayer is monotone with no
+checkerboard, the conductor magnitude is physical, and the
+closed-form chain (shock state to $\beta$ to $q$) reproduces the
+solver's answer to 27% on a first wall-resolved run. Wall heat flux
+is now a citable output.

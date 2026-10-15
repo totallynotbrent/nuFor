@@ -1,5 +1,5 @@
 ---
-title: Gate A — 1D Euler milestone closed
+title: Gate A - 1D Euler milestone closed
 ---
 
 The finite-volume solver for the one-dimensional Euler equations is declared

@@ -81,6 +81,22 @@ pub fn fay_riddell_q(s: &FayRiddellEdge) -> f64 {
     0.763 * s.pr.powf(-0.6) * (s.rho_e * mu_e * beta).sqrt() * (s.h0e - h_w)
 }
 
+/// planar (2d cylinder) stagnation-line cold-wall heat flux, w/m^2:
+/// q = 0.57 pr^-0.6 sqrt(rho_e mu_e beta) (h0e - h_w), with the same
+/// newtonian gradient beta = sqrt(2 (p_e - p_inf)/rho_e)/r_n as the
+/// sphere. sources: beckwith & cohen eq. (16) p. 409 (ntrs 19660082088);
+/// tauber review eq. (36a) citing cohen nasa tr r-118. the ratio to
+/// the sphere form is 0.57/0.763 = 0.747; reshotko's cold-wall
+/// 1/sqrt(2) = 0.707 alternative is the systematic lower bound (see
+/// plans/fay-riddell-2d-research.md section 4 for the disagreement).
+pub fn fay_riddell_q_2d(s: &FayRiddellEdge) -> f64 {
+    let mu_e = mu_n2(s.t_e);
+    let beta = (2.0 * (s.p_e - s.p_inf) / s.rho_e).sqrt() / s.r_n;
+    let cp = s.gamma * s.gas_const / (s.gamma - 1.0);
+    let h_w = cp * s.t_w;
+    0.57 * s.pr.powf(-0.6) * (s.rho_e * mu_e * beta).sqrt() * (s.h0e - h_w)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -131,5 +147,51 @@ mod tests {
         assert!((ratio - 2.0).abs() < 1e-9, "r_n scaling {ratio}");
         // magnitude: this classic case sits near 1e5 w/m^2 cold-wall
         assert!(q1 > 1e4 && q1 < 1e6, "q1 {q1} w/m^2 out of envelope");
+    }
+
+    /// the planar (cylinder) gate from plans/fay-riddell-2d-research.md
+    /// section 6(a): m 20 perfect n2, r_n 0.01 m, tw 300 k -> q_2d =
+    /// 89.6 w/cm^2 on the 0.57 form and 84.8 on the 1/sqrt(2) bound,
+    /// with the ratio to the axisymmetric form inside [0.70, 0.75].
+    #[test]
+    fn planar_gate_matches_research_doc() {
+        let m = 20.0f64;
+        let (p_e, t_e, rho_e) = post_shock_statics(m, 0.89, 220.0, 296.8, 1.4);
+        let cp = 1.4 * 296.8 / (1.4 - 1.0);
+        // the stagnation enthalpy is the freestream total: cp t0 with
+        // t0 = t_inf (1 + (gamma-1)/2 m^2), not the post-shock state.
+        let t0 = 220.0 * (1.0 + 0.5 * (1.4 - 1.0) * m * m);
+        let h0e = cp * t0;
+        let s = FayRiddellEdge {
+            p_inf: 0.89,
+            p_e,
+            rho_e,
+            t_e,
+            h0e,
+            r_n: 0.01,
+            t_w: 300.0,
+            pr: 0.71,
+            gamma: 1.4,
+            gas_const: 296.8,
+        };
+        let q_axi = fay_riddell_q(&s);
+        let q_2d = fay_riddell_q_2d(&s);
+        let ratio = q_2d / q_axi;
+        assert!(
+            (ratio - 0.747).abs() < 5e-3,
+            "2d/axi ratio {ratio}, expected 0.57/0.763 = 0.747"
+        );
+        assert!(
+            ratio > 0.70 && ratio < 0.75,
+            "ratio {ratio} outside the published spread [0.70, 0.75]"
+        );
+        // the doc's worked example is w/cm^2; our case has r_n 0.01 m and
+        // p_inf 0.89 pa like the gate case, so q in w/cm^2 lands near
+        // the doc's 89.6 within the perfect-gas edge-state differences.
+        let q_2d_wcm2 = q_2d / 1e4;
+        assert!(
+            q_2d_wcm2 > 80.0 && q_2d_wcm2 < 100.0,
+            "q_2d {q_2d_wcm2} w/cm^2 outside the doc's worked-example band"
+        );
     }
 }

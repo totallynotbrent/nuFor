@@ -43,8 +43,8 @@ along the contiguous direction. The residual is still reduced scalar.
 - Unit tests drive the kernel with random data and an odd length (so the
   vector tail is exercised) and assert the AVX2 result matches the scalar
   reference within `1e-12`.
-- The full 2D solver suite — oblique shock, shock reflection, channel flow,
-  the 2D ring — runs against the vectorized update, so the physics is
+- The full 2D solver suite - oblique shock, shock reflection, channel flow,
+  the 2D ring - runs against the vectorized update, so the physics is
   verified on top of the new kernel.
 
 ## See also

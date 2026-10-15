@@ -5,7 +5,7 @@ title: Supersonic wedge and oblique shock
 A supersonic stream turning through a wedge is a canonical 2D compressible
 problem. The sharper the wedge, the stronger the oblique shock that detaches
 from it, and the whole shock is described exactly by the two-dimensional
-theta-beta-M relations — a closed-form reference the solver is checked
+theta-beta-M relations - a closed-form reference the solver is checked
 against.
 
 ## The theta-beta-M relations
@@ -24,9 +24,9 @@ follow from the one-dimensional Rankine-Hugoniot relations.
 
 `tests/oblique_shock.rs` takes M1 = 2 and a 10-degree turn, computes beta and
 the post-shock state from the relations, initializes a 2D domain split by a
-shock line at that angle — the turned stream below it, the free stream above —
-and marches with the solver. Because an oblique shock is a steady solution, the
-solver must keep it in place:
+shock line at that angle (the turned stream below it, the free stream
+above) and marches with the solver. Because an oblique shock is a
+steady solution, the solver must keep it in place:
 
 - the free stream stays at rho = 1 exactly,
 - the turned region holds the analytic post-shock density to about a quarter

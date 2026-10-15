@@ -62,6 +62,7 @@ extern "C" {
         s_par: f64,
         pr: f64,
         tw: f64,
+        r_gas: f64,
         rho2: *mut f64,
         mx2: *mut f64,
         my2: *mut f64,
@@ -304,7 +305,7 @@ pub fn march_euler2d_mpi(
     max_steps: usize,
     solid: &[bool],
 ) -> Result<MpiMarchResult, Error> {
-    if !matches!(model, ThermoModel::EqAir) {
+    if !matches!(model, ThermoModel::EqAir { .. }) {
         // v1 gates the mpi march to the eqair capsule path; other closures
         // stay on the rust march until phase F2.
         return Err(Error::InvalidArgs);
@@ -497,9 +498,13 @@ pub fn march_viscous2d_mpi(
     pr: f64,
     wall_temperature: f64,
 ) -> Result<MpiMarchResult, Error> {
-    if !matches!(model, ThermoModel::EqAir) {
+    if !matches!(model, ThermoModel::EqAir { .. }) {
         return Err(Error::InvalidArgs);
     }
+    let model_r_gas = match model {
+        ThermoModel::EqAir { r_gas } => r_gas,
+        _ => 287.0,
+    };
     MpiSession::new()?;
     let (rank, i0, nx_local_i) = MpiSession::case_init(g.nx, g.ny)?;
     let nx_local = nx_local_i as usize;
@@ -594,6 +599,7 @@ pub fn march_viscous2d_mpi(
                 110.4,
                 pr,
                 wall_temperature,
+                model_r_gas,
                 rho2.as_mut_ptr(),
                 mx2.as_mut_ptr(),
                 my2.as_mut_ptr(),

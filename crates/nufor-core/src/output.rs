@@ -144,7 +144,7 @@ pub fn write_vtk2d_model(
     // the writer needs T at the (rho, e_int) state it already holds, so
     // going through temperature(rho, p) right after would re-bisect e.
     let (p, temp) = match model {
-        crate::thermo::ThermoModel::EqAir => {
+        crate::thermo::ThermoModel::EqAir { .. } => {
             let (p_, t_, _) = crate::eqair_cea::fused_state_mu(&st.rho, &e_int, |_| 0.0);
             (p_, t_)
         }

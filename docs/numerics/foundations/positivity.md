@@ -3,7 +3,7 @@ title: Keeping the solution positive
 ---
 
 A compressible solver that allows density or pressure to go negative is not a
-solver — it is a crash with a stack trace. The 2D Euler module lives or dies by
+solver - it is a crash with a stack trace. The 2D Euler module lives or dies by
 whether the reconstruction, the wave speeds, and the time step can be trusted
 to keep rho and p strictly above zero, so the machinery for that deserves its
 own note.

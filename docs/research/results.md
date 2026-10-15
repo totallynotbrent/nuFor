@@ -35,6 +35,23 @@ Lift-to-drag across the sweep runs 0.55, 0.61, 0.65, 0.72 from sea level
 to 42.5 km: the cleaner freestream at altitude rewards the same 22.5
 degree shell with a better ratio.
 
+## Stagnation heating gate (rung 6)
+
+The Fay-Riddell case (`cases/cylinder-stagnation-fay`): the Casseau
+Mach-20 nitrogen freestream on a 1 m cylinder nose, 1000 K isothermal
+wall, nose-only domain at global dt, 420k steps.
+
+![Stagnation-line thermal structure and wall heat flux vs the planar closed form](fay-riddell-gate.png)
+
+| quantity | value |
+|---|---|
+| edge plateau $\rho_e$, $T_e$, $p_e$ | 2.25e-4 kg/m3, 5040 K, 503 Pa |
+| planar closed form on the sim's edge state | 8.48 W/cm2 |
+| wall conductor at the stagnation face | 10.73 W/cm2 |
+| ratio, conductor / closed form | 1.27 |
+
+Details and the honest caveats: [Fay-Riddell stagnation heating](../numerics/foundations/fay-riddell.md).
+
 ## The trim anchor
 
 The finest shipped case is the trimmed capsule: 384x192, viscous, a 1600 K

@@ -114,7 +114,7 @@ silently change a run.
 | `numerics.flux` | string | yes | `hll` \| `hllc` | Riemann solver / approximate flux. |
 | `numerics.reconstruction` | string | yes | `first_order` \| `muscl` | Spatial reconstruction. |
 | `numerics.cfl` | float | yes | in (0, 1] | CFL number for the explicit time step. |
-| `numerics.local_time_stepping` | bool | no (default false) | | Experimental: each cell advances at its own stability bound instead of one global increment. A steady-state acceleration, not time-accurate; on stiff wall layers the iterator does not converge, so the default march is the validated path. |
+| `numerics.local_time_stepping` | bool | no (default false) | | Experimental steady-state acceleration, not time-accurate. The inviscid stage advances each cell at its own bound in residual form; the viscous stage holds the field at the minimum increment. Intermediate states are not conservative and on impulsive blunt-body starts the march can still fail, so the default global-dt path remains the validated one. |
 | `time.final_time` | float | no (default 0) | >= 0 | Stop time. |
 | `time.max_steps` | int | no (default 0) | >= 0 | Hard cap on iterations. |
 | `time.residual_target` | float | no | > 0 | Early stop when the residual drops below this. |

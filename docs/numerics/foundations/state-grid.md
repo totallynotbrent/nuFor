@@ -66,9 +66,9 @@ rejection.
 
 ## Related
 
-- [Numerics — 1D Euler](../1d/1d-euler.md) — the milestone these pieces serve
+- [Numerics - 1D Euler](../1d/1d-euler.md) - the milestone these pieces serve
 - [Architecture](../../architecture.md)
-- [Formats — case.toml (case definition)](../../formats/case-toml.md)
+- [Formats - case.toml (case definition)](../../formats/case-toml.md)
 
 ## See also
 

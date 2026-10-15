@@ -82,9 +82,9 @@ graph TD
 
 ## Related
 
-- [Numerics — 1D Euler milestone](../1d/1d-euler.md)
-- [Numerics — Ideal-gas equation of state](../foundations/eos.md)
-- [Numerics — 1D state and uniform grid](../foundations/state-grid.md)
+- [Numerics - 1D Euler milestone](../1d/1d-euler.md)
+- [Numerics - Ideal-gas equation of state](../foundations/eos.md)
+- [Numerics - 1D state and uniform grid](../foundations/state-grid.md)
 
 ## See also
 

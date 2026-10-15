@@ -79,10 +79,10 @@ empty slices, and single-cell calls.
 
 ## Related
 
-- [Numerics — 1D state and uniform grid](../foundations/state-grid.md) — the state variables
+- [Numerics - 1D state and uniform grid](../foundations/state-grid.md) - the state variables
   these relations close
-- [Numerics — 1D Euler](../1d/1d-euler.md) — the milestone this serves
-- [Formats — case.toml (case definition)](../../formats/case-toml.md) — where `gamma` and `R`
+- [Numerics - 1D Euler](../1d/1d-euler.md) - the milestone this serves
+- [Formats - case.toml (case definition)](../../formats/case-toml.md) - where `gamma` and `R`
   come from
 
 ## See also

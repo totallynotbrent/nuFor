@@ -27,7 +27,7 @@ zeroed inside the Fortran step, with the same cells the serial closure kills.
 
 Laminar equilibrium-air cases (`physics.mu` set, no turbulence model) route
 through a Fortran twin of the serial viscous march: `nfor_mpi_step_visc` runs
-the full two-stage Heun step inside one call — Euler advance, halo refresh,
+the full two-stage Heun step inside one call - Euler advance, halo refresh,
 viscous divergence add, second stage, Heun average. Sutherland viscosity and
 conductivity come from the CEA closure temperature on the slab, so the
 transport physics is identical to the serial path. The viscous stencil needs

@@ -461,6 +461,117 @@ pub(crate) fn wall_shear_flux(
     (mu_f * (9.0 * u0 - u1) * k, mu_f * (9.0 * v0 - v1) * k)
 }
 
+/// the no-slip isothermal wall flux on one BODY x-face (face f between
+/// cells (f-1, j) and (f, j), exactly one of them solid). the slot
+/// mapping mirrors the domain walls per orientation: the wall-normal
+/// velocity derivative lands in txx (no-penetration), the tangential
+/// derivative in txy (the wall shear), and the energy entry carries the
+/// shear work plus the isothermal conduction. left_solid (fluid on the
+/// high side) stores the positive entries the low-face update
+/// subtracts; right_solid mirrors the north-wall negation.
+#[allow(clippy::too_many_arguments)]
+fn body_wall_x(
+    left_solid: bool,
+    f: usize,
+    j: usize,
+    u: &[f64],
+    v: &[f64],
+    t: &[f64],
+    nx: usize,
+    g: &Grid2d,
+    mu_cell: &dyn Fn(usize) -> f64,
+    mu_t: &[f64],
+    coeffs: &ViscCoeffs,
+    wall_temperature: f64,
+) -> (f64, f64, f64) {
+    let idx = |i: usize, jj: usize| jj * nx + i;
+    let (a, b, ok) = if left_solid {
+        (idx(f, j), idx(f + 1, j), f + 1 < nx)
+    } else {
+        (idx(f - 1, j), idx(f - 2, j), f >= 2)
+    };
+    if !ok {
+        return (0.0, 0.0, 0.0);
+    }
+    let face_x = g.faces_x[f];
+    let (c0, c1) = (g.centers_x[a], g.centers_x[b]);
+    let mu_f = if mu_t.is_empty() {
+        mu_cell(a)
+    } else {
+        mu_cell(a) + mu_t[a]
+    };
+    // one-sided wall derivatives: normal velocity u in txx, tangential v
+    // in txy, both through the quadratic pinned to zero at the wall.
+    let dudx = quad_deriv_at(0.0, u[a], u[b], face_x, c0, c1, face_x);
+    let dvdx = quad_deriv_at(0.0, v[a], v[b], face_x, c0, c1, face_x);
+    let txx = mu_f * dudx;
+    let txy = mu_f * dvdx;
+    let mut q_wall = 0.0;
+    if wall_temperature > 0.0 {
+        let dtdn = quad_deriv_at(wall_temperature, t[a], t[b], face_x, c0, c1, face_x);
+        q_wall = mu_f * coeffs.kappa * dtdn;
+    }
+    // the stored entries are the +x-direction fluxes: the positional
+    // derivative already carries the wall orientation, so no side
+    // factor. the energy entry is the conductor alone: the face
+    // velocity is zero at a no-slip wall, so the stress work vanishes
+    // there, and the kinetic energy the wall shear removes from the
+    // cell dissipates in place instead of leaving through the face.
+    (txx, txy, q_wall)
+}
+
+/// the no-slip isothermal wall flux on one BODY y-face (face f between
+/// cells (i, f-1) and (i, f)). same orientation mapping as the domain
+/// south/north walls: tangential u lands in txy, normal v in tyy, and
+/// the energy entry carries the shear work plus the isothermal
+/// conduction. below_solid stores the positive low-face entries;
+/// above_solid mirrors the north-wall negation.
+#[allow(clippy::too_many_arguments)]
+fn body_wall_y(
+    below_solid: bool,
+    i: usize,
+    f: usize,
+    u: &[f64],
+    v: &[f64],
+    t: &[f64],
+    nx: usize,
+    g: &Grid2d,
+    mu_cell: &dyn Fn(usize) -> f64,
+    mu_t: &[f64],
+    coeffs: &ViscCoeffs,
+    wall_temperature: f64,
+) -> (f64, f64, f64) {
+    let idx = |ii: usize, jj: usize| jj * nx + ii;
+    let (a, b, ok) = if below_solid {
+        (idx(i, f), idx(i, f + 1), f + 1 < g.ny)
+    } else {
+        (idx(i, f - 1), idx(i, f - 2), f >= 2)
+    };
+    if !ok {
+        return (0.0, 0.0, 0.0);
+    }
+    let face_y = g.faces_y[f];
+    let (c0, c1) = (g.centers_y[a], g.centers_y[b]);
+    let mu_f = if mu_t.is_empty() {
+        mu_cell(a)
+    } else {
+        mu_cell(a) + mu_t[a]
+    };
+    let dudy = quad_deriv_at(0.0, u[a], u[b], face_y, c0, c1, face_y);
+    let dvdy = quad_deriv_at(0.0, v[a], v[b], face_y, c0, c1, face_y);
+    let txy = mu_f * dudy;
+    let tyy = mu_f * dvdy;
+    let mut q_wall = 0.0;
+    if wall_temperature > 0.0 {
+        let dtdn = quad_deriv_at(wall_temperature, t[a], t[b], face_y, c0, c1, face_y);
+        q_wall = mu_f * coeffs.kappa * dtdn;
+    }
+    // the stored entries are the +y-direction fluxes; the positional
+    // derivative carries the orientation. the energy entry is the
+    // conductor alone: the face velocity is zero at a no-slip wall.
+    (txy, tyy, q_wall)
+}
+
 /// the eddy-viscosity context for a turbulence-aware viscous pass: the
 /// per-cell eddy viscosity, its prandtl number, and the boundaries (the
 /// no-slip sides carry the one-sided wall shear).
@@ -548,7 +659,7 @@ pub fn add_viscous_cells_model(
 ) -> Result<(), Error> {
     let mu_cells: &[f64] = &[];
     add_viscous_cells_mu(
-        state, g, gamma, mu_lam, mu_cells, pr, turb, tc, closure, 0.0, 1,
+        state, g, gamma, mu_lam, mu_cells, pr, turb, tc, closure, 0.0, 1, None,
     )
 }
 
@@ -556,6 +667,11 @@ pub fn add_viscous_cells_model(
 /// the per-cell form: `mu_cells` (dynamic viscosity per cell) replaces
 /// the scalar mu when non-empty, evaluated already from the closure
 /// temperature (sutherland). `closure` selects how p and T are derived.
+/// `solid` is the body SDF when the march carries one (empty means
+/// body-free): every face touching a solid cell becomes a no-slip
+/// isothermal wall with one-sided shear and conductor flux, mirroring
+/// the domain-face wall treatment. the solid classification is cached
+/// per grid+body, same cache the euler flux zeroing reads.
 pub fn add_viscous_cells_mu(
     state: &mut ConservedState2d,
     g: &Grid2d,
@@ -568,6 +684,7 @@ pub fn add_viscous_cells_mu(
     closure: Option<crate::thermo::ThermoModel>,
     wall_temperature: f64,
     nthreads: usize,
+    solid: Option<&dyn Fn(f64, f64) -> f64>,
 ) -> Result<(), Error> {
     let (dt, dts) = tc.parts();
     let bc = turb.map(|t| t.bc).unwrap_or(&LAMINAR_BC);
@@ -594,6 +711,21 @@ pub fn add_viscous_cells_mu(
     if dt <= 0.0 {
         return Ok(());
     }
+    // the cached solid classification: same mask the euler flux zeroing
+    // reads, so the viscous wall treatment and the advective closure
+    // agree on exactly which faces are walls.
+    let mask_arc = solid.map(|dist| crate::body::solid_mask(g, dist));
+    let solid_mask: &[bool] = match mask_arc.as_deref() {
+        Some(m) => m.as_slice(),
+        None => &[],
+    };
+    let has_body = mask_arc.is_some();
+    let is_solid = |i: usize, j: usize| -> bool {
+        if !has_body || i >= nx || j >= ny {
+            return false;
+        }
+        solid_mask[j * nx + i]
+    };
     let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
     let t = if let Some(cl) = closure {
         // the closure-aware path: pressure and temperature both come
@@ -607,7 +739,7 @@ pub fn add_viscous_cells_mu(
         let p = crate::thermo::pressure(cl, &state.rho, &e_int, &u, &v)?;
         // eqair: one fused read per cell instead of the (rho,p) bisection.
         match cl {
-            crate::thermo::ThermoModel::EqAir => {
+            crate::thermo::ThermoModel::EqAir { .. } => {
                 crate::eqair_cea::fused_state_mu(&state.rho, &e_int, |_| 0.0).1
             }
             crate::thermo::ThermoModel::Perfect { .. } => {
@@ -675,13 +807,77 @@ pub fn add_viscous_cells_mu(
                 }
             }
         }
+        // body wall cells: a fluid cell adjacent to a solid cell keeps the
+        // centered stencil ONLY on fluid-flanked components. any gradient
+        // component whose stencil would read a solid cell becomes a
+        // one-sided interior difference (fluid cells only, evaluated at
+        // the cell center): the wall flux itself is handled by the face
+        // branches, so the cell gradient must never carry the huge wall
+        // slope into its fluid-fluid faces.
+        if has_body {
+            for j in 0..ny {
+                for i in 0..nx {
+                    let a = idx(i, j);
+                    if is_solid(i, j) {
+                        continue;
+                    }
+                    let west = i > 0 && is_solid(i - 1, j);
+                    let east = i + 1 < nx && is_solid(i + 1, j);
+                    let south = j > 0 && is_solid(i, j - 1);
+                    let north = j + 1 < ny && is_solid(i, j + 1);
+                    if west || east {
+                        // one-sided along x on the fluid side.
+                        let (m, m2) = if west && !east {
+                            (idx(i + 1, j), idx(i + 2, j))
+                        } else if east && !west {
+                            (idx(i - 1, j), idx(i - 2, j))
+                        } else {
+                            (idx(i + 1, j), idx(i - 1, j))
+                        };
+                        let (c0, c1, cm) = (g.centers_x[a], g.centers_x[m], g.centers_x[m2]);
+                        let d = |f: &[f64]| {
+                            if west != east {
+                                quad_deriv_at(f[a], f[m], f[m2], c0, c1, cm, c0)
+                            } else {
+                                (f[m] - f[m2]) / (cm - c1).max(1e-12)
+                            }
+                        };
+                        grads[a].ux = d(&u);
+                        grads[a].vx = d(&v);
+                        grads[a].tx = d(&t);
+                    }
+                    if south || north {
+                        let (m, m2) = if south && !north {
+                            (idx(i, j + 1), idx(i, j + 2))
+                        } else if north && !south {
+                            (idx(i, j - 1), idx(i, j - 2))
+                        } else {
+                            (idx(i, j + 1), idx(i, j - 1))
+                        };
+                        let (c0, c1, cm) = (g.centers_y[a], g.centers_y[m], g.centers_y[m2]);
+                        let d = |f: &[f64]| {
+                            if south != north {
+                                quad_deriv_at(f[a], f[m], f[m2], c0, c1, cm, c0)
+                            } else {
+                                (f[m] - f[m2]) / (cm - c1).max(1e-12)
+                            }
+                        };
+                        grads[a].uy = d(&u);
+                        grads[a].vy = d(&v);
+                        grads[a].ty = d(&t);
+                    }
+                }
+            }
+        }
         grads
     };
-    let r0 = 78408.4 / 273.15;
-    let kappa = if closure.is_some() {
-        gamma / ((gamma - 1.0) * pr) / r0
-    } else {
-        gamma / ((gamma - 1.0) * pr)
+    // the closure state is dimensional (rho kg/m3, T K, mu kg/m/s), so the
+    // conduction coefficient is the physical k = mu*cp/pr with
+    // cp = gamma*r_gas/(gamma-1). the perfect lane keeps the r-free form
+    // because its temperature carries velocity-squared units.
+    let kappa = match closure {
+        Some(crate::thermo::ThermoModel::EqAir { r_gas }) => gamma * r_gas / ((gamma - 1.0) * pr),
+        _ => gamma / ((gamma - 1.0) * pr),
     };
     let kappa_t = if turb {
         gamma / ((gamma - 1.0) * pr_t)
@@ -701,6 +897,7 @@ pub fn add_viscous_cells_mu(
             mu_cells[k]
         }
     };
+    #[allow(unused_variables)]
     let (dtdx, dtdy) = (dt / g.dx, dt / g.dy);
     let (dxs_w, dys_w) = (&g.dxs, &g.dys);
     // x-face viscous flux (nx+1 faces per row); domain-edge faces carry zero
@@ -719,6 +916,40 @@ pub fn add_viscous_cells_mu(
         for j in 0..ny {
             for f in 1..nx {
                 let (a, b) = (idx(f - 1, j), idx(f, j));
+                let k = f * ny + j;
+                if has_body && (is_solid(f - 1, j) || is_solid(f, j)) {
+                    // body wall face: solid on one side, fluid on the other
+                    // (solid-solid carries zero). one-sided shear and the
+                    // isothermal conductor into the fluid side, mirroring
+                    // the domain-face wall treatment with the normal along x.
+                    let (txx, txy, q_wall) = body_wall_x(
+                        is_solid(f - 1, j),
+                        f,
+                        j,
+                        &u,
+                        &v,
+                        &t,
+                        nx,
+                        g,
+                        &mu_cell,
+                        mu_t,
+                        &coeffs,
+                        wall_temperature,
+                    );
+                    fxm[k] = txx;
+                    fym[k] = txy;
+                    fe[k] = q_wall;
+                    if std::env::var("NF_VW").is_ok() && f == 44 && j == 191 {
+                        eprintln!(
+                            "VW f=44 j=191 txx={:.4e} q={:.4e} lsolid={} k={}",
+                            txx,
+                            q_wall,
+                            is_solid(f - 1, j),
+                            k
+                        );
+                    }
+                    continue;
+                }
                 let gf = face_grad_interp(
                     &grads[a],
                     &grads[b],
@@ -730,7 +961,6 @@ pub fn add_viscous_cells_mu(
                 );
                 let mu_face = 0.5 * (mu_cell(a) + mu_cell(b));
                 let (txx, txy, _, qx, _) = face_flux_split(&gf, mu_face, mu_t, a, b, &coeffs);
-                let k = f * ny + j;
                 fxm[k] = txx;
                 fym[k] = txy;
                 fe[k] = gf.u * txx + gf.v * txy + qx;
@@ -741,9 +971,11 @@ pub fn add_viscous_cells_mu(
         let slots = chunk_f * ny;
         let u_ref = &u[..];
         let v_ref = &v[..];
+        let t_ref = &t[..];
         let grads_ref = &grads[..];
         let mu_cell_ref = &mu_cell;
         let coeffs_ref = &coeffs;
+        let solid_ref = solid_mask;
         std::thread::scope(|sc| {
             let zipped = fxm
                 .chunks_mut(slots)
@@ -760,6 +992,28 @@ pub fn add_viscous_cells_mu(
                     for f in f_lo.max(1)..f_hi {
                         for j in 0..ny {
                             let (a, b) = (idx(f - 1, j), idx(f, j));
+                            let k = (f - f_lo) * ny + j;
+                            if has_body && (solid_ref[(j) * nx + (f - 1)] || solid_ref[j * nx + f])
+                            {
+                                let (txx, txy, q_wall) = body_wall_x(
+                                    solid_ref[j * nx + (f - 1)],
+                                    f,
+                                    j,
+                                    u_ref,
+                                    v_ref,
+                                    t_ref,
+                                    nx,
+                                    g,
+                                    mu_cell_ref,
+                                    mu_t,
+                                    coeffs_ref,
+                                    wall_temperature,
+                                );
+                                cx[k] = txx;
+                                cy[k] = txy;
+                                ce[k] = q_wall;
+                                continue;
+                            }
                             let gf = face_grad_interp(
                                 &grads_ref[a],
                                 &grads_ref[b],
@@ -772,7 +1026,6 @@ pub fn add_viscous_cells_mu(
                             let mu_face = 0.5 * (mu_cell_ref(a) + mu_cell_ref(b));
                             let (txx, txy, _, qx, _) =
                                 face_flux_split(&gf, mu_face, mu_t, a, b, coeffs_ref);
-                            let k = (f - f_lo) * ny + j;
                             cx[k] = txx;
                             cy[k] = txy;
                             ce[k] = gf.u * txx + gf.v * txy + qx;
@@ -795,6 +1048,29 @@ pub fn add_viscous_cells_mu(
     for i in 0..nx {
         for f in 1..ny {
             let (a, b) = (idx(i, f - 1), idx(i, f));
+            let k = i * (ny + 1) + f;
+            if has_body && (is_solid(i, f - 1) || is_solid(i, f)) {
+                // body wall face along y: same one-sided wall treatment as
+                // the x loop, normal along y.
+                let (txy, tyy, q_wall) = body_wall_y(
+                    is_solid(i, f - 1),
+                    i,
+                    f,
+                    &u,
+                    &v,
+                    &t,
+                    nx,
+                    g,
+                    &mu_cell,
+                    mu_t,
+                    &coeffs,
+                    wall_temperature,
+                );
+                gym_x[k] = txy;
+                gym_y[k] = tyy;
+                gye[k] = q_wall;
+                continue;
+            }
             let cy_a = g.centers_y[a];
             let cy_b = g.centers_y[b];
             let gf = face_grad_interp(
@@ -808,7 +1084,6 @@ pub fn add_viscous_cells_mu(
             );
             let mu_face = 0.5 * (mu_cell(a) + mu_cell(b));
             let (_, txy, tyy, _, qy) = face_flux_split(&gf, mu_face, mu_t, a, b, &coeffs);
-            let k = i * (ny + 1) + f;
             gym_x[k] = txy;
             gym_y[k] = tyy;
             gye[k] = gf.u * txy + gf.v * tyy + qy;
@@ -903,25 +1178,58 @@ pub fn add_viscous_cells_mu(
     for (j, &dyw) in dys_w.iter().enumerate() {
         for (i, &dxw) in dxs_w.iter().enumerate() {
             let c = idx(i, j);
-            // local time stepping takes the cell's own increment for both
-            // divergence factors; the global path keeps the scalar ratios.
-            let (dxi, dyj) = match dts {
-                None => (
-                    if unif_x { dtdx } else { dt / dxw },
-                    if unif_y { dtdy } else { dt / dyw },
+            // local time stepping pairs the increment per face (the slower
+            // neighbor's): a shared viscous face must move the same
+            // flux*time both ways or the band cells manufacture momentum
+            // and energy at every dt mismatch. the global path keeps the
+            // scalar ratios.
+            // local stepping pairs the increment per face (the slower
+            // neighbor's): a shared viscous face must move the same
+            // flux*time both ways or the band cells manufacture momentum
+            // and energy at every dt mismatch. the global path keeps the
+            // scalar ratios.
+            let (dl, dr, db, dt_) = match dts {
+                None => (dt, dt, dt, dt),
+                Some(a) => (
+                    if i > 0 {
+                        a[c].min(a[idx(i - 1, j)])
+                    } else {
+                        a[c]
+                    },
+                    if i + 1 < nx {
+                        a[c].min(a[idx(i + 1, j)])
+                    } else {
+                        a[c]
+                    },
+                    if j > 0 {
+                        a[c].min(a[idx(i, j - 1)])
+                    } else {
+                        a[c]
+                    },
+                    if j + 1 < ny {
+                        a[c].min(a[idx(i, j + 1)])
+                    } else {
+                        a[c]
+                    },
                 ),
-                Some(a) => (a[c] / dxw, a[c] / dyw),
             };
             // x-face divergence: faces i and i+1 bound cell i.
             let (a, b) = (i * ny + j, (i + 1) * ny + j);
-            state.mx[c] += dxi * (fxm[b] - fxm[a]);
-            state.my[c] += dxi * (fym[b] - fym[a]);
-            state.e[c] += dxi * (fe[b] - fe[a]);
+            state.mx[c] += (dr * fxm[b] - dl * fxm[a]) / dxw;
+            state.my[c] += (dr * fym[b] - dl * fym[a]) / dxw;
+            state.e[c] += (dr * fe[b] - dl * fe[a]) / dxw;
+            if std::env::var("NF_VW").is_ok() && i == 43 && j == 191 {
+                eprintln!(
+                    "VWupd i=43 j=191 mx={:.6e} dm=({:.3e}*{:.4e} - {:.3e}*{:.4e})/{:.3e} = {:.4e} fxm_a={:.3e} fxm_b={:.3e}",
+                    state.mx[c], dr, fxm[b], dl, fxm[a], dxw,
+                    (dr * fxm[b] - dl * fxm[a]) / dxw, fxm[a], fxm[b]
+                );
+            }
             // y-face divergence: faces j and j+1 bound cell j.
             let (d, e) = (i * (ny + 1) + j, i * (ny + 1) + j + 1);
-            state.mx[c] += dyj * (gym_x[e] - gym_x[d]);
-            state.my[c] += dyj * (gym_y[e] - gym_y[d]);
-            state.e[c] += dyj * (gye[e] - gye[d]);
+            state.mx[c] += (dt_ * gym_x[e] - db * gym_x[d]) / dyw;
+            state.my[c] += (dt_ * gym_y[e] - db * gym_y[d]) / dyw;
+            state.e[c] += (dt_ * gye[e] - db * gye[d]) / dyw;
         }
     }
     Ok(())

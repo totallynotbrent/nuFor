@@ -105,7 +105,7 @@ pub fn advance2d_model_visc_rk2(
     // fused (p, t, mu) pass; on eqair this replaces the temperature
     // bisection with one table read per cell.
     let (_p0, _t0, mu_cells) = match model {
-        ThermoModel::EqAir => crate::eqair_cea::fused_state_mu(&state.rho, &e_int, |t| {
+        ThermoModel::EqAir { .. } => crate::eqair_cea::fused_state_mu(&state.rho, &e_int, |t| {
             crate::viscous2d::sutherland_mu(mu0, t.max(1.0), t0_ref, s_param)
         }),
         ThermoModel::Perfect { .. } => {
@@ -139,7 +139,7 @@ pub fn advance2d_model_visc_rk2(
         g,
         match model {
             ThermoModel::Perfect { gamma } => gamma,
-            ThermoModel::EqAir => 1.4,
+            ThermoModel::EqAir { .. } => 1.4,
         },
         mu0,
         &mu_cells,
@@ -153,6 +153,7 @@ pub fn advance2d_model_visc_rk2(
         Some(model),
         wall_temperature,
         nthreads,
+        wall,
     )?;
     let (dt2, _) =
         advance2d_model_capped(&mut s1, g, model, cfl, muscl, bc, dt_visc, nthreads, wall)?;
@@ -161,7 +162,7 @@ pub fn advance2d_model_visc_rk2(
         g,
         match model {
             ThermoModel::Perfect { gamma } => gamma,
-            ThermoModel::EqAir => 1.4,
+            ThermoModel::EqAir { .. } => 1.4,
         },
         mu0,
         &mu_cells,
@@ -175,6 +176,7 @@ pub fn advance2d_model_visc_rk2(
         Some(model),
         wall_temperature,
         nthreads,
+        wall,
     )?;
     for k in 0..n {
         state.rho[k] = 0.5 * state.rho[k] + 0.5 * s1.rho[k];
@@ -185,13 +187,102 @@ pub fn advance2d_model_visc_rk2(
     Ok((dt1, 0.0))
 }
 
+/// the fused (p, t, mu) pass shared by the laminar marches: per-cell
+/// sutherland mu from the closure temperature (eqair: one table read).
+#[allow(clippy::type_complexity)]
+fn model_cell_mu(
+    state: &ConservedState2d,
+    g: &Grid2d,
+    model: ThermoModel,
+    mu0: f64,
+    t0_ref: f64,
+    s_param: f64,
+) -> Result<(Vec<f64>, Vec<f64>, Vec<f64>), Error> {
+    let n = g.nx * g.ny;
+    let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
+    let mut e_int = vec![0.0f64; n];
+    for k in 0..n {
+        e_int[k] = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
+    }
+    match model {
+        ThermoModel::EqAir { .. } => {
+            Ok(crate::eqair_cea::fused_state_mu(&state.rho, &e_int, |t| {
+                crate::viscous2d::sutherland_mu(mu0, t.max(1.0), t0_ref, s_param)
+            }))
+        }
+        ThermoModel::Perfect { .. } => {
+            let p = thermo::pressure(model, &state.rho, &e_int, &u, &v)?;
+            let t = thermo::temperature(model, &state.rho, &p)?;
+            let mu = t
+                .iter()
+                .map(|&tk| crate::viscous2d::sutherland_mu(mu0, tk.max(1.0), t0_ref, s_param))
+                .collect::<Vec<f64>>();
+            Ok((p, t, mu))
+        }
+    }
+}
+
+/// the thermal-diffusivity factor for the viscous dt bound: the
+/// prandtl-based thermal-to-momentum diffusivity ratio, kappa ~
+/// gamma/((gamma-1) pr) ~ 2.4 at pr 0.71.
+fn model_kappa(pr: f64) -> f64 {
+    1.4 / ((1.4 - 1.0) * pr.max(1e-6))
+}
+
+/// one local-time-stepping euler sweep of the laminar mean flow: the
+/// steady-state counterpart of `advance2d_model_visc_rk2`. each cell
+/// advances at its own acoustic+diffusion bound through a single
+/// forward-euler stage: heun's neighbor-consistent stages are unstable
+/// under per-cell increments, but at a steady state the one-stage update
+/// converges to the same fixed point, and time accuracy is irrelevant
+/// there. returns the smallest cell increment for progress accounting.
 #[allow(clippy::too_many_arguments)]
-/// closure-aware coupled spalart-allmaras march: the viscous mean-flow
-/// advance above plus the sa transport, each heun stage consuming the
-/// other's updated state. the eddy viscosity is rebuilt from nu_tilde
-/// every stage so the momentum diffusion and the transported field stay
-/// consistent. this is the eqair-capable twin of `advance2d_sa_rk2`,
-/// which is hardcoded to a perfect-gas gamma.
+pub fn advance2d_model_visc_lts(
+    state: &mut ConservedState2d,
+    g: &Grid2d,
+    model: ThermoModel,
+    cfl: f64,
+    muscl: bool,
+    bc: &Boundaries2d,
+    mu0: f64,
+    t0_ref: f64,
+    s_param: f64,
+    pr: f64,
+    wall_temperature: f64,
+    nthreads: usize,
+    wall: Option<&dyn Fn(f64, f64) -> f64>,
+) -> Result<(f64, f64), Error> {
+    let n = g.nx * g.ny;
+    let (_p0, _t0, mu_cells) = model_cell_mu(state, g, model, mu0, t0_ref, s_param)?;
+    let kappa_cells = vec![model_kappa(pr); n];
+    let dts = model_local_dts(state, g, model, cfl, &mu_cells, &kappa_cells, wall)?;
+    let (dt_min, resid) =
+        advance2d_model_capped_dts(state, g, model, cfl, muscl, bc, &dts, nthreads, wall)?;
+    crate::viscous2d::add_viscous_cells_mu(
+        state,
+        g,
+        match model {
+            ThermoModel::Perfect { gamma } => gamma,
+            ThermoModel::EqAir { .. } => 1.4,
+        },
+        mu0,
+        &mu_cells,
+        pr,
+        Some(crate::viscous2d::TurbCtx {
+            mu_t: &[],
+            pr_t: pr,
+            bc,
+        }),
+        crate::solver2d::TimeControl::Global(dt_min),
+        Some(model),
+        wall_temperature,
+        nthreads,
+        wall,
+    )?;
+    Ok((dt_min, resid))
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn advance2d_sa_model_rk2(
     state: &mut ConservedState2d,
     turb: &mut crate::turb2d::TurbState,
@@ -216,7 +307,7 @@ pub fn advance2d_sa_model_rk2(
     }
     let gamma_eff = match model {
         ThermoModel::Perfect { gamma } => gamma,
-        ThermoModel::EqAir => 1.4,
+        ThermoModel::EqAir { .. } => 1.4,
     };
     // eddy viscosity per cell from a nu_tilde field against a rho field.
     let mu_t_of = |nt: &[f64], rho: &[f64]| -> Vec<f64> {
@@ -273,6 +364,7 @@ pub fn advance2d_sa_model_rk2(
         Some(model),
         wall_temperature,
         nthreads,
+        wall,
     )?;
     advance_turb(&mut t1, &s1, g, bc, dt1, None)?;
     // stage 2 re-evaluates both operators at the stage-1 state (heun).
@@ -306,6 +398,7 @@ pub fn advance2d_sa_model_rk2(
         Some(model),
         wall_temperature,
         nthreads,
+        wall,
     )?;
     advance_turb(&mut t1, &s1, g, bc, dt2, None)?;
     // heun average of the original and the twice-advanced state.
@@ -319,10 +412,204 @@ pub fn advance2d_sa_model_rk2(
     Ok(dt1)
 }
 
-#[allow(clippy::too_many_arguments)]
 /// like `advance2d_model` but with an external step cap, the viscous
-/// path's way to interleave euler and diffusive half-steps at the
-/// stiffer of the two bounds. single-advance.
+/// per-cell time increments for the model-aware (eqair or perfect) march:
+/// the acoustic bound at each cell's own signal speed and width, capped by
+/// an optional per-cell viscous diffusion bound. cells behind the body mask
+/// step at the minimum fluid increment so no shared face over-steps.
+#[allow(clippy::too_many_arguments)]
+pub fn model_local_dts(
+    state: &ConservedState2d,
+    g: &Grid2d,
+    model: ThermoModel,
+    cfl: f64,
+    mu_cells: &[f64],
+    kappa_cells: &[f64],
+    wall: Option<&dyn Fn(f64, f64) -> f64>,
+) -> Result<Vec<f64>, Error> {
+    let (nx, ny) = (g.nx, g.ny);
+    let n = nx * ny;
+    let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
+    let mut e_int = vec![0.0f64; n];
+    for k in 0..n {
+        e_int[k] = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
+    }
+    let a = match model {
+        ThermoModel::EqAir { .. } => state
+            .rho
+            .iter()
+            .zip(&e_int)
+            .map(|(&r, &e)| crate::eqair_cea::p_a_at(r, e).1)
+            .collect::<Vec<f64>>(),
+        ThermoModel::Perfect { gamma } => state
+            .rho
+            .iter()
+            .zip(&e_int)
+            .map(|(&r, &e)| (gamma * (gamma - 1.0) * e * r / r.max(1e-12)).sqrt())
+            .collect::<Vec<f64>>(),
+    };
+    let mut out = vec![0.0f64; n];
+    let mut dt_min_fluid = f64::INFINITY;
+    for k in 0..n {
+        let (i, j) = (k % nx, k / nx);
+        let h = g.dxs[i].min(g.dys[j]);
+        let s = u[k].abs().max(v[k].abs()) + a[k];
+        let dt_ac = cfl * h / s.max(1e-9);
+        let dt = if mu_cells.is_empty() {
+            dt_ac
+        } else {
+            let rho = state.rho[k].max(1e-6);
+            let nu = (mu_cells[k] / rho) * (1.0 + kappa_cells[k]);
+            let dt_dif = 0.25 * h * h / nu.max(1e-14);
+            dt_ac.min(dt_dif)
+        };
+        let solid = wall.is_some_and(|w| w(g.centers_x[k], g.centers_y[k]) <= 0.0);
+        if !solid {
+            dt_min_fluid = dt_min_fluid.min(dt);
+        }
+        // the solid dummy state is quiescent freestream, but its faces see
+        // the live flow; a solid cell stepping at the freestream acoustic
+        // bound imports flux*time its fluid neighbors never agreed to.
+        // the fluxes across its wall faces are zeroed, so the value only
+        // matters through the face pairing with the band cells: hold it
+        // at the minimum fluid increment so no shared face ever over-steps.
+        let solid_dt = dt_min_fluid;
+        out[k] = if solid { solid_dt } else { dt };
+    }
+    Ok(out)
+}
+
+/// the per-cell-dt twin of `advance2d_model_capped`: same flux sweep, each
+/// cell updated at its own increment. only the converged state is
+/// physically meaningful (local time stepping).
+#[allow(clippy::too_many_arguments)]
+fn advance2d_model_capped_dts(
+    state: &mut ConservedState2d,
+    g: &Grid2d,
+    model: ThermoModel,
+    _cfl: f64,
+    muscl: bool,
+    bc: &crate::solver2d::Boundaries2d,
+    dts: &[f64],
+    nthreads: usize,
+    wall: Option<&dyn Fn(f64, f64) -> f64>,
+) -> Result<(f64, f64), Error> {
+    let (nx, ny) = (g.nx, g.ny);
+    let n = nx * ny;
+    let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
+    let mut e_int = vec![0.0f64; n];
+    for k in 0..n {
+        e_int[k] = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
+    }
+    let p = match model {
+        ThermoModel::EqAir { .. } => state
+            .rho
+            .iter()
+            .zip(&e_int)
+            .map(|(&r, &e)| crate::eqair_cea::p_a_at(r, e).0)
+            .collect::<Vec<f64>>(),
+        ThermoModel::Perfect { gamma } => state
+            .rho
+            .iter()
+            .zip(&e_int)
+            .map(|(&r, &e)| (gamma - 1.0) * r * e)
+            .collect::<Vec<f64>>(),
+    };
+    let (fx, fy) = compute_axi_fluxes(model, state, g, muscl, bc, &p, &e_int, nthreads, wall)?;
+    // standard per-cell local stepping in residual form: each cell
+    // advances at its own increment over a shared flux field. the
+    // intermediate states are not conservative (a shared face moves
+    // different flux*time out of each side), which is accepted for a
+    // steady-state march: the converged state is the residual-zero
+    // field, where the dt weighting drops out entirely. a face-paired
+    // scheme (each face at the slower neighbor's increment) is exactly
+    // conservative per step but its fixed point is not residual-zero,
+    // so it converges to a wrong field instead: the pairing weights
+    // the residual by min(dt_left, dt_right), which never vanishes
+    // at a true steady state. that misformulation destroyed the first
+    // two gate attempts; this is the revert to the standard form.
+    let mut d_r = vec![0.0f64; n];
+    let mut d_m = vec![0.0f64; n];
+    let mut d_n = vec![0.0f64; n];
+    let mut d_e = vec![0.0f64; n];
+    let mut resids = vec![0.0f64; n];
+    {
+        let fxr = &fx[..];
+        let fyr = &fy[..];
+        let dtw = dts;
+        crate::solver2d::shard_slice(&mut d_r, nthreads, |s, win| {
+            for (w, k) in win.iter_mut().zip(s..) {
+                let (i, j) = (k % nx, k / nx);
+                let d = dtw[k] / g.dxs[i];
+                let dy_ = dtw[k] / g.dys[j];
+                *w = -d * (fxr[j].mass[i + 1] - fxr[j].mass[i])
+                    - dy_ * (fyr[i].mass[j + 1] - fyr[i].mass[j]);
+            }
+        });
+        crate::solver2d::shard_slice(&mut d_m, nthreads, |s, win| {
+            for (w, k) in win.iter_mut().zip(s..) {
+                let (i, j) = (k % nx, k / nx);
+                let d = dtw[k] / g.dxs[i];
+                let dy_ = dtw[k] / g.dys[j];
+                *w = -d * (fxr[j].mx[i + 1] - fxr[j].mx[i])
+                    - dy_ * (fyr[i].mx[j + 1] - fyr[i].mx[j]);
+            }
+        });
+        crate::solver2d::shard_slice(&mut d_n, nthreads, |s, win| {
+            for (w, k) in win.iter_mut().zip(s..) {
+                let (i, j) = (k % nx, k / nx);
+                let d = dtw[k] / g.dxs[i];
+                let dy_ = dtw[k] / g.dys[j];
+                *w = -d * (fxr[j].my[i + 1] - fxr[j].my[i])
+                    - dy_ * (fyr[i].my[j + 1] - fyr[i].my[j]);
+            }
+        });
+        crate::solver2d::shard_slice(&mut d_e, nthreads, |s, win| {
+            for (w, k) in win.iter_mut().zip(s..) {
+                let (i, j) = (k % nx, k / nx);
+                let d = dtw[k] / g.dxs[i];
+                let dy_ = dtw[k] / g.dys[j];
+                *w = -d * (fxr[j].e[i + 1] - fxr[j].e[i]) - dy_ * (fyr[i].e[j + 1] - fyr[i].e[j]);
+            }
+        });
+        let (dr, dm, dn, de) = (&d_r[..], &d_m[..], &d_n[..], &d_e[..]);
+        crate::solver2d::shard_slice(&mut resids, nthreads, |s, win| {
+            for (w, k) in win.iter_mut().zip(s..) {
+                *w = dr[k]
+                    .abs()
+                    .max(dm[k].abs())
+                    .max(dn[k].abs())
+                    .max(de[k].abs());
+            }
+        });
+        for k in 0..n {
+            state.rho[k] += dr[k];
+            state.mx[k] += dm[k];
+            state.my[k] += dn[k];
+            state.e[k] += de[k];
+            // local stepping lets wake cells transiently undershoot into
+            // non-physical states; floor the positivity invariants the
+            // closure reads need (density and internal energy), which
+            // never triggers on resolved flow.
+            if !(state.rho[k].is_finite() && state.rho[k] > 0.0) {
+                state.rho[k] = 1e-10;
+                state.mx[k] = 0.0;
+                state.my[k] = 0.0;
+                state.e[k] = 1e-6;
+            }
+            let ke = 0.5 * (state.mx[k] * state.mx[k] + state.my[k] * state.my[k])
+                / state.rho[k].max(1e-12);
+            if !state.e[k].is_finite() || state.e[k] - ke < 1e-9 {
+                state.e[k] = ke + 1e-9;
+            }
+        }
+    }
+    let resid = resids.iter().cloned().fold(0.0f64, f64::max);
+    let dt_min = dts.iter().cloned().fold(f64::INFINITY, f64::min);
+    Ok((dt_min, resid))
+}
+
+#[allow(clippy::too_many_arguments)]
 fn advance2d_model_capped(
     state: &mut ConservedState2d,
     g: &Grid2d,
@@ -377,7 +664,7 @@ fn advance2d_model_capped(
                 sc.spawn(move || {
                     for ((w, wa), k) in pw.iter_mut().zip(aw.iter_mut()).zip(s..) {
                         let (pk, ak) = match model {
-                            ThermoModel::EqAir => crate::eqair_cea::p_a_at(rho[k], e_int[k]),
+                            ThermoModel::EqAir { .. } => crate::eqair_cea::p_a_at(rho[k], e_int[k]),
                             ThermoModel::Perfect { gamma } => {
                                 let pk = (gamma - 1.0) * rho[k] * e_int[k];
                                 let ak = (gamma * pk / rho[k].max(1e-12)).sqrt();
@@ -571,7 +858,7 @@ fn face_pair(
             FacePrim::perfect(rl, ul, vl, xl, gamma),
             FacePrim::perfect(rr, ur, vr, xr, gamma),
         ),
-        ThermoModel::EqAir => {
+        ThermoModel::EqAir { .. } => {
             // the legacy tgas1 fits extrapolate past their window instead of
             // clamping, which the riemann solver needs: wake states exceed
             // the CEA table's energy ceiling and a clamped face pressure
@@ -634,12 +921,12 @@ pub(crate) fn compute_axi_fluxes(
     let (u, v, _et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
     let gamma = match model {
         ThermoModel::Perfect { gamma } => gamma,
-        ThermoModel::EqAir => 1.4, // only the fallback shaping value
+        ThermoModel::EqAir { .. } => 1.4, // only the fallback shaping value
     };
     // the reconstructed closure variable per cell: p or e.
     let x: Vec<f64> = match model {
         ThermoModel::Perfect { .. } => p.to_vec(),
-        ThermoModel::EqAir => e_int.to_vec(),
+        ThermoModel::EqAir { .. } => e_int.to_vec(),
     };
     // the row and column sweeps are built by run_jobs below, sharded
     // across threads when nthreads > 1.
@@ -650,7 +937,7 @@ pub(crate) fn compute_axi_fluxes(
     // the closure so the ghost is the same gas the interior holds.
     let bc_x = |side: &Bc2d, model: ThermoModel| -> Option<f64> {
         match (side, model) {
-            (Bc2d::SupersonicInflow { rho, p, .. }, ThermoModel::EqAir) => {
+            (Bc2d::SupersonicInflow { rho, p, .. }, ThermoModel::EqAir { .. }) => {
                 crate::eqair::energy_from_pressure(&[*rho], &[*p])
                     .ok()
                     .and_then(|v| v.first().copied())
@@ -793,10 +1080,14 @@ pub(crate) fn compute_axi_fluxes(
     let mut fx = run_jobs(ny, &row_job)?;
     let mut fy = run_jobs(nx, &col_job)?;
 
-    // slip-wall enforcement: zero the advective flux across any face that
-    // touches a solid cell. the riemann solve never runs across the wall,
-    // so the interior dummy state cannot inject mass, momentum, or energy
-    // into the fluid, and the fluid-side band cell keeps its projection.
+    // slip-wall enforcement on any advective face that touches a solid
+    // cell. the interior dummy state never feeds the wall: instead the
+    // fluid state is mirrored about the face and the same hllc the
+    // interior faces use solves the mirrored pair. the reflected
+    // riemann returns mass 0 with the stagnation pressure the wall must
+    // hold, so the wall is impermeable but not force-free: pinning the
+    // momentum flux to the bare cell pressure (or zeroing it) removes
+    // the pushback and the stagnation band jets into the wall.
     if let Some(dist) = wall {
         let (nxg, nyg) = (g.nx, g.ny);
         // the solid classification is cached per grid+body: this pass
@@ -809,16 +1100,67 @@ pub(crate) fn compute_axi_fluxes(
             }
             mask[j * nxg + i]
         };
+        // the mirrored slip-wall riemann: reflect the fluid state about
+        // the wall face and run the hllc on the mirrored pair. the
+        // solve returns the wall pressure the reflection builds (always
+        // at or above the cell pressure for flow approaching the wall),
+        // which is the pushback a real slip wall provides. pinning the
+        // momentum flux to the bare cell pressure underestimates it and
+        // lets the stagnation band jet into the wall.
+        let sound = |k: usize| -> f64 {
+            match model {
+                ThermoModel::Perfect { gamma } => {
+                    (gamma * p[k].max(1e-12) / state.rho[k].max(1e-12)).sqrt()
+                }
+                ThermoModel::EqAir { .. } => {
+                    crate::eqair_cea::sound_speed_at(state.rho[k], e_int[k])
+                }
+            }
+        };
+        let mirror_hllc = |k: usize, axis: usize, left_fluid: bool| -> crate::hllc2d::Flux4 {
+            let (rho, uu, vv, pp, aa) = (
+                state.rho[k].max(1e-12),
+                u[k],
+                v[k],
+                p[k].max(1e-12),
+                sound(k),
+            );
+            let fluid = crate::hllc2d::FacePrim {
+                rho,
+                u: uu,
+                v: vv,
+                p: pp,
+                a: aa,
+                e: e_int[k],
+            };
+            let mirror = crate::hllc2d::FacePrim {
+                rho,
+                u: -uu,
+                v: -vv,
+                p: pp,
+                a: aa,
+                e: e_int[k],
+            };
+            let (l, r) = if left_fluid {
+                (fluid, mirror)
+            } else {
+                (mirror, fluid)
+            };
+            crate::hllc2d::hllc_flux(gamma, l, r, axis)
+        };
         for j in 0..nyg {
             for f in 0..=nxg {
                 // x-face f sits between cell (f-1, j) and (f, j).
                 let left_solid = f > 0 && solid(f - 1, j);
                 let right_solid = f < nxg && solid(f, j);
                 if left_solid || right_solid {
-                    fx[j].mass[f] = 0.0;
-                    fx[j].mx[f] = 0.0;
-                    fx[j].my[f] = 0.0;
-                    fx[j].e[f] = 0.0;
+                    // the fluid cell with the mirror on the solid side.
+                    let side = if left_solid { f } else { f - 1 };
+                    let q = mirror_hllc(side + j * nxg, 0, right_solid);
+                    fx[j].mass[f] = q.mass;
+                    fx[j].mx[f] = q.mx;
+                    fx[j].my[f] = q.my;
+                    fx[j].e[f] = q.e;
                 }
             }
         }
@@ -827,10 +1169,12 @@ pub(crate) fn compute_axi_fluxes(
                 let below_solid = f > 0 && solid(i, f - 1);
                 let above_solid = f < nyg && solid(i, f);
                 if below_solid || above_solid {
-                    fy[i].mass[f] = 0.0;
-                    fy[i].mx[f] = 0.0;
-                    fy[i].my[f] = 0.0;
-                    fy[i].e[f] = 0.0;
+                    let side = if below_solid { f } else { f - 1 };
+                    let q = mirror_hllc(i + side * nxg, 1, above_solid);
+                    fy[i].mass[f] = q.mass;
+                    fy[i].mx[f] = q.mx;
+                    fy[i].my[f] = q.my;
+                    fy[i].e[f] = q.e;
                 }
             }
         }

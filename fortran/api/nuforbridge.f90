@@ -163,7 +163,7 @@ contains
   subroutine nfor_mpi_step_visc(rho, mx, my, e, nloc, nx_l, ny_, &
                                 dx, dy, gamma, cfl, dt_cap, &
                                 bc_w, bc_e, bc_s, bc_n, bc_vals, solid, &
-                                mu0, t0_ref, s_par, pr, tw, &
+                                mu0, t0_ref, s_par, pr, tw, r_gas, &
                                 rho2, mx2, my2, e2, dt_out, ierr) &
       bind(c, name="nfor_mpi_step_visc")
     integer(c_int), value, intent(in) :: nloc, nx_l, ny_
@@ -172,7 +172,7 @@ contains
     integer(c_int), value, intent(in) :: bc_w, bc_e, bc_s, bc_n
     real(c_double), intent(in) :: bc_vals(5, 4)
     integer(c_int), intent(in) :: solid(nloc)
-    real(c_double), value, intent(in) :: mu0, t0_ref, s_par, pr, tw
+    real(c_double), value, intent(in) :: mu0, t0_ref, s_par, pr, tw, r_gas
     real(c_double), intent(out) :: rho2(nloc), mx2(nloc), my2(nloc), e2(nloc)
     real(c_double), intent(out) :: dt_out
     integer(c_int), intent(out) :: ierr
@@ -211,7 +211,7 @@ contains
                           r1, m1, my1, e1, dt1, 1)
     call halo_exchange_cons(r1, m1, my1, e1, nx_l, ny_)
     call viscous_add_slab(r1, m1, my1, e1, nx_l, ny_, dx, dy, dt1, &
-                          mu0, t0_ref, s_par, pr, tw, bc_s, bc_n, sl)
+                          mu0, t0_ref, s_par, pr, tw, gamma, r_gas, bc_s, bc_n, sl)
     ! refresh again so stage-2's euler sees the post-viscous neighbors
     ! at slab seams (serial reads the full post-viscous state).
     call halo_exchange_cons(r1, m1, my1, e1, nx_l, ny_)
@@ -223,7 +223,7 @@ contains
                           r2, m2, my2_, e2_, dt2, 1)
     call halo_exchange_cons(r2, m2, my2_, e2_, nx_l, ny_)
     call viscous_add_slab(r2, m2, my2_, e2_, nx_l, ny_, dx, dy, dt2, &
-                          mu0, t0_ref, s_par, pr, tw, bc_s, bc_n, sl)
+                          mu0, t0_ref, s_par, pr, tw, gamma, r_gas, bc_s, bc_n, sl)
 
     ! heun average of the input and the twice-advanced state
     dt = dt1

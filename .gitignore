@@ -39,6 +39,13 @@ venv/
 
 # Output / runtime data (cases write here)
 output/
+# case-directory run products (vtk fields, run logs, march stdout)
+cases/**/*.vtk
+cases/**/run-log.txt
+cases/**/run-log.csv
+cases/**/march-stdout.txt
+# generated mesh files (rebuild with each case's mesh_gen.py)
+cases/**/mesh_faces.txt
 
 # HDF5 / restart files produced by runs
 *.h5

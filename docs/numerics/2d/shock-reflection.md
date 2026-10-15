@@ -20,8 +20,8 @@ doubly shocked state rho3 = 2.617, p3 = 3.948, flowing parallel to the wall.
 ## The benchmark
 
 `tests/shock_reflection.rs` lays all three regions out as the analytic steady
-field — the oncoming stream, the turned region between the two shocks, and the
-reflected region against the wall — and marches the solver over it.
+field - the oncoming stream, the turned region between the two shocks, and the
+reflected region against the wall - and marches the solver over it.
 
 - the oncoming stream stays at rho = 1 within a third of a percent,
 - the reflected (doubly shocked) region holds rho3 = 2.617 within a percent,
@@ -32,7 +32,7 @@ coarse Cartesian grid resolves that corner only approximately, so weak waves
 bleed outward from it as the run continues: the agreement is tightest over a
 short horizon and degrades slowly (about four percent of density over a run of
 one image time). The short-march check captures the steady two-shock state
-where it actually holds, and that slow degradation is itself instructive —
+where it actually holds, and that slow degradation is itself instructive.
 it is exactly the sensitivity that a body-fitted or AMR grid removes.
 
 ## See also
