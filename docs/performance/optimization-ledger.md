@@ -6,7 +6,7 @@ A running record of solver performance work. Each entry records the change, how
 it was measured, the numbers before/after, and a verdict. The goal is one honest,
 reproducible measurement per change rather than ad-hoc hand-waving.
 
-## Entry 1 — baseline
+## Entry 1 - baseline
 
 **date** 2025-10-21
 
@@ -39,7 +39,7 @@ cells pays the per-step FFI/residual/log cost). Peak is around 1000–2000 cells
 No action yet; the entry exists so future work (OpenMP, memory layout, floating
 point) is measured against this, not from scratch.
 
-## Entry 2 — 2D SoA layout + shared-memory threading
+## Entry 2 - 2D SoA layout + shared-memory threading
 
 **date** 2026-05-07
 
@@ -73,7 +73,7 @@ and the 8-thread backslide is hyper-threading oversubscription. Threading buys
 ~2x, not 4x, on this box; squeezing more means shrinking the memory footprint
 (so the working set stays in cache) before adding cores.
 
-## Entry 3 — threaded SA march
+## Entry 3 - threaded SA march
 
 **date** 2026-09-29
 
@@ -94,7 +94,7 @@ serial vs 4 threads.
 **measured** at 320x120, per heun stage, 4 threads vs serial: inviscid
 sweep 1.37x, sa transport 1.90x, viscous add 0.82x (thread-spawn overhead
 swamps it at this size, so the add stays serial below 20k cells). Expected
-fine-grid march speedup 1.39x — the 26.6 h convergence run would have been
+fine-grid march speedup 1.39x - the 26.6 h convergence run would have been
 about 19 h. End-to-end on the medium case the gain is within noise (914 s
 serial vs 890 s threaded): the case is too small and the box too loaded
 for the kernel gains to surface.

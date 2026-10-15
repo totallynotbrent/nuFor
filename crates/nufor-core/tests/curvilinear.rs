@@ -61,7 +61,7 @@ fn uniform_eqair_freestream_holds() {
         my: vec![0.0; n],
         e: vec![rho * et; n],
     };
-    let model = ThermoModel::EqAir;
+    let model = ThermoModel::EqAir { r_gas: 287.0 };
     for _ in 0..40 {
         let fs = Freestream { rho, u, p };
         let (_, resid) = advance2d_axi_curv(&mut st, &g, model, 0.2, fs).unwrap();
@@ -119,7 +119,7 @@ fn capsule_ogrid_marches() {
                 eprintln!("step {step}: {bad} cells with e_int <= 0");
             }
         }
-        match advance2d_axi_curv(&mut st, &g, ThermoModel::EqAir, 0.4, fs) {
+        match advance2d_axi_curv(&mut st, &g, ThermoModel::EqAir { r_gas: 287.0 }, 0.4, fs) {
             Ok((dt, resid)) => {
                 assert!(resid.is_finite(), "resid NaN at {step}");
                 if step % 20 == 0 {

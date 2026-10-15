@@ -53,10 +53,10 @@ geometric source terms are what distinguish the two flows: the sphere
 case is the test that they are present and correct.
 
 The setup and the checked numbers are on
-[the sphere validation page](../../verification/axisymmetric-sphere.md).
+[[verification/axisymmetric-sphere|the sphere validation page]].
 
 ## See also
 
 - [2D Euler solver](2d-euler.md), the planar march whose fluxes the
   annular update reuses
-- [Sphere validation](../../verification/axisymmetric-sphere.md)
+- [[verification/axisymmetric-sphere|Sphere validation]]

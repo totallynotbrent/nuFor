@@ -20,7 +20,7 @@ Each worker computes its slab of fluxes or deltas into its own memory and the
 step is assembled afterward, so there are no locks and no races. Crucially, the
 per-cell deltas are computed identically whether they run in sequence or across
 many threads, so the parallel result is bit-for-bit identical to the serial
-`advance2d` at any thread count — the same field, every time.
+`advance2d` at any thread count - the same field, every time.
 
 ## Measured scaling
 
@@ -38,7 +38,7 @@ The step is a tiny, memory-bound kernel, so the wall-clock ceiling is set by
 memory bandwidth and thread overhead, not arithmetic. Expect a plateau around
 two to three times (the 4-core machine's physical-core limit); the backslide at
 eight threads is the usual hyper-threading oversubscription. Scaling is the
-reason the benchmark harness measures at a fixed thread count — it shows up as
+reason the benchmark harness measures at a fixed thread count - it shows up as
 a single number rather than a per-thread curve.
 
 ## See also

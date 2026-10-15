@@ -107,13 +107,13 @@ across the shock reaches ~17x where the perfect gas is capped at 6x.
 
 A planar 2D case with `physics.mu` set to a positive value runs the
 laminar viscous march (`advance2d_model_visc_rk2`) instead of the
-inviscid one. The viscous operator closes over the same closure as
-the inviscid fluxes: each cell's molecular viscosity comes from the
-Sutherland law against the cell temperature (air at 273.15 K,
-S = 110.4 K), and the thermal conductivity follows from it through
-`physics.pr` scaled by the closure's cold-air gas constant R0.
-Under `eqair` that means the wall, the bow shock, and the shear
-layer all heat the gas with the real-gas pressure relation.
+inviscid one. Each cell's molecular viscosity comes from the Sutherland
+law against the cell temperature (air at 273.15 K, S = 110.4 K), and
+the conductivity follows as $k = \mu c_p / \mathrm{Pr}$ with
+$c_p = \gamma R / (\gamma-1)$ and the case gas constant - the state is
+dimensional, so the conduction carries real units (W/m/K). Under
+`eqair` the wall, the bow shock, and the shear layer all heat the gas
+with the real-gas pressure relation.
 
 ```toml
 [physics]

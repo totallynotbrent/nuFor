@@ -27,14 +27,14 @@ zeroed inside the Fortran step, with the same cells the serial closure kills.
 
 Laminar equilibrium-air cases (`physics.mu` set, no turbulence model) route
 through a Fortran twin of the serial viscous march: `nfor_mpi_step_visc` runs
-the full two-stage Heun step inside one call — Euler advance, halo refresh,
+the full two-stage Heun step inside one call - Euler advance, halo refresh,
 viscous divergence add, second stage, Heun average. Sutherland viscosity and
 conductivity come from the CEA closure temperature on the slab, so the
 transport physics is identical to the serial path. The viscous stencil needs
 one cell, well inside the two-cell halos; a second halo refresh after each
 viscous add keeps the next stage's neighbors current at slab seams.
 
-![viscous lane timing on the trim capsule](../../research/mpi-viscous-timing.png)
+![viscous lane timing on the trim capsule](../research/mpi-viscous-timing.png)
 
 On the body-free class the viscous lane is bit-exact against the serial Rust
 march at np=1 and np=2 (the gate below). On strong-shock body cases a separate

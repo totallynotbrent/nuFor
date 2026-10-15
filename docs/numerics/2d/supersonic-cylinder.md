@@ -13,7 +13,7 @@ high-speed flow.
 A circular body is cut out of the Cartesian mesh. Cells whose centres fall
 inside the cylinder are frozen to a quiescent reference state, and the ring of
 fluid cells adjacent to the surface has the velocity component normal to the
-surface removed each step — a slip wall (no flow through the boundary). The
+surface removed each step - a slip wall (no flow through the boundary). The
 tangential velocity, density, and pressure are carried over, matching the
 zero-gradient expectation at a solid wall. This lets the plain Cartesian
 solver represent a curved wall without a body-fitted mesh.

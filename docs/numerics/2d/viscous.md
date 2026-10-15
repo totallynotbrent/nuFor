@@ -11,21 +11,18 @@ legacy stays intact and a single flag turns viscosity on.
 
 ## The viscous flux
 
-For a Newtonian fluid with a constant dynamic viscosity mu and a Prandtl
-number Pr, the diffusive part of the conservation law is
+The diffusive part of the conservation law:
 
-    d/dt(rho)                = 0
-    d/dt(rho u)              = div(tau)
-    d/dt(rho e)              = div(u . tau) - div(q)
+$$\frac{\partial \rho}{\partial t} = 0, \qquad \frac{\partial \rho u_i}{\partial t} = \frac{\partial \tau_{ij}}{\partial x_j}, \qquad \frac{\partial \rho e}{\partial t} = \frac{\partial (u_j \tau_{ij})}{\partial x_i} - \frac{\partial q_i}{\partial x_i}$$
 
-where the shear stress and heat flux are
+with the Newtonian stress and Fourier heat flux
 
-    tau_ij = mu ( du_i/dx_j + du_j/dx_i - (2/3) div(u) delta_ij )
-    q      = -k grad(T),       k = mu * c_p / Pr
+$$\tau_{ij} = \mu \bigl( \partial_j u_i + \partial_i u_j - \tfrac{2}{3} \partial_k u_k \delta_{ij} \bigr), \qquad q_i = -k \partial_i T, \qquad k = \mu c_p / \mathrm{Pr}$$
 
-and c_p = gamma/(gamma-1) (with R = 1) sets the conductivity from the viscosity
-and the Prandtl number. Temperature is recovered from the ideal-gas relation
-T = p/rho.
+The conductivity carries real units: $c_p = \gamma R/(\gamma-1)$ with the
+case gas constant, so $k$ is W/m/K and the wall heat flux it produces is
+W/m^2. Temperature comes from the closure (ideal-gas $T = p/\rho$ under
+the perfect model, the CEA table under `eqair`).
 
 ## Numerical treatment
 
@@ -51,6 +48,65 @@ velocities come from the profile at each row's true height (the Blasius
 profile or a loaded table), so the centred wall-normal gradient at the
 inflow column sees the shear the incoming layer actually carries. That is
 what keeps the Blasius hold balanced from the first cell.
+
+## Body walls
+
+Every face that touches a solid cell is a wall. The advective half mirrors
+the fluid state about the face and runs the same HLLC the interior faces
+use; the reflected Riemann returns mass 0 with the stagnation pressure the
+wall must hold. The viscous half is the no-slip isothermal conductor: the
+face flux comes from one-sided quadratic derivatives through the wall value
+and the first two fluid centers.
+
+```mermaid
+flowchart LR
+    subgraph wall face
+        direction LR
+        M["mirror state<br/>(rho, -u, p)"] --> H["HLLC"]
+        F["fluid state<br/>(rho, +u, p)"] --> H
+        H --> Q["mass = 0<br/>momentum = p*<br/>energy = 0"]
+    end
+    subgraph viscous stage
+        direction LR
+        W["T_w pinned at face"] --> C["one-sided quad<br/>derivative"]
+        A["T at cell 1"] --> C
+        B["T at cell 2"] --> C
+        C --> QW["q_w = k dT/dn"]
+    end
+```
+
+A wall-adjacent fluid cell keeps centered gradients only on components
+whose stencil stays inside the fluid - any component that would read a
+solid cell (velocity or temperature alike) becomes a one-sided interior
+difference, so the wall slope never leaks into the fluid-fluid faces. The
+solid classification is the cached mask both halves read, so the advective
+and viscous treatments agree on exactly which faces are walls. Faces
+between two solid cells carry nothing.
+
+## Steady-state marching
+
+On a clustered wall mesh the explicit diffusion bound at the first wall
+cell is orders below the acoustic bound everywhere else, and a global
+time step cannot cross the shock layer in reasonable wall clock. The
+viscous lane honors `local_time_stepping = true` in the case numerics for
+exactly this, in two halves: the inviscid stage advances every cell at its
+own acoustic bound (one forward-Euler stage; Heun's neighbor-consistent
+stages are unstable under per-cell increments) in the standard residual
+form, while the viscous stage holds the whole field at the minimum fluid
+increment. A diffusion update under per-cell increments manufactures
+momentum and energy at cells whose neighbors step several decades away
+(the wall layer vs the freestream), so the diffusive half of the operator
+cannot ride the local increments; holding it at the field minimum costs
+nothing in the converged state because the near-wall cells own that
+minimum anyway. The intermediate states of a residual-form march are not
+conservative - that is the price of the acceleration, and it bounds the
+method to steady targets where only the converged field is read. Solid
+cells behind the mask step at the minimum fluid increment, the wake keeps
+a positivity floor, and on sharp-featured transients (an impulsive start
+past a blunt body at Mach 20) even this split scheme can drive undisturbed
+cells into the floor, so treat LTS on new case classes as experimental
+until the run holds its freestream. The default global-dt march is always
+the validated path.
 
 ## Stability
 

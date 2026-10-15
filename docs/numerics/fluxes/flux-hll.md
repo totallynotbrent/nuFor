@@ -49,7 +49,7 @@ in the literature and is not used.
 ## State validity
 
 The kernel recovers primitives, pressure, and sound speed on both sides
-through the [ideal-gas equation of state](../foundations/eos.md) and applies the same
+through the [[numerics/foundations/eos|ideal-gas equation of state]] and applies the same
 admissibility rules as the EOS step: positive density and positive internal
 energy, all components finite. A face violating these rules fails with a
 structured numerical-failure code instead of producing a flux from an
@@ -82,9 +82,9 @@ graph TD
 
 ## Related
 
-- [Numerics — 1D Euler milestone](../1d/1d-euler.md)
-- [Numerics — Ideal-gas equation of state](../foundations/eos.md)
-- [Numerics — 1D state and uniform grid](../foundations/state-grid.md)
+- [[numerics/1d/1d-euler|Numerics - 1D Euler milestone]]
+- [[numerics/foundations/eos|Numerics - Ideal-gas equation of state]]
+- [[numerics/foundations/state-grid|Numerics - 1D state and uniform grid]]
 
 ## See also
 

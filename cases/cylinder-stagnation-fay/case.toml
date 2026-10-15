@@ -1,0 +1,67 @@
+schema_version = 1
+
+[metadata]
+name = "cylinder-stagnation-fay"
+description = "planar cylinder stagnation heating gate: r_n 1 m, Casseau freestream (rho 1.363e-5, p 0.89 Pa, u 6047 m/s), eqair, viscous isothermal wall 1000 K; nose-only domain cut at the sphere widest point x=3 so the wake never forms"
+
+[physics]
+equations = "euler_2d"
+eos = "eqair"
+gamma = 1.4
+gas_constant = 296.8
+mu = 1.716e-5
+pr = 0.71
+wall_temperature = 1000.0
+
+[mesh]
+x0 = 0.0
+x1 = 3.0
+y0 = -6.0
+y1 = 6.0
+source = "file"
+# mesh_faces.txt is generated: python3 cases/cylinder-stagnation-fay/mesh_gen.py (run from the repo root)
+path = "mesh_faces.txt"
+format = "coordinates"
+nx = 84
+ny = 384
+
+[body]
+type = "sphere"
+r = 1.0
+cx = 3.0
+cy = 0.0
+
+[initial_condition]
+type = "uniform"
+rho = 1.363e-5
+u = 6047.0
+v = 0.0
+p = 0.89
+
+[boundaries]
+left = "supersonic_inflow"
+right = "supersonic_outflow"
+top = "supersonic_outflow"
+bottom = "supersonic_outflow"
+[boundaries.inflow_state]
+rho = 1.363e-5
+u = 6047.0
+v = 0.0
+p = 0.89
+
+[numerics]
+flux = "hllc"
+reconstruction = "muscl"
+cfl = 0.4
+local_time_stepping = false
+
+[time]
+final_time = 0.006
+max_steps = 60000
+restart_in = "restart.h5"
+restart_out = "restart.h5"
+
+[output]
+interval_steps = 500
+formats = ["vtk"]
+fields = ["rho", "u", "v", "p", "T", "mu"]

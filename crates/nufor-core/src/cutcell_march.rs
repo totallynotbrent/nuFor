@@ -152,7 +152,7 @@ pub fn advance2d_axi_cut(
     let a = crate::thermo::sound_speed(model, &state.rho, &et, &u, &v)?;
     let gamma = match model {
         crate::thermo::ThermoModel::Perfect { gamma } => gamma,
-        crate::thermo::ThermoModel::EqAir => 1.4,
+        crate::thermo::ThermoModel::EqAir { .. } => 1.4,
     };
     let (fx, fy) = compute_axi_fluxes(model, state, g, muscl, bc, &p, &e_int, nthreads, None)?;
 
@@ -226,7 +226,7 @@ pub fn advance2d_axi_cut(
                         FacePrim::perfect(state.rho[k], un, ut, p[k], gamma),
                         FacePrim::perfect(state.rho[k], -un, ut, p[k], gamma),
                     ),
-                    crate::thermo::ThermoModel::EqAir => {
+                    crate::thermo::ThermoModel::EqAir { .. } => {
                         let e_wall = e_int[k];
                         let p_wall = crate::eqair::eqair_pressure_at(state.rho[k], e_wall);
                         let a_wall = crate::eqair::eqair_sound_at(state.rho[k], e_wall);

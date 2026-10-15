@@ -575,7 +575,7 @@ fn march_case(
     };
     let e_int = match model {
         nufor_core::ThermoModel::Perfect { gamma: g_ } => p / ((g_ - 1.0) * rho),
-        nufor_core::ThermoModel::EqAir => {
+        nufor_core::ThermoModel::EqAir { .. } => {
             nufor_core::eqair_energy(&[rho], &[p]).map_err(|e| e.to_string())?[0]
         }
     };

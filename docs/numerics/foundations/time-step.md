@@ -18,7 +18,7 @@ dt    = cfl * dx / s_max
 ```
 
 `s_max` is the largest characteristic speed of the 1D Euler system, and
-`a` is the ideal-gas sound speed from the [equation of state](../foundations/eos.md). Because
+`a` is the ideal-gas sound speed from the [[numerics/foundations/eos|equation of state]]. Because
 every HLL face wave speed is a characteristic speed of
 one of its two adjacent cells, the cell-based maximum bounds every wave in
 the numerical flux, so a single pass over the cells is enough.
@@ -26,7 +26,7 @@ the numerical flux, so a single pass over the cells is enough.
 ## Stability
 
 The Courant number `cfl` comes from the case config's
-[numerics.cfl](../../formats/case-toml.md) and is validated to lie in `(0, 1]`. Forward Euler
+[[formats/case-toml|numerics.cfl]] and is validated to lie in `(0, 1]`. Forward Euler
 with a first-order finite-volume update is stable for `cfl <= 1`; values near
 one are the stability limit, and practice lands between 0.4 and 0.9 for
 nonlinear problems with shocks.
@@ -50,7 +50,7 @@ automatically where the flow accelerates and grows again when it settles.
 - `s_max` is returned alongside `dt` so a driver can report the current CFL
   activity in residuals and logs without a second pass.
 - The step uses the cell width `dx` of the uniform 1D grid from the
-  [grid geometry](../foundations/state-grid.md); the non-uniform and 2D cases later generalise
+  [[numerics/foundations/state-grid|grid geometry]]; the non-uniform and 2D cases later generalise
   to `dt = cfl * min_i dx_i / s_max`.
 - Higher-order explicit time integrators (RK2, RK3) land after the baseline
   solver and enlarge the usable stability region; the roadmap keeps forward
@@ -68,10 +68,10 @@ automatically where the flow accelerates and grows again when it settles.
 
 ## Related
 
-- [1D Euler milestone](../1d/1d-euler.md)
-- [Ideal-gas equation of state](../foundations/eos.md)
+- [[numerics/1d/1d-euler|1D Euler milestone]]
+- [[numerics/foundations/eos|Ideal-gas equation of state]]
 - HLL flux
-- [case.toml format](../../formats/case-toml.md)
+- [[formats/case-toml|case.toml format]]
 
 ## See also
 

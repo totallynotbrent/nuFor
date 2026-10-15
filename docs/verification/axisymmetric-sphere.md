@@ -46,5 +46,5 @@ against a remembered constant.
 
 ## See also
 
-- [Axisymmetric Euler](../numerics/2d/axisymmetric.md)
+- [[numerics/2d/axisymmetric|Axisymmetric Euler]]
 - [Regression suite](regression-suite.md)

@@ -8,8 +8,10 @@ title: nuFor
 > closure (CEA table + TGAS1 fits) on the hypersonic 2D paths, and an
 > MPI-parallel Fortran march for the 2D equilibrium-air cases,
 > exercised across a four-station atmospheric-entry sweep with a
-> 1280x640 anchor run. Spalart-Allmaras 3D, two-temperature
-> nonequilibrium, and unstructured meshes are the next rungs on the
+> 1280x640 anchor run, and live two-temperature nonequilibrium
+> (Park 2T) on the research path, plus the wall-resolved stagnation
+> heating gate (Fay-Riddell, rung 6). Species continuity and
+> unstructured meshes are the next rungs on the
 > [roadmap](roadmap.md). Cases run from the CLI today; the web UI
 > covers the fixed case set with field visualization, probes, and
 > CSV / VTK / HDF5 export.
@@ -75,10 +77,9 @@ Every milestone closes against an analytical or benchmark case:
 
 ## Status
 
-The current build adds the MPI-parallel Fortran march to the 1.5.0 base:
-1D/2D/3D structured Euler, 2D viscous terms on the equilibrium-air
-closure, CPU threading and AVX2 kernels, case-driven runs, and a web UI
-with live field views. Open work includes turbulence implementation, a
-general unstructured solver, thermochemistry, and broad experimental
-validation. That remaining scope is tracked in the
-[full changelog](https://github.com/totallynotbrent/nuFor/blob/main/CHANGELOG.md).
+The current build: 1D/2D/3D structured Euler, 2D/3D viscous terms,
+Spalart-Allmaras RANS, masked bodies, an axisymmetric solver, the
+equilibrium-air closure, live two-temperature nonequilibrium (Park 2T),
+and an MPI-parallel Fortran march. Open work: 5-species reacting flow,
+unstructured meshes, and broad experimental validation. The
+[roadmap](roadmap.md) tracks it rung by rung.

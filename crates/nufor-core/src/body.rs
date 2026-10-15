@@ -293,22 +293,55 @@ pub fn apply_solid_fn(
     normal: &dyn Fn(f64, f64) -> (f64, f64),
     gamma: f64,
 ) {
+    apply_solid_ref(state, g, dist, normal, gamma, None, false)
+}
+
+/// the eqair-aware body fill: under the equilibrium closure the scalar
+/// inert reference (rho 1, p 1) clamps to the table's cold corner and
+/// renders as a cold dense slug at rho r t of the floor temperature,
+/// six orders above the entry freestream. the muscl stencil then feeds
+/// that state to the band cells. this variant writes the freestream
+/// state instead: the closure reads it as clean freestream and the
+/// no-slip wall fluxes own the braking.
+pub fn apply_solid_ref(
+    state: &mut ConservedState2d,
+    g: &Grid2d,
+    dist: &dyn Fn(f64, f64) -> f64,
+    normal: &dyn Fn(f64, f64) -> (f64, f64),
+    _gamma: f64,
+    freestream: Option<(f64, f64)>,
+    no_slip: bool,
+) {
     // the interior stays inert: the flux zeroing in compute_axi_fluxes
     // keeps every wall face advectively closed, so the dummy state never
     // reaches the fluid. the band projection below still enforces the
     // tangency condition on the first fluid row.
-    let ref_ = SolidRef::default();
-    let e_ref = ref_.p / ((gamma - 1.0) * ref_.rho);
+    // e is per volume: quiescent freestream internal energy, no kinetic
+    // term. the closure reads (rho, e/rho) back as the freestream static
+    // state, so the muscl stencil sees a clean cold neighbor, not a slug.
+    let (rho_ref, e_ref) = match freestream {
+        Some((rho_fs, p_fs)) => (rho_fs, p_fs / (1.4 - 1.0)),
+        None => {
+            let ref_ = SolidRef::default();
+            (ref_.rho, ref_.p / (1.4 - 1.0))
+        }
+    };
     let band = 1.5 * g.dx.min(g.dy);
     // the distance class per cell is geometry-static: build the solid
     // mask and band list once and cache them on the grid; later steps
     // skip the polygon-distance sweep over the whole grid entirely.
     let cache = body_cache(g, dist, band);
     for k in &cache.solid_cells {
-        state.rho[*k] = ref_.rho;
+        state.rho[*k] = rho_ref;
         state.mx[*k] = 0.0;
         state.my[*k] = 0.0;
         state.e[*k] = e_ref;
+    }
+    // a no-slip viscous wall owns its band: the slip projection would
+    // convert the normal kinetic energy into internal energy at t=0 and
+    // pre-heat the first fluid row before any wall flux ever runs.
+    if no_slip {
+        return;
     }
     for k in &cache.band_cells {
         let (nx, ny) = normal(g.centers_x[*k], g.centers_y[*k]);

@@ -11,8 +11,8 @@ line probes, and it is the "comparison between runs" view of the web UI.
 
 A comparison is built from two independent axes:
 
-- **fields** — density, Mach number, or pressure along the cut;
-- **mesh resolutions** — the probe is re-solved and re-sampled at each grid
+- **fields** - density, Mach number, or pressure along the cut;
+- **mesh resolutions** - the probe is re-solved and re-sampled at each grid
   size.
 
 Every combination is a series, so asking for `rho` and `mach` at `32, 64, 128`
