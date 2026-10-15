@@ -49,7 +49,7 @@ along the contiguous direction. The residual is still reduced scalar.
 
 ## See also
 
-- [[numerics/parallel/threading||Threading]]
-- [[numerics/2d/2d-euler||2D Euler solver]]
+- [[numerics/parallel/threading|Threading]]
+- [[numerics/2d/2d-euler|2D Euler solver]]
 - [[performance/optimization-ledger|Optimization ledger]]
-- [[numerics/foundations/memory-layout||Memory layout]]
+- [[numerics/foundations/memory-layout|Memory layout]]

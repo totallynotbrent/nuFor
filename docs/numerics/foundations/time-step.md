@@ -75,6 +75,6 @@ automatically where the flow accelerates and grows again when it settles.
 
 ## See also
 
-- [[numerics/fluxes/flux-hll||HLL flux]]
-- [[numerics/foundations/positivity||Positivity]]
-- [[numerics/1d/1d-euler||1D Euler]]
+- [[numerics/fluxes/flux-hll|HLL flux]]
+- [[numerics/foundations/positivity|Positivity]]
+- [[numerics/1d/1d-euler|1D Euler]]

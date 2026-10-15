@@ -38,7 +38,7 @@ case and evidence; a successful run or a screenshot is not verification.
 
 ## See also
 
-- [[numerics/foundations/state-grid||State and grid]]
-- [[numerics/fluxes/flux-hll||HLL flux]]
-- [[numerics/1d/sod||Sod verification]]
+- [[numerics/foundations/state-grid|State and grid]]
+- [[numerics/fluxes/flux-hll|HLL flux]]
+- [[numerics/1d/sod|Sod verification]]
 - [[verification|Verification ladder]]

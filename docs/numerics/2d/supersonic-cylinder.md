@@ -47,7 +47,7 @@ region behind is the low-density wake.
 
 ## See also
 
-- [[numerics/2d/2d-boundaries||2D boundaries]]
-- [[numerics/2d/oblique-shock||Oblique shock]]
-- [[numerics/2d/shock-reflection||Shock reflection]]
-- [[numerics/2d/2d-euler||2D Euler solver]]
+- [[numerics/2d/2d-boundaries|2D boundaries]]
+- [[numerics/2d/oblique-shock|Oblique shock]]
+- [[numerics/2d/shock-reflection|Shock reflection]]
+- [[numerics/2d/2d-euler|2D Euler solver]]

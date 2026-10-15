@@ -87,7 +87,17 @@ fractional width. The small cells ride the stabilization instead of
 shrinking the march. One step runs the shared flux sweep, forms each
 fluid cell's fractional update with the wall flux joined into its
 divergence sum, applies the increments, then pools the cut band
-through the redistribution.
+through the redistribution:
+
+```mermaid
+flowchart LR
+    F["signed distance\nat corners"] --> C["corner builder:\nvol, apertures"]
+    C --> U["fractional update:\naperture-scaled HLLC\n+ EB wall flux"]
+    U --> S["state redistribution:\npool each cut cell\nwith fluid neighbors"]
+    S --> N["march at global dt"]
+```
+
+## The wall flux
 
 The wall flux is a reflected-ghost HLLC pair in the wall-local frame:
 rotate the cell state so the axis aligns with the cell's outward wall
@@ -193,12 +203,12 @@ larger.
 
 ## See also
 
-- [[numerics/2d/axisymmetric||Axisymmetric Euler]], the annular update
+- [[numerics/2d/axisymmetric|Axisymmetric Euler]], the annular update
   whose flux machinery the cut march reuses
-- [[numerics/2d/supersonic-cylinder||Supersonic cylinder]], the
+- [[numerics/2d/supersonic-cylinder|Supersonic cylinder]], the
   immersed-body mask the cut band replaces
-- [[formats/case-body||Immersed bodies and axisymmetric runs]], the
+- [[formats/case-body|Immersed bodies and axisymmetric runs]], the
   `[body]` case section that puts a solid in the domain
-- [[verification/axisymmetric-sphere||Sphere validation]], the Mach-2
+- [[verification/axisymmetric-sphere|Sphere validation]], the Mach-2
   case the stabilization was measured on
-- [[aeroshell||Aeroshell cross-check]], the Mach-22 capsule numbers
+- [[aeroshell|Aeroshell cross-check]], the Mach-22 capsule numbers

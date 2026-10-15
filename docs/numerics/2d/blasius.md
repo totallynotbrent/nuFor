@@ -61,7 +61,7 @@ template for how that one will be judged.
 
 ## See also
 
-- [[numerics/2d/2d-boundaries||2D boundary conditions]]
-- [[numerics/2d/viscous||Viscous terms]]
-- [[numerics/2d/channel-flow||Channel flow]]
-- [[numerics/unstructured/sa-implementation||SA implementation]]
+- [[numerics/2d/2d-boundaries|2D boundary conditions]]
+- [[numerics/2d/viscous|Viscous terms]]
+- [[numerics/2d/channel-flow|Channel flow]]
+- [[numerics/unstructured/sa-implementation|SA implementation]]

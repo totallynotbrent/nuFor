@@ -43,6 +43,6 @@ cases put their resolution where the layer is.
 
 ## See also
 
-- [[numerics/2d/viscous||Viscous terms]]
-- [[numerics/2d/2d-euler||2D Euler solver]]
-- [[numerics/foundations/positivity||Positivity]]
+- [[numerics/2d/viscous|Viscous terms]]
+- [[numerics/2d/2d-euler|2D Euler solver]]
+- [[numerics/foundations/positivity|Positivity]]

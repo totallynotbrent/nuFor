@@ -87,6 +87,6 @@ empty slices, and single-cell calls.
 
 ## See also
 
-- [[numerics/foundations/state-grid||State and grid]]
-- [[numerics/1d/1d-euler||1D Euler]]
-- [[numerics/foundations/positivity||Positivity]]
+- [[numerics/foundations/state-grid|State and grid]]
+- [[numerics/1d/1d-euler|1D Euler]]
+- [[numerics/foundations/positivity|Positivity]]

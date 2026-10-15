@@ -26,6 +26,6 @@ the first rung of the verification ladder.
 
 ## See also
 
-- [[numerics/1d/lax||Lax verification]]
+- [[numerics/1d/lax|Lax verification]]
 - [[verification|Verification ladder]]
-- [[numerics/1d/1d-euler||1D Euler]]
+- [[numerics/1d/1d-euler|1D Euler]]

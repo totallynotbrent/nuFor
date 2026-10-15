@@ -55,7 +55,7 @@ corners you cannot see coming.
 
 ## See also
 
-- [[numerics/foundations/eos||Ideal-gas EOS]]
-- [[numerics/fluxes/flux-hll||HLL flux]]
-- [[numerics/foundations/time-step||CFL time-step]]
-- [[numerics/foundations/diagnostics||Diagnostics]]
+- [[numerics/foundations/eos|Ideal-gas EOS]]
+- [[numerics/fluxes/flux-hll|HLL flux]]
+- [[numerics/foundations/time-step|CFL time-step]]
+- [[numerics/foundations/diagnostics|Diagnostics]]

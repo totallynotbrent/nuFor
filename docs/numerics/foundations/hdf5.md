@@ -14,6 +14,6 @@ Python and h5py installed.
 
 ## See also
 
-- [[numerics/foundations/output||Output]]
-- [[numerics/foundations/restart||Restart]]
-- [[numerics/foundations/diagnostics||Diagnostics]]
+- [[numerics/foundations/output|Output]]
+- [[numerics/foundations/restart|Restart]]
+- [[numerics/foundations/diagnostics|Diagnostics]]

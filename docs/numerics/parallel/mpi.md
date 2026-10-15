@@ -4,9 +4,10 @@ title: MPI
 
 The 2D equilibrium-air march runs MPI-parallel: `mpirun -np N nufor run
 case.toml` splits the grid into column slabs, one per rank, and the Fortran
-core owns the decomposition, the halo exchange, and the march. Rust stays the
-front door: every rank runs the same `nufor` binary and none of them call MPI
-from Rust. Rank 0 loads the case, drives the run, and writes the output; all
+core owns the decomposition, the halo exchange, and the march. I keep the
+parallelism entirely in Fortran on purpose: Rust stays the
+front door, every rank runs the same `nufor` binary, and none of them call
+MPI from Rust. Rank 0 loads the case, drives the run, and writes the output; all
 ranks call the Fortran kernels.
 
 ## How the parallel step works

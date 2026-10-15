@@ -15,7 +15,7 @@ The writers validate the array lengths up front and derive the primitives
 
 ## See also
 
-- [[numerics/foundations/hdf5||HDF5 output]]
-- [[numerics/foundations/restart||Restart]]
-- [[numerics/foundations/diagnostics||Diagnostics]]
+- [[numerics/foundations/hdf5|HDF5 output]]
+- [[numerics/foundations/restart|Restart]]
+- [[numerics/foundations/diagnostics|Diagnostics]]
 - [[formats/case-toml|case.toml format]]

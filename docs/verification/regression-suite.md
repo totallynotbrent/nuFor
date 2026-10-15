@@ -58,5 +58,5 @@ patch around. (spec 189)
 ## See also
 
 - [[verification|Verification ladder]]
-- [[numerics/2d/2d-euler||2D Euler solver]]
-- [[numerics/3d/3d-solver||3D solver]]
+- [[numerics/2d/2d-euler|2D Euler solver]]
+- [[numerics/3d/3d-solver|3D solver]]

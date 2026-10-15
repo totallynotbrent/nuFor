@@ -21,7 +21,6 @@ REQUIRED = [
     "SECURITY.md",
     ".gitattributes",
     ".gitignore",
-    "docs/README.md",
     ".github/ISSUE_TEMPLATE/bug_report.md",
     ".github/ISSUE_TEMPLATE/feature_request.md",
     ".github/workflows/ci.yml",

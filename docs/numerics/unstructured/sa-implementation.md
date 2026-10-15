@@ -95,13 +95,13 @@ is sustained at Reynolds numbers where the flat-plate correlations apply:
 `nu_tilde` grows to hundreds of `nu`, and the discrete Cf sits 12 to 19
 percent above the power law over the interior stations, which is the same
 sign and scale as the spread between the CFL3D SA reference and the
-correlations themselves. See [[numerics/2d/turbulent-plate||the turbulent
+correlations themselves. See [[numerics/2d/turbulent-plate|the turbulent
 plate page]] for the full judgment, including what remains open (grid
 convergence, the inner-scaling log-law profile, Reynolds numbers past
 about 5e5).
 
 ## See also
 
-- [[numerics/unstructured/spalart-allmaras||The SA research note]]
-- [[numerics/2d/viscous||Viscous terms]]
-- [[formats/case-toml||The case file]]
+- [[numerics/unstructured/spalart-allmaras|The SA research note]]
+- [[numerics/2d/viscous|Viscous terms]]
+- [[formats/case-toml|The case file]]

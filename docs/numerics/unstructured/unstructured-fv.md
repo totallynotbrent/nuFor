@@ -22,7 +22,7 @@ the unstructured solver can be verified against the structured one.
 rotates the two adjacent primitive states onto the face normal, applies the
 existing HLLC flux in that rotated frame, and rotates the result back to global
 components; the face flux then conservatively moves mass, momentum, and energy
-from the left cell to the right. The time step is sized by a robust per-cell
+from the left cell to the right. The time step is sized by a per-cell
 length scale -- the inscribed width `area / (half perimeter)` -- because that is
 what keeps an anisotropic cell (a tall thin quad) from being over-stepped by the
 square-root-of-area measure the structured grid could afford.
@@ -37,6 +37,6 @@ onto the same physics, not a separate solver.
 
 ## See also
 
-- [[numerics/unstructured/unstructured-mesh||Unstructured meshes]]
-- [[numerics/unstructured/spalart-allmaras||Spalart-Allmaras]]
-- [[numerics/2d/2d-euler||2D Euler solver]]
+- [[numerics/unstructured/unstructured-mesh|Unstructured meshes]]
+- [[numerics/unstructured/spalart-allmaras|Spalart-Allmaras]]
+- [[numerics/2d/2d-euler|2D Euler solver]]

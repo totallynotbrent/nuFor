@@ -73,6 +73,6 @@ stiff wall layers and is not on the validated path.
 
 ## See also
 
-- [[numerics/2d/blasius||Blasius flat plate]]
-- [[numerics/unstructured/sa-implementation||SA implementation]]
-- [[numerics/2d/2d-boundaries||2D boundary conditions]]
+- [[numerics/2d/blasius|Blasius flat plate]]
+- [[numerics/unstructured/sa-implementation|SA implementation]]
+- [[numerics/2d/2d-boundaries|2D boundary conditions]]

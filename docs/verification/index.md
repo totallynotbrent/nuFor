@@ -22,7 +22,6 @@ screenshot is not verification.
 - [[numerics/1d/lax|Lax verification]]
 - [[verification/gate-1d-euler|1D Euler gate]]
 - [[verification/regression-suite|Regression suite]]
-
 - [[verification/axisymmetric-sphere|Axisymmetric sphere]]
 - [[verification/grid-convergence|Grid convergence]]
 - [[verification/viscous3d-channel|3D channel]]

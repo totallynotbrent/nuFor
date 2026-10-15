@@ -38,6 +38,6 @@ state follows the relations until the shock detaches.
 
 ## See also
 
-- [[numerics/2d/2d-euler||2D Euler solver]]
-- [[numerics/2d/shock-reflection||Shock reflection]]
+- [[numerics/2d/2d-euler|2D Euler solver]]
+- [[numerics/2d/shock-reflection|Shock reflection]]
 - [[verification|Verification ladder]]

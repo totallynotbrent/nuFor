@@ -88,7 +88,7 @@ graph TD
 
 ## See also
 
-- [[numerics/fluxes/hll-vs-hllc||HLL vs HLLC]]
-- [[numerics/foundations/time-step||CFL time-step]]
-- [[numerics/1d/1d-euler||1D Euler]]
-- [[numerics/2d/2d-euler||2D Euler solver]]
+- [[numerics/fluxes/hll-vs-hllc|HLL vs HLLC]]
+- [[numerics/foundations/time-step|CFL time-step]]
+- [[numerics/1d/1d-euler|1D Euler]]
+- [[numerics/2d/2d-euler|2D Euler solver]]

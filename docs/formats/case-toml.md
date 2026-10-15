@@ -2,7 +2,7 @@
 title: case.toml
 ---
 
-The case file is the reproducibility root of a nuFor run (spec 40). A case
+The case file is the reproducibility root of a nuFor run. A case
 directory holds `case.toml` plus, once a solver exists, `mesh/`, `results/`,
 `logs/`, and `research/`. Every number that defines a run lives in this one
 file, so a case can be archived, diffed, and re-run from scratch.
@@ -200,24 +200,9 @@ fields = ["rho", "u", "p"]
 
 Solver identity (binary version and code revision) is stamped at run time into
 result and log provenance, not hand-edited into the case file. HDF5 holds the
-large numerical datasets (mesh and results); `case.toml` holds the
-interpretable description.
-
-## Spec 40 mapping
-
-| Spec 40 item | Where |
-|------------|-------|
-| Version the case schema | `schema_version` gate |
-| Record solver version | run-time provenance stamp |
-| Record code revision | run-time provenance stamp |
-| Record numerical method selection | `numerics` section |
-| Record physical units | `physics.unit_system` |
-| Record reference conditions | `physics.reference` |
-| Record mesh source | `mesh.source` |
-| Record boundary-condition parameters | `boundaries` section |
-| Record initial condition | `initial_condition` section |
-| Record termination criteria | `time` section |
-| Record output fields | `output` section |
+large numerical datasets; `case.toml` holds the interpretable description of
+the run: units, reference state, mesh source, boundaries, initial condition,
+termination criteria, and output fields all live here.
 
 ## Related
 
@@ -225,7 +210,7 @@ interpretable description.
 
 ## See also
 
-- [[numerics/foundations/output||Output]]
-- [[numerics/foundations/restart||Restart]]
-- [[numerics/foundations/diagnostics||Diagnostics]]
+- [[numerics/foundations/output|Output]]
+- [[numerics/foundations/restart|Restart]]
+- [[numerics/foundations/diagnostics|Diagnostics]]
 - [[operations/memory-budget|Memory budget]]

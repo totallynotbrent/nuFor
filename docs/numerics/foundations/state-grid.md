@@ -72,7 +72,7 @@ rejection.
 
 ## See also
 
-- [[numerics/foundations/eos||Ideal-gas EOS]]
-- [[numerics/1d/1d-euler||1D Euler]]
-- [[numerics/foundations/memory-layout||Memory layout]]
-- [[numerics/3d/3d||3D foundations]]
+- [[numerics/foundations/eos|Ideal-gas EOS]]
+- [[numerics/1d/1d-euler|1D Euler]]
+- [[numerics/foundations/memory-layout|Memory layout]]
+- [[numerics/3d/3d|3D foundations]]

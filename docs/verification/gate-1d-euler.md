@@ -49,5 +49,5 @@ into two dimensions.
 ## See also
 
 - [[verification|Verification ladder]]
-- [[numerics/1d/1d-euler||1D Euler]]
-- [[numerics/1d/sod||Sod verification]]
+- [[numerics/1d/1d-euler|1D Euler]]
+- [[numerics/1d/sod|Sod verification]]

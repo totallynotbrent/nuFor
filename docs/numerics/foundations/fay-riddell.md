@@ -1,7 +1,7 @@
 # Fay-Riddell stagnation heating
 
 The rung-6 validation anchor: the closed form for stagnation-point
-cold-wall heat flux on a blunt nose, implemented in
+cold-wall heat flux on a blunt nose, which I implemented in
 `nufor-core::fay_riddell` as the perfect-gas Lewis-number-one form.
 
 ## The form

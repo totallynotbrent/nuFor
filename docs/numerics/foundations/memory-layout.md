@@ -28,6 +28,6 @@ packed state to race over.
 
 ## See also
 
-- [[numerics/foundations/state-grid||State and grid]]
-- [[numerics/parallel/threading||Threading]]
+- [[numerics/foundations/state-grid|State and grid]]
+- [[numerics/parallel/threading|Threading]]
 - [[operations/memory-budget|Memory budget]]

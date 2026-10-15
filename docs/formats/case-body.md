@@ -1,5 +1,5 @@
 ---
-title: immersed bodies and axisymmetric runs
+title: Immersed bodies and axisymmetric runs
 ---
 
 Two case.toml additions extend the format beyond empty boxes and shock

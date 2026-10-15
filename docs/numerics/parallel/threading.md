@@ -43,7 +43,7 @@ a single number rather than a per-thread curve.
 
 ## See also
 
-- [[numerics/foundations/memory-layout||Memory layout]]
-- [[numerics/parallel/simd||SIMD vectorization]]
+- [[numerics/foundations/memory-layout|Memory layout]]
+- [[numerics/parallel/simd|SIMD vectorization]]
 - [[performance/optimization-ledger|Optimization ledger]]
-- [[numerics/2d/2d-euler||2D Euler solver]]
+- [[numerics/2d/2d-euler|2D Euler solver]]

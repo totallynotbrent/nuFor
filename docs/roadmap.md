@@ -2,9 +2,8 @@
 
 nuFor's trajectory is a ladder: each rung is a validated solver
 capability with its analytic gates, in an order where every milestone
-makes the next one possible. The calendar is intentionally loose: the
-binding constraints are the power-limited box and the session pace, not
-dates. Milestones land when their gates pass.
+makes the next one possible. I don't commit to dates; milestones land
+when their gates pass.
 
 ## Where we are
 
@@ -25,7 +24,7 @@ dates. Milestones land when their gates pass.
   320x176 and anchored at 1280x640.
 - Performance: the static body classification is cached and the closure
   passes are threaded; the hi-res anchor runs 8x faster than the serial
-  march (3.96 h for 11,549 steps at 1280x640 on the 35 W box).
+  march (3.96 h for 11,549 steps at 1280x640 on my desktop).
 - Fay-Riddell stagnation heating gate (rung 6): done. The
   wall-resolved cylinder gate closes at conductor 10.7 W/cm2 vs the
   planar closed form 8.5 on the march's own edge state (+27%, the
@@ -36,6 +35,22 @@ dates. Milestones land when their gates pass.
   validated rung.
 
 ## The ladder, in order
+
+```mermaid
+flowchart LR
+    A["1D Euler"] --> B["2D Euler<br/>viscous, SA RANS"]
+    B --> C["3D Euler<br/>3D viscous"]
+    A --> D["masked bodies"]
+    D --> E["axisymmetric<br/>solver"]
+    E --> F["equilibrium air<br/>CEA + TGAS1"]
+    F --> G["Park 2T<br/>nonequilibrium"]
+    F --> H["Fay-Riddell<br/>heating gate"]
+    H --> I["species continuity<br/>rung 8"]
+    I --> J["catalytic walls<br/>AMR, unstructured"]
+    C --> K["MPI Fortran<br/>core"]
+    G --> I
+    E --> H
+```
 
 1. **3D viscous**: done.
 2. **Masked bodies**: done. The solid-cell mask answers any shape that
@@ -64,7 +79,7 @@ dates. Milestones land when their gates pass.
    sphere's 0.763). The gate case runs a nose-only domain at global
    dt: local time stepping detonates on this class at long times
    (documented on the viscous page), and the nose-only cut holds the
-   march cost to hours on this box. The wall closures it exercised:
+   march cost to a few hours per run. The wall closures it exercised:
    the reflected-riemann slip wall in the advective stage, the
    one-sided conductor in the viscous stage, and closure-lane
    conduction with real units. The planar closed form is in the tree
@@ -100,8 +115,7 @@ dates. Milestones land when their gates pass.
 11. **Adaptive mesh refinement**: block-structured AMR on a density or
     Mach-gradient indicator, in the hyStrath DyM spirit. The hi-res
     anchor spends four uniform-grid hours on a shock layer occupying a
-    few percent of the cells; two AMR levels put that under an hour on
-    this box. Placed after 2T/species because the indicator should
+    few percent of the cells; two AMR levels put that under an hour. Placed after 2T/species because the indicator should
     follow the nonequilibrium structure, not just the shock.
 12. **Unstructured meshes**: triangles in 2D, tets in 3D. The gmsh
     prototype exists and the research note is written; promoting it to
@@ -145,7 +159,7 @@ Open research items, worked when they block a milestone rather than on
 a schedule: LTS (local time stepping) convergence, and the near-wall
 u+ odd-even checkerboard from the grid-convergence study.
 
-## The case workflow (the product thesis)
+## The case workflow
 
 The point of nuFor is the standard CFD loop, the way desktop tools do
 it, scoped to what this solver can honestly compute:
@@ -171,8 +185,7 @@ it, scoped to what this solver can honestly compute:
 
 The case-file system is the current milestone: the case.toml schema
 gains a body section, the server gains case list/load/save/delete
-routes, and the UI gains the editor plus plane-slice views. The
-detailed gates live in the working goal file for the session.
+routes, and the UI gains the editor plus plane-slice views.
 
 ## Aeroshell work, now
 
@@ -185,15 +198,17 @@ rebuilt CEA grid (101 pressures to 10.1 MPa, 30 temperatures to
 table's 1 MPa cap. The 1280x640 anchor re-measured on the new grid
 reads C_D 0.406, L/D 0.371, peak pressure 1.17 MPa at 8217 K, and
 lands inside the Newtonian trim band; the previous anchor numbers
-(3.96 h for 11549 steps) predate the rebuild. Wall heat flux is
-not citable until the Fay-Riddell gate (rung 6) passes. The defensible
+(3.96 h for 11549 steps) predate the rebuild. Wall heat flux became
+citable output at rung 6: the Fay-Riddell gate validates the wall
+closures, and the conductor reads above the planar closed form with
+the gap still converging downward. The defensible
 report posture: Newtonian numbers stay the design basis, the CFD sweep
 is the confirmatory run with a limitations paragraph, and rungs 5-6
 are the upgrade path.
 
 ## Rocket engine CFD, later
 
-The eventual customer the case workflow is being built for. When the
+The other thing I eventually want to run with the case workflow. When the
 aeroshell scope closes: nozzle and internal flows over uploaded
 geometry. Combustion chemistry arrives only after rung 8's species
 continuity is validated; until then the engine work is the cold-flow

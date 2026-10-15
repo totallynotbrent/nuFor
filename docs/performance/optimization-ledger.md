@@ -70,7 +70,7 @@ memory-bound 2D step scales.
 every thread count, so the threading is sound. The 2.04x ceiling at 6 threads
 is the physical-core limit for a kernel that spends most cycles moving memory,
 and the 8-thread backslide is hyper-threading oversubscription. Threading buys
-~2x, not 4x, on this box; squeezing more means shrinking the memory footprint
+~2x, not 4x, on my hardware; squeezing more means shrinking the memory footprint
 (so the working set stays in cache) before adding cores.
 
 ## Entry 3 - threaded SA march
@@ -96,14 +96,14 @@ sweep 1.37x, sa transport 1.90x, viscous add 0.82x (thread-spawn overhead
 swamps it at this size, so the add stays serial below 20k cells). Expected
 fine-grid march speedup 1.39x - the 26.6 h convergence run would have been
 about 19 h. End-to-end on the medium case the gain is within noise (914 s
-serial vs 890 s threaded): the case is too small and the box too loaded
+serial vs 890 s threaded): the case is too small and the machine too loaded
 for the kernel gains to surface.
 
 **verdict** PASS with a stronger caveat than entry 2. The threading is
 sound (bit-identical everywhere) and the transport kernel nearly halves,
-but this is a memory-bound kernel family on a power-limited 4-core box:
+but this is a memory-bound kernel family on a power-limited 4-core desktop:
 expect ~1.4x on fine grids, ~1.0x on medium ones, and nothing at all while
-the box carries background load. Worth setting `threads = 4` only for
+the machine carries background load. Worth setting `threads = 4` only for
 long marches on the fine grids.
 
 ## Template
@@ -117,6 +117,6 @@ long marches on the fine grids.
 
 ## See also
 
-- [[numerics/parallel/threading||Threading]]
-- [[numerics/foundations/memory-layout||Memory layout]]
-- [[numerics/3d/3d-solver||3D solver]]
+- [[numerics/parallel/threading|Threading]]
+- [[numerics/foundations/memory-layout|Memory layout]]
+- [[numerics/3d/3d-solver|3D solver]]

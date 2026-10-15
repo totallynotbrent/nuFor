@@ -41,7 +41,7 @@ All three hold, so the 3D step is a faithful extension of the verified 1D and
 
 ## See also
 
-- [[numerics/3d/3d||3D foundations]]
-- [[numerics/fluxes/hll-vs-hllc||HLL vs HLLC]]
+- [[numerics/3d/3d|3D foundations]]
+- [[numerics/fluxes/hll-vs-hllc|HLL vs HLLC]]
 - [[operations/memory-budget|Memory budget]]
-- [[numerics/1d/sod||Sod verification]]
+- [[numerics/1d/sod|Sod verification]]

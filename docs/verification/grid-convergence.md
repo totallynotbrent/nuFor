@@ -3,10 +3,10 @@ title: Grid convergence study
 ---
 
 The turbulent flat-plate validation ran originally on a single 160 by 60
-grid. This study adds a 320 by 120 refinement (every cell halved, same
-clustering law) and marches both to t = 6, about five flow-throughs, so the
-steady skin friction can be compared grid against grid and against the
-Schlichting power law.
+grid. I added a 320 by 120 refinement (every cell halved, same clustering
+law) and marched both to t = 6, about five flow-throughs, so I could compare
+the steady skin friction grid against grid and against the Schlichting
+power law.
 
 ## Setup
 

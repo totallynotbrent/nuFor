@@ -16,11 +16,12 @@ title: nuFor
 > covers the fixed case set with field visualization, probes, and
 > CSV / VTK / HDF5 export.
 
-nuFor is a CPU-first computational fluid dynamics code: finite-volume solvers
-for the compressible Euler and Navier-Stokes equations, written as Fortran
-numerical kernels behind a Rust application layer, with Python tooling for
-verification. It runs structured cases in 1D, 2D, and 3D, from the terminal or
-a web UI, with every numerical claim backed by a verification case.
+nuFor is a CPU-first computational fluid dynamics code I've been building
+for my hypersonic re-entry work: finite-volume solvers for the compressible
+Euler and Navier-Stokes equations, written as Fortran numerical kernels
+behind a Rust application layer, with Python tooling for verification. It
+runs structured cases in 1D, 2D, and 3D, from the terminal or a web UI, with
+every numerical claim backed by a verification case.
 
 ## New here? Start with these
 

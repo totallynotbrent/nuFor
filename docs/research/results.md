@@ -2,7 +2,7 @@
 title: Research results
 ---
 
-The numbers behind the solver features, measured on the shipped cases. Every
+The numbers behind the solver features, measured on the cases I ship. Every
 figure here regenerates from the case run logs in the repo, so the numbers age
 with the code instead of drifting from it.
 
@@ -11,7 +11,7 @@ with the code instead of drifting from it.
 Four trajectory stations at 22.5 degrees angle of attack, equilibrium air,
 viscous with a 300 K wall, 320x176 grid, marched to t = 15 ms. This is the
 sweep that anchors the hypersonic 2D path; the 34.6 km station is the peak-q
-point.
+point of my re-entry trajectory.
 
 ![March steps and wall time per trajectory station](station-sweep.png)
 
