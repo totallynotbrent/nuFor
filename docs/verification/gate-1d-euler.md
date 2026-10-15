@@ -11,33 +11,33 @@ hand wave.
 
 - Finite-volume solver: HLL flux with Davis wave speeds, CFL time-step control,
   reflective and transmissive ghost-cell boundaries, a residual, and a per-step
-  log. ([numerics/1d-euler](../numerics/1d/1d-euler.md))
+  log. ([[numerics/1d/1d-euler|numerics/1d-euler]])
 - Ideal-gas equation of state with physical-validity rejection.
-  ([numerics/eos](../numerics/foundations/eos.md))
+  ([[numerics/foundations/eos|numerics/eos]])
 - Structured output: CSV history, VTK, HDF5 (plus a Python/h5py export) and a
-  bit-exact binary restart. ([output](../numerics/foundations/output.md),
-  [hdf5](../numerics/foundations/hdf5.md), [restart](../numerics/foundations/restart.md))
+  bit-exact binary restart. ([[numerics/foundations/output|output]],
+  [[numerics/foundations/hdf5|hdf5]], [[numerics/foundations/restart|restart]])
 - A command-line driver (`nufor run | mesh | inspect | export | history |
   benchmark | serve`) and a minimal web skeleton exposing the snapshot as JSON.
-  ([web-ui](../numerics/tools/web-ui.md))
+  ([[numerics/tools/web-ui|web-ui]])
 - Diagnostics: explicit termination reasons and a physical-validity scan that
-  catches NaN and negative pressure mid-run. ([diagnostics](../numerics/foundations/diagnostics.md))
+  catches NaN and negative pressure mid-run. ([[numerics/foundations/diagnostics|diagnostics]])
 
 ## Verification evidence
 
 - Exact 1D Riemann solver matches the published Sod star state.
 - Sod: L1 density error shrinks with mesh refinement (first-order),
-  positivity holds. ([sod](../numerics/1d/sod.md))
+  positivity holds. ([[numerics/1d/sod|sod]])
 - Lax: the stronger tube stays positive and converges.
 - Verification ladder: constant state, uniform advection, stationary shock,
-  isentropic expansion. ([verification](../numerics/foundations/verification.md))
+  isentropic expansion. ([[numerics/foundations/verification|verification]])
 - Conservation to machine precision on a closed/reflective run.
 
 ## Performance evidence
 
 A repeatable harness (`tools/bench.py`) records a single-core baseline around
 20 million cell-steps per second at mid meshes, with the working-set and call
-overheads characterized. ([optimization ledger](../performance/optimization-ledger.md))
+overheads characterized. ([[performance/optimization-ledger|optimization ledger]])
 
 ## Sign-off
 

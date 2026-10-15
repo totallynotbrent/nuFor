@@ -51,7 +51,7 @@ Hiemenz and Homann similarity equations directly
   (0.89 Pa, 220 K, 1 m nose, 1000 K wall) the closed form reads
   $1.15 \times 10^5$ W/m², the expected order for that class.
 
-![fay-riddell scaling across nose radius](../../research/fay-riddell-scaling.png)
+![fay-riddell scaling across nose radius](../research/fay-riddell-scaling.png)
 
 ## What is deliberately not claimed
 
@@ -109,7 +109,7 @@ layer would. The +27% spread is the gate's honest first reading:
 the closed form assumes a steady Hiemenz layer, constant $c_p$, and
 Lewis number one; the march has none of those guarantees mid-transit.
 
-![the gate: stagnation-line thermal structure and wall heat flux vs the planar closed form](../../research/fay-riddell-gate.png)
+![the gate: stagnation-line thermal structure and wall heat flux vs the planar closed form](../research/fay-riddell-gate.png)
 
 What the gate pins: the eqair bow shock forms at the right standoff
 (~0.43 m vs Casseau's), the sublayer is monotone with no

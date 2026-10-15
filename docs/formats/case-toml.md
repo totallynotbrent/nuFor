@@ -221,7 +221,7 @@ interpretable description.
 
 ## Related
 
-- [Architecture](../architecture.md)
+- [[architecture|Architecture]]
 
 ## See also
 

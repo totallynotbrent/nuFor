@@ -43,10 +43,10 @@ Two flows close the operator against analytic solutions, both using the
 hold style: initialize the exact steady state and verify the march
 keeps it rather than developing toward it.
 
-- [Channel flow (3D)](../verification/viscous3d-channel.md): the
+- [[verification/viscous3d-channel|Channel flow (3D)]]: the
   Poiseuille parabola between two plates, held across the spanwise
   direction.
-- [Square duct](../verification/viscous3d-duct.md): the
+- [[verification/viscous3d-duct|Square duct]]: the
   double-Fourier series solution, held on all four lateral walls.
 
 A third contract guards the operator's axis symmetry: a shear field
@@ -56,4 +56,4 @@ z-walls, which the channel case (a z-invariant flow) cannot see.
 ## See also
 
 - [3D solver](3d-solver.md), the inviscid step this operator augments
-- [Viscous terms](../2d/viscous.md), the 2D original
+- [[numerics/2d/viscous|Viscous terms]], the 2D original

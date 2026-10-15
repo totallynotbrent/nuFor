@@ -50,7 +50,7 @@ wall, nose-only domain at global dt, 420k steps.
 | wall conductor at the stagnation face | 10.73 W/cm2 |
 | ratio, conductor / closed form | 1.27 |
 
-Details and the honest caveats: [Fay-Riddell stagnation heating](../numerics/foundations/fay-riddell.md).
+Details and the honest caveats: [[numerics/foundations/fay-riddell|Fay-Riddell stagnation heating]].
 
 ## The trim anchor
 

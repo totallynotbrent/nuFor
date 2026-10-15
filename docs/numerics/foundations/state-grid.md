@@ -26,7 +26,7 @@ graph LR
   written in primitives.
 - Conversion is **EOS-free**: `e_t` stays total. The split into
   internal energy plus `u^2/2` and the pressure recovery land in the
-  [ideal-gas equation of state](../foundations/eos.md) step.
+  [[numerics/foundations/eos|ideal-gas equation of state]] step.
 - Both directions reject non-positive density (`rho <= 0`) with a structured
   numerical-failure code rather than producing a garbage state.
 
@@ -66,9 +66,9 @@ rejection.
 
 ## Related
 
-- [Numerics - 1D Euler](../1d/1d-euler.md) - the milestone these pieces serve
-- [Architecture](../../architecture.md)
-- [Formats - case.toml (case definition)](../../formats/case-toml.md)
+- [[numerics/1d/1d-euler|Numerics - 1D Euler]] - the milestone these pieces serve
+- [[architecture|Architecture]]
+- [[formats/case-toml|Formats - case.toml (case definition)]]
 
 ## See also
 
