@@ -70,5 +70,5 @@ read on mesh quality before a run starts.
 
 ## See also
 
-- [[numerics/unstructured/unstructured-mesh||Unstructured mesh research]]
-- [[numerics/unstructured/unstructured-fv||Unstructured finite volume]]
+- [[numerics/unstructured/unstructured-mesh|Unstructured mesh research]]
+- [[numerics/unstructured/unstructured-fv|Unstructured finite volume]]

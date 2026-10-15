@@ -55,5 +55,5 @@ z-walls, which the channel case (a z-invariant flow) cannot see.
 
 ## See also
 
-- [3D solver](3d-solver.md), the inviscid step this operator augments
+- [[numerics/3d/solver|3D solver]], the inviscid step this operator augments
 - [[numerics/2d/viscous|Viscous terms]], the 2D original

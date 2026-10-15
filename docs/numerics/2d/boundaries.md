@@ -74,13 +74,13 @@ stations accordingly.
   its own profile at the inflow is held to about two percent, and the
   discrete skin friction matches the 0.664/sqrt(Re_x) correlation within a
   few percent over the interior stations. See
-  [[numerics/2d/blasius||the Blasius validation page]].
+  [[numerics/2d/blasius|the Blasius validation page]].
 
 ## See also
 
-- [[numerics/2d/2d-euler||2D Euler solver]]
-- [[numerics/2d/blasius||Blasius flat plate]]
-- [[numerics/2d/viscous||Viscous terms]]
-- [[numerics/2d/oblique-shock||Oblique shock]]
-- [[numerics/2d/shock-reflection||Shock reflection]]
-- [[numerics/2d/supersonic-cylinder||Supersonic cylinder]]
+- [[numerics/2d/euler|2D Euler solver]]
+- [[numerics/2d/blasius|Blasius flat plate]]
+- [[numerics/2d/viscous|Viscous terms]]
+- [[numerics/2d/oblique-shock|Oblique shock]]
+- [[numerics/2d/shock-reflection|Shock reflection]]
+- [[numerics/2d/supersonic-cylinder|Supersonic cylinder]]

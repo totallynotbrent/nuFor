@@ -68,13 +68,13 @@ automatically where the flow accelerates and grows again when it settles.
 
 ## Related
 
-- [[numerics/1d/1d-euler|1D Euler milestone]]
+- [[numerics/1d/euler|1D Euler milestone]]
 - [[numerics/foundations/eos|Ideal-gas equation of state]]
 - HLL flux
 - [[formats/case-toml|case.toml format]]
 
 ## See also
 
-- [[numerics/fluxes/flux-hll||HLL flux]]
-- [[numerics/foundations/positivity||Positivity]]
-- [[numerics/1d/1d-euler||1D Euler]]
+- [[numerics/fluxes/hll|HLL flux]]
+- [[numerics/foundations/positivity|Positivity]]
+- [[numerics/1d/euler|1D Euler]]

@@ -6,6 +6,19 @@ The first serious numerical milestone: a conservative, finite-volume 1D Euler
 solver for an ideal gas, evolving density, momentum, and total energy and
 recovering physical shocks, contacts, and expansions.
 
+The solver integrates the 1D compressible Euler equations,
+
+$$\frac{\partial}{\partial t}\begin{bmatrix} \rho \\ \rho u \\ E \end{bmatrix} + \frac{\partial}{\partial x}\begin{bmatrix} \rho u \\ \rho u^2 + p \\ u(E + p) \end{bmatrix} = 0, \qquad p = (\gamma - 1)\left(E - \tfrac{1}{2}\rho u^2\right)$$
+
+in conservative finite-volume form: each cell stores cell averages, and the
+update is the divergence of numerical face fluxes,
+
+$$U_i^{n+1} = U_i^n - \frac{\Delta t}{\Delta x}\left(F_{i+1/2} - F_{i-1/2}\right)$$
+
+where each face flux $F$ comes from the HLL solver between the reconstructed
+left and right states, and the step $\Delta t$ obeys the CFL condition with
+Davis wave-speed estimates.
+
 ## What is in place
 
 - Conservative and primitive state with the conversion between them.
@@ -38,7 +51,7 @@ case and evidence; a successful run or a screenshot is not verification.
 
 ## See also
 
-- [[numerics/foundations/state-grid||State and grid]]
-- [[numerics/fluxes/flux-hll||HLL flux]]
-- [[numerics/1d/sod||Sod verification]]
-- [[numerics/foundations/verification||Verification ladder]]
+- [[numerics/foundations/state-grid|State and grid]]
+- [[numerics/fluxes/hll|HLL flux]]
+- [[numerics/1d/sod|Sod verification]]
+- [[verification/index|Verification ladder]]

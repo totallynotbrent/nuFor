@@ -12,12 +12,12 @@ against the same endpoints, so the API is the contract that stays stable.
     nufor serve [port]        # default port 8060, bound to 0.0.0.0
 
 The server listens on all interfaces so the dashboard is reachable over the
-LAN or Tailscale, not just on the box itself.
+LAN or Tailscale, not just from localhost.
 
 ## Pages
 
-The `/` shell is one solver workspace in the shape of a commercial CFD
-workbench: a header with the case file actions, a left setup sidebar, and
+The `/` shell is one solver workspace laid out like a desktop CFD code:
+a header with the case file actions, a left setup sidebar, and
 one large graphics window that serves both the mesh and the result.
 
 - **Header** - **Load case** opens a picker over the `cases/` directory
@@ -49,6 +49,16 @@ one large graphics window that serves both the mesh and the result.
   a mesh (rectilinear VTK / coordinates, gmsh 2d); the uploaded grid
   renders in the same mesh viewer, and rectilinear grids can run a
   blast march on it.
+
+The layout at a glance:
+
+```mermaid
+flowchart LR
+    H["header: load / save / new / run<br/>case name + progress"] --- G
+    S["setup sidebar:<br/>case tree + raw TOML"] --- G
+    G["graphics window:<br/>mesh mode | results mode"]
+    R["results panel:<br/>Cp stations + C_A"] --- G
+```
 
 ## Data API
 
@@ -86,31 +96,12 @@ All routes answer on `0.0.0.0:<port>`:
 - `GET /api/export?format=csv|vtk|h5` - the snapshot written to that format and
   returned as the file bytes.
 - `GET /api/benchmark?steps=..` - a JSON throughput table across mesh sizes.
-- `GET /api/history` - every run in the session as JSON.
+- `GET /api/history` - every run since the server started as JSON.
 - `GET /api/image?n=..&field=rho|mach|p` - a 2D blast wave solved at `n` cells
   and returned as a PNG of the chosen scalar field (`image/png`).
 - `GET /api/run-case?dim=2d|3d&n=..&t=..&cfl=..&name=..` - start a background
   blast march; answers `202` immediately. Poll `GET /api/run-status` for
   percent, steps, and time; the finished run writes `results/<name>.vtk`.
-- `GET /api/frames?t=..&field=rho|mach|p` - one playback frame (PNG)
-  from the animation, per field; frames are served as they are
-  rendered, during the run as well as after it.
-  `GET /api/frames/times` lists the frame times, growing live.
-- `GET /api/cases` - the case directory as a JSON list.
-- `GET /api/cases/load?name=..` - one case's `case.toml` as text.
-- `POST /api/cases/save?name=..` - write the editor's text back to the
-  case file (validated before anything is written).
-- `POST /api/cases/create?name=..` - save the editor's text as a new case.
-- `POST /api/cases/delete?name=..` - remove a case directory.
-- `GET /api/cases/run?name=..` - start the background march for that
-  case; answers `202` immediately. Poll `GET /api/cases/run-status` for
-  percent, steps, and time.
-- `GET /api/cases/surface` - after a run with a body: the surface Cp
-  stations, the body silhouette, and the integrated C_A (normalized by
-  the case's own freestream and reference area).
-- `GET /api/cases/mesh?name=..` - the loaded case's grid faces and
-  extents plus the body outline sampled from its own sdf, so the mesh
-  pane shows the exact grid the march will run on.
 - `GET /api/mesh-faces?kind=blast|laminar|turbulent` - the face coordinates of
   the active gallery grid, so the mesh pane draws the real cell spacing.
 - `GET /api/plates/{laminar|turbulent}/image|validation|profile` - the plate
@@ -127,14 +118,14 @@ All routes answer on `0.0.0.0:<port>`:
 - `GET /api/meshview/slice?field=..&axis=..&u=..` - the solved field as a
   PNG: the full 2D field, or the plane at `u` along `axis` for 3D.
 
-The rule going forward: whenever a new feature lands (2D HLLC, wedge cases,
+My rule for this server: when a feature lands (2D HLLC, wedge cases,
 viscous terms), it gets an API route and a panel in the same commit, so the
-skeleton stays a faithful mirror of the solver.
+UI stays a faithful mirror of the solver.
 
 ## See also
 
 - [[architecture|Architecture]]
-- [[numerics/2d/2d||2D foundations]]
-- [[numerics/1d/1d-euler||1D Euler]]
-- [[numerics/tools/line-probes||Line probes]]
-- [[numerics/tools/comparison-dashboard||Comparison dashboard]]
+- [[numerics/2d/state-grid|2D foundations]]
+- [[numerics/1d/euler|1D Euler]]
+- [[numerics/tools/line-probes|Line probes]]
+- [[numerics/tools/comparison-dashboard|Comparison dashboard]]

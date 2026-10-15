@@ -10,15 +10,25 @@ against.
 
 ## The theta-beta-M relations
 
-For an incoming mach number M1 and a turn through the wedge angle theta, the
-shock lies at an angle beta from the incoming direction, found (weak branch)
-from
+For an incoming Mach number $M_1$ and a turn through the wedge angle
+$\theta$, the shock lies at an angle $\beta$ from the incoming direction,
+found on the weak branch from
 
-    tan(theta) = 2 cot(beta) (M1^2 sin^2(beta) - 1) / (M1^2 (gamma + cos(2 beta)) + 2)
+$$\tan\theta = \frac{2}{\tan\beta}\,\frac{M_1^2\sin^2\beta - 1}{M_1^2(\gamma + \cos 2\beta) + 2}$$
 
-Once beta is known the downstream state is the normal-shock jump across the
-normal component M1 sin(beta): density, pressure, and the downstream mach all
+and the downstream state is the normal-shock jump across the normal
+component $M_1 \sin\beta$: density, pressure, and the downstream Mach all
 follow from the one-dimensional Rankine-Hugoniot relations.
+
+```mermaid
+flowchart LR
+    subgraph wedge turn
+        F["freestream<br/>M1, rho1, p1"] -->|"shock at beta"| T["turned stream<br/>M2, rho2, p2"]
+    end
+```
+
+For the gate case ($M_1 = 2$, $\theta = 10$ deg): $\beta = 34.3$ deg,
+$M_2 = 1.64$, $p_2/p_1 = 1.71$.
 
 ## Verification
 
@@ -38,6 +48,6 @@ state follows the relations until the shock detaches.
 
 ## See also
 
-- [[numerics/2d/2d-euler||2D Euler solver]]
-- [[numerics/2d/shock-reflection||Shock reflection]]
-- [[numerics/foundations/verification||Verification ladder]]
+- [[numerics/2d/euler|2D Euler solver]]
+- [[numerics/2d/shock-reflection|Shock reflection]]
+- [[verification/index|Verification ladder]]

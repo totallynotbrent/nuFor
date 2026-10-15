@@ -32,6 +32,6 @@ explicitly rather than being misread as converged.
 
 ## See also
 
-- [[numerics/foundations/positivity||Positivity]]
-- [[numerics/foundations/output||Output]]
-- [[numerics/foundations/restart||Restart]]
+- [[numerics/foundations/positivity|Positivity]]
+- [[numerics/foundations/output|Output]]
+- [[numerics/foundations/restart|Restart]]

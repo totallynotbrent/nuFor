@@ -51,7 +51,7 @@ runs head-to-head.
 | A different end time | `time.final_time` |
 | More resolution | `mesh.nx` (and `ny`/`nz`) |
 
-The full schema is documented in [the case format reference](formats/case-toml.md).
+The full schema is documented in [[formats/case-toml|the case format reference]].
 
 Equilibrium-air 2D Euler cases can also run multi-rank. Build once, then
 launch the same binary under `mpirun` (OpenMPI required):
@@ -61,7 +61,7 @@ mpirun -np 4 nufor run case.toml
 ```
 
 np=1 takes the same code path, so results are identical either way; the
-measured scaling and the parity gates are on [the MPI page](numerics/parallel/mpi.md).
+measured scaling and the parity gates are on [[numerics/parallel/mpi|the MPI page]].
 
 ## See it in the browser
 
@@ -119,8 +119,8 @@ routes the case to that path automatically.
 
 ## Next
 
-Read the [architecture](architecture.md) notes to understand the layers, then
-follow the [1D](numerics/1d/1d-euler.md) → [2D](numerics/2d/2d-euler.md) →
-[3D](numerics/3d/3d-solver.md) solver pages in order. The
-[case format reference](formats/case-toml.md) is the authoritative spec for the
+Read the [[architecture|architecture]] notes to understand the layers, then
+follow the [[numerics/1d/euler|1D]] → [[numerics/2d/euler|2D]] →
+[[numerics/3d/solver|3D]] solver pages in order. The
+[[formats/case-toml|case format reference]] is the authoritative spec for the
 case file.

@@ -41,13 +41,13 @@ stagnation line:
   of the surface rather than attaching to the body, which is the signature of
   a blunt-body bow shock at supersonic speed.
 
-The image below is the density field at a quasi-steady state: the dark disc is
-the cylinder, the bright arc ahead of it is the bow shock, and the darker
-region behind is the low-density wake.
+At quasi-steady state the density field shows the frozen disc, the
+compression arc of the bow shock standing ahead of it, and the low-density
+wake behind.
 
 ## See also
 
-- [[numerics/2d/2d-boundaries||2D boundaries]]
-- [[numerics/2d/oblique-shock||Oblique shock]]
-- [[numerics/2d/shock-reflection||Shock reflection]]
-- [[numerics/2d/2d-euler||2D Euler solver]]
+- [[numerics/2d/boundaries|2D boundaries]]
+- [[numerics/2d/oblique-shock|Oblique shock]]
+- [[numerics/2d/shock-reflection|Shock reflection]]
+- [[numerics/2d/euler|2D Euler solver]]

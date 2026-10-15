@@ -54,7 +54,7 @@ inflow/outflow, slip-wall, and symmetry conditions are a separate milestone.
 
 ## See also
 
-- [[numerics/2d/2d||2D foundations]]
-- [[numerics/2d/oblique-shock||Oblique shock]]
-- [[numerics/fluxes/hll-vs-hllc||HLL vs HLLC]]
-- [[numerics/2d/2d-boundaries||2D boundaries]]
+- [[numerics/2d/state-grid|2D foundations]]
+- [[numerics/2d/oblique-shock|Oblique shock]]
+- [[numerics/fluxes/hll-vs-hllc|HLL vs HLLC]]
+- [[numerics/2d/boundaries|2D boundaries]]

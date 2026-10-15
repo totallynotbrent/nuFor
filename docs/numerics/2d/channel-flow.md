@@ -17,14 +17,21 @@ stress that develops near the wall is what Poiseuille's parabola comes from.
 
 ## Poiseuille's parabola
 
-For a pressure gradient `dp/dx` (or its equivalent body force `B`), a no-slip
-channel of height H carries a steady velocity
+For a pressure gradient `dp/dx` (or its equivalent body force $B$), a no-slip
+channel of height $H$ carries the steady parabolic profile
 
-    u(y) = (B / 2 mu) y (H - y)
+$$u(y) = \frac{B}{2\mu}\,y(H - y)$$
 
-which peaks at `u_max = B H^2 / (8 mu)` mid-channel. The driving body force is
-picked so the peak is small (well into the low-Mach, essentially incompressible
-range), and the profile is entered as the initial condition.
+peaking at $u_{max} = BH^2/(8\mu)$ mid-channel:
+
+```mermaid
+flowchart LR
+    W1["no-slip wall<br/>u = 0"] -.->|"u(y) parabola"| W2["no-slip wall<br/>u = 0"]
+```
+
+The driving body force is picked so the peak is small (well into the
+low-Mach, essentially incompressible range), and the profile is entered as
+the initial condition.
 
 ## Verification
 
@@ -43,6 +50,6 @@ cases put their resolution where the layer is.
 
 ## See also
 
-- [[numerics/2d/viscous||Viscous terms]]
-- [[numerics/2d/2d-euler||2D Euler solver]]
-- [[numerics/foundations/positivity||Positivity]]
+- [[numerics/2d/viscous|Viscous terms]]
+- [[numerics/2d/euler|2D Euler solver]]
+- [[numerics/foundations/positivity|Positivity]]

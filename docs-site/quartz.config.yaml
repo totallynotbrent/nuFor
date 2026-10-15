@@ -22,25 +22,25 @@ configuration:
       code: "IBM Plex Mono"
     colors:
       lightMode:
-        light: "#f7fafc"
-        lightgray: "#e6ecef"
-        gray: "#b6c2c9"
-        darkgray: "#4a555c"
-        dark: "#1e262c"
-        secondary: "#0e7490"
-        tertiary: "#0891b2"
-        highlight: "rgba(8, 145, 178, 0.10)"
-        textHighlight: "#a5f3fc99"
+        light: "#0a0a0a"
+        lightgray: "#1f1f1f"
+        gray: "#3d3d3d"
+        darkgray: "#b0b0b0"
+        dark: "#ededed"
+        secondary: "#d4d4d4"
+        tertiary: "#8f8f8f"
+        highlight: "rgba(255, 255, 255, 0.06)"
+        textHighlight: "#ffffff30"
       darkMode:
-        light: "#0b1220"
-        lightgray: "#1b2638"
-        gray: "#37485e"
-        darkgray: "#aebfce"
-        dark: "#e9f0f5"
-        secondary: "#38bdf8"
-        tertiary: "#22d3ee"
-        highlight: "rgba(34, 211, 238, 0.09)"
-        textHighlight: "#0e749055"
+        light: "#0a0a0a"
+        lightgray: "#1f1f1f"
+        gray: "#3d3d3d"
+        darkgray: "#b0b0b0"
+        dark: "#ededed"
+        secondary: "#d4d4d4"
+        tertiary: "#8f8f8f"
+        highlight: "rgba(255, 255, 255, 0.06)"
+        textHighlight: "#ffffff30"
 plugins:
   - source: "@quartz-community/created-modified-date"
     enabled: true
@@ -55,7 +55,7 @@ plugins:
     enabled: true
     options:
       theme:
-        light: github-light
+        light: github-dark
         dark: github-dark
       keepBackground: false
     order: 20

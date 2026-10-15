@@ -2,7 +2,7 @@
 title: case.toml
 ---
 
-The case file is the reproducibility root of a nuFor run (spec 40). A case
+The case file is the reproducibility root of a nuFor run. A case
 directory holds `case.toml` plus, once a solver exists, `mesh/`, `results/`,
 `logs/`, and `research/`. Every number that defines a run lives in this one
 file, so a case can be archived, diffed, and re-run from scratch.
@@ -74,13 +74,13 @@ silently change a run.
 | `metadata.name` | string | yes | non-empty | Case name, used in logs and results. |
 | `metadata.description` | string | no | | Free text: goal, expected result. |
 | `metadata.case_revision` | int | no (default 1) | >= 1 | Revision counter for the case definition. |
-| `physics.equations` | string | yes | `euler_1d` \| `euler_2d` \| `euler_3d` \| `euler_axi` \| `rans_2d_sa` | Equation set; the case-run wiring (`nufor run`) chooses the solver by this. `euler_axi` is axisymmetric Euler (see [[case-body]]), `rans_2d_sa` the 2D Reynolds-averaged Navier-Stokes with Spalart-Allmaras. |
+| `physics.equations` | string | yes | `euler_1d` \| `euler_2d` \| `euler_3d` \| `euler_axi` \| `rans_2d_sa` | Equation set; the case-run wiring (`nufor run`) chooses the solver by this. `euler_axi` is axisymmetric Euler (see [[formats/case-body]]), `rans_2d_sa` the 2D Reynolds-averaged Navier-Stokes with Spalart-Allmaras. |
 | `physics.gamma` | float | yes | > 1 | Ratio of specific heats; with `eos = "eqair"` this is the fallback for degenerate cells only. |
-| `physics.eos` | string | no (default `perfect`) | `perfect` \| `eqair` \| `park2t` | Thermodynamic closure: constant-gamma perfect gas, equilibrium air via the CEA grid (see [[equilibrium-air]]), or two-temperature nitrogen with a live vibrational field (see [[two-temperature]]). |
+| `physics.eos` | string | no (default `perfect`) | `perfect` \| `eqair` \| `park2t` | Thermodynamic closure: constant-gamma perfect gas, equilibrium air via the CEA grid (see [[numerics/foundations/equilibrium-air]]), or two-temperature nitrogen with a live vibrational field (see [[numerics/foundations/two-temperature]]). |
 | `physics.gas_constant` | float | yes | > 0 | Specific gas constant, J/(kg K) in SI. |
 | `physics.unit_system` | string | no (default `si`) | `si` \| `nondim` | Unit convention for reported fields. |
 | `physics.reference` | table | no | rho, p, l > 0 | Nondimensionalization reference state. |
-| `physics.mu` | float | no | > 0 | Molecular dynamic viscosity; required for `rans_2d_sa`. For planar 2D euler cases, any positive value routes the run to the viscous march (see [[equilibrium-air#a-way-to-run-viscous|viscous closure]]). |
+| `physics.mu` | float | no | > 0 | Molecular dynamic viscosity; required for `rans_2d_sa`. For planar 2D euler cases, any positive value routes the run to the viscous march (see [[numerics/foundations/equilibrium-air#a-way-to-run-viscous|viscous closure]]). |
 | `physics.wall_temperature` | float | no (default 0) | >= 0 | Wall temperature in K for viscous 2D runs; 0 (or absent) means an adiabatic wall, any positive value a fixed-temperature (cold) wall. |
 | `physics.pr` | float | no (default 0.72) | > 0 | Molecular Prandtl number for the heat flux. |
 | `physics.turbulence.nu_tilde_inf` | float | required with `rans_2d_sa` | > 0 | Freestream SA working variable; the usual convention is three times the molecular kinematic viscosity. |
@@ -104,7 +104,7 @@ silently change a run.
 | `initial_condition` (uniform) | rho, u, p | yes | rho, p > 0 | Constant state. |
 | `initial_condition` (two_state) | left, right | yes | rho, p > 0 per side | Left/right constant states, e.g. a shock tube (1D). |
 | `initial_condition` (blast) | radius, ambient, fireball | yes | radius > 0; rho, p > 0 | Over-pressured fireball in ambient surroundings; the natural 2D/3D shock-tube. |
-| `boundaries.left` | string | yes | `wall` \| `inflow` \| `outflow` \| `periodic` \| `profile_inflow` \| `slip_wall` \| `supersonic_inflow` \| `supersonic_outflow` | Left boundary condition. `profile_inflow` needs `[boundaries.inflow_profile]`; `supersonic_inflow` needs `[boundaries.inflow_state]`; the full kind list lives in [[case-body]]. |
+| `boundaries.left` | string | yes | `wall` \| `inflow` \| `outflow` \| `periodic` \| `profile_inflow` \| `slip_wall` \| `supersonic_inflow` \| `supersonic_outflow` | Left boundary condition. `profile_inflow` needs `[boundaries.inflow_profile]`; `supersonic_inflow` needs `[boundaries.inflow_state]`; the full kind list lives in [[formats/case-body]]. |
 | `boundaries.right` | string | yes | same set | Right boundary condition. |
 | `boundaries.top` | string | no | same set | Top boundary, honored by the 2D solvers (default `outflow`). |
 | `boundaries.bottom` | string | no | same set | Bottom boundary, honored by the 2D solvers (default `outflow`). A `wall` side is no-slip, which is what the SA model expects at a solid surface. |
@@ -120,7 +120,7 @@ silently change a run.
 | `time.residual_target` | float | no | > 0 | Early stop when the residual drops below this. |
 | `time.restart_in` | string | no | | Seed the 2D run from this restart file instead of the initial condition; the file's mesh must match the case grid, and the run resumes at the file's time. |
 | `time.restart_out` | string | no | | Write a restart file to this path when the run ends (serial and MPI paths). |
-| `body` | table | no | | Optional immersed body; the shape set (`sphere_cone`, `sphere`, `polygon`) and keys live in [[case-body]]. |
+| `body` | table | no | | Optional immersed body; the shape set (`sphere_cone`, `sphere`, `polygon`) and keys live in [[formats/case-body]]. |
 | `boundaries.inflow_state` | table | with a `supersonic_inflow` side | rho, p > 0 | The fixed state a supersonic inflow side carries (`v` optional, default 0). |
 | `output.interval_steps` | int | yes | >= 1 | Write cadence in solver steps. |
 | `output.formats` | string list | yes | non-empty, `csv` \| `vtk` \| `hdf5` | Writers to run. |
@@ -200,24 +200,9 @@ fields = ["rho", "u", "p"]
 
 Solver identity (binary version and code revision) is stamped at run time into
 result and log provenance, not hand-edited into the case file. HDF5 holds the
-large numerical datasets (mesh and results); `case.toml` holds the
-interpretable description.
-
-## Spec 40 mapping
-
-| Spec 40 item | Where |
-|------------|-------|
-| Version the case schema | `schema_version` gate |
-| Record solver version | run-time provenance stamp |
-| Record code revision | run-time provenance stamp |
-| Record numerical method selection | `numerics` section |
-| Record physical units | `physics.unit_system` |
-| Record reference conditions | `physics.reference` |
-| Record mesh source | `mesh.source` |
-| Record boundary-condition parameters | `boundaries` section |
-| Record initial condition | `initial_condition` section |
-| Record termination criteria | `time` section |
-| Record output fields | `output` section |
+large numerical datasets; `case.toml` holds the interpretable description of
+the run: units, reference state, mesh source, boundaries, initial condition,
+termination criteria, and output fields all live here.
 
 ## Related
 
@@ -225,7 +210,7 @@ interpretable description.
 
 ## See also
 
-- [[numerics/foundations/output||Output]]
-- [[numerics/foundations/restart||Restart]]
-- [[numerics/foundations/diagnostics||Diagnostics]]
+- [[numerics/foundations/output|Output]]
+- [[numerics/foundations/restart|Restart]]
+- [[numerics/foundations/diagnostics|Diagnostics]]
 - [[operations/memory-budget|Memory budget]]

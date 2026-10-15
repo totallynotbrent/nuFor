@@ -20,10 +20,10 @@ The `eqair` closure models all of that as thermodynamic equilibrium
 air: a gas whose composition at each (density, internal energy) is
 whatever minimizes its free energy, folded into two functions:
 
-```
-p = p(rho, e)          pressure from density and internal energy
-a = a(rho, e)          speed of sound from the same pair
-```
+$$p = p(\rho, e), \qquad a = a(\rho, e)$$
+
+pressure and speed of sound from the same pair of conserved-variable
+inputs, with no species and no reaction rates.
 
 No species, no reaction rates, no extra transport equations: the
 composition is assumed to relax instantly to equilibrium. That is a
@@ -36,10 +36,9 @@ The functions come from the Srinivasan-Tannehill-Weilmuenster fits of
 NASA RP-1181 (1987), in the TGAS1 form of the accompanying FORTRAN
 listing (NASA CR-181245): 12 piecewise polynomial blocks over
 
-```
-Y = log10(rho / 1.292 kg/m^3)
-Z = log10(e / 78408.4 m^2/s^2)
-```
+$$Y = \log_{10}(\rho / 1.292), \qquad Z = \log_{10}(e / 78408.4)$$
+
+with rho in kg/m^3 and e in m^2/s^2.
 
 three density regions (Y <= -4.5, -4.5 < Y <= -0.5, Y > -0.5), each
 cut in Z, with a Grabau-type sigmoid blending the high-temperature

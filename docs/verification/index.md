@@ -18,7 +18,11 @@ screenshot is not verification.
 
 ## See also
 
-- [[numerics/1d/sod||Sod verification]]
-- [[numerics/1d/lax||Lax verification]]
+- [[numerics/1d/sod|Sod verification]]
+- [[numerics/1d/lax|Lax verification]]
 - [[verification/gate-1d-euler|1D Euler gate]]
 - [[verification/regression-suite|Regression suite]]
+- [[verification/axisymmetric-sphere|Axisymmetric sphere]]
+- [[verification/grid-convergence|Grid convergence]]
+- [[verification/viscous3d-channel|3D channel]]
+- [[verification/viscous3d-duct|Square duct]]

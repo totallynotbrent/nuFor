@@ -24,7 +24,7 @@ graph LR
     D --> F["M = |u| / a"]
 ```
 
-- **Pressure recovery** (spec 25): `p = (gamma - 1) * rho * e_int`, with
+- **Pressure recovery** : `p = (gamma - 1) * rho * e_int`, with
   `e_int = e_t - u^2/2`. This is the standard ideal-gas relation in the
   compressible-Euler literature (LeVeque 2002, Toro 2013); Clawpack's
   Riemann book states it as `p = rho * e * (gamma - 1)` for the specific
@@ -41,8 +41,7 @@ graph LR
 
 ## Physical-validity checks
 
-The kernels enforce the invariants from spec 94 and the admissibility rules
-from spec 138: an Euler state must have `rho > 0` and `p > 0`, which for an
+The kernels enforce one admissibility rule: an Euler state must have `rho > 0` and `p > 0`, which for an
 ideal gas is equivalent to `e_int > 0`. Each kernel:
 
 - rejects `rho <= 0` and `e_int <= 0` (or `p <= 0` where pressure is an
@@ -77,16 +76,9 @@ empty slices, and single-cell calls.
   https://www.clawpack.org/riemann_book/html/Euler.html (accessed
   2025-05-08).
 
-## Related
-
-- [[numerics/foundations/state-grid|Numerics - 1D state and uniform grid]] - the state variables
-  these relations close
-- [[numerics/1d/1d-euler|Numerics - 1D Euler]] - the milestone this serves
-- [[formats/case-toml|Formats - case.toml (case definition)]] - where `gamma` and `R`
-  come from
-
 ## See also
 
-- [[numerics/foundations/state-grid||State and grid]]
-- [[numerics/1d/1d-euler||1D Euler]]
-- [[numerics/foundations/positivity||Positivity]]
+- [[numerics/foundations/state-grid|State and grid]] - the state variables these relations close
+- [[numerics/1d/euler|1D Euler]] - the milestone this serves
+- [[formats/case-toml|case.toml]] - where `gamma` and `R` come from
+- [[numerics/foundations/positivity|Positivity]]

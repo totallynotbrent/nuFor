@@ -2,7 +2,7 @@
 title: Research results
 ---
 
-The numbers behind the solver features, measured on the shipped cases. Every
+The numbers behind the solver features, measured on the cases I ship. Every
 figure here regenerates from the case run logs in the repo, so the numbers age
 with the code instead of drifting from it.
 
@@ -11,7 +11,7 @@ with the code instead of drifting from it.
 Four trajectory stations at 22.5 degrees angle of attack, equilibrium air,
 viscous with a 300 K wall, 320x176 grid, marched to t = 15 ms. This is the
 sweep that anchors the hypersonic 2D path; the 34.6 km station is the peak-q
-point.
+point of my re-entry trajectory.
 
 ![March steps and wall time per trajectory station](station-sweep.png)
 
@@ -65,7 +65,7 @@ render on the repository front page.
 ## MPI scaling
 
 The multi-rank Fortran march measured on the 34.6 km station case, 320x176,
-30 steps, on the 8-core development box at its 35 W package limit:
+30 steps, on my 8-core desktop:
 
 ![MPI strong scaling on the station case](mpi-scaling.png)
 
@@ -93,4 +93,4 @@ The thread-sharded 2D step, measured in the 1.5.0 era on a 384x384 mesh,
 40 steps: 1.86x at four physical cores, 2.04x at six threads, backsliding to
 1.75x at eight (hyperthread oversubscription). The step is memory-bound, so
 the plateau tracks memory bandwidth rather than core count. Full table on the
-[threading page](numerics/parallel/threading.md).
+[[numerics/parallel/threading|threading page]].

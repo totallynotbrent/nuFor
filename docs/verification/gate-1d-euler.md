@@ -11,7 +11,7 @@ hand wave.
 
 - Finite-volume solver: HLL flux with Davis wave speeds, CFL time-step control,
   reflective and transmissive ghost-cell boundaries, a residual, and a per-step
-  log. ([[numerics/1d/1d-euler|numerics/1d-euler]])
+  log. ([[numerics/1d/euler|numerics/1d-euler]])
 - Ideal-gas equation of state with physical-validity rejection.
   ([[numerics/foundations/eos|numerics/eos]])
 - Structured output: CSV history, VTK, HDF5 (plus a Python/h5py export) and a
@@ -30,7 +30,7 @@ hand wave.
   positivity holds. ([[numerics/1d/sod|sod]])
 - Lax: the stronger tube stays positive and converges.
 - Verification ladder: constant state, uniform advection, stationary shock,
-  isentropic expansion. ([[numerics/foundations/verification|verification]])
+  isentropic expansion. ([[verification/index|verification]])
 - Conservation to machine precision on a closed/reflective run.
 
 ## Performance evidence
@@ -48,6 +48,6 @@ into two dimensions.
 
 ## See also
 
-- [[numerics/foundations/verification||Verification ladder]]
-- [[numerics/1d/1d-euler||1D Euler]]
-- [[numerics/1d/sod||Sod verification]]
+- [[verification/index|Verification ladder]]
+- [[numerics/1d/euler|1D Euler]]
+- [[numerics/1d/sod|Sod verification]]

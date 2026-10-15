@@ -47,4 +47,4 @@ against a remembered constant.
 ## See also
 
 - [[numerics/2d/axisymmetric|Axisymmetric Euler]]
-- [Regression suite](regression-suite.md)
+- [[verification/regression-suite|Regression suite]]

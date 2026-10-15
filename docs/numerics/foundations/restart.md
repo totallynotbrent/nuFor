@@ -36,7 +36,7 @@ and documented.
 
 ## See also
 
-- [[numerics/foundations/output||Output]]
-- [[numerics/foundations/hdf5||HDF5 output]]
-- [[numerics/foundations/diagnostics||Diagnostics]]
+- [[numerics/foundations/output|Output]]
+- [[numerics/foundations/hdf5|HDF5 output]]
+- [[numerics/foundations/diagnostics|Diagnostics]]
 - [[formats/case-toml|case.toml format]]

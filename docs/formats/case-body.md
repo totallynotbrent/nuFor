@@ -1,12 +1,12 @@
 ---
-title: immersed bodies and axisymmetric runs
+title: Immersed bodies and axisymmetric runs
 ---
 
 Two case.toml additions extend the format beyond empty boxes and shock
 tubes: an optional `[body]` section that puts an analytic solid in the
 domain, and the `euler_axi` equation set for axisymmetric runs. This
 page documents both. The base format lives in
-[[case-toml]]; everything there still applies.
+[[formats/case-toml]]; everything there still applies.
 
 ## The body section
 

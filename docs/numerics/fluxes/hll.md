@@ -5,7 +5,7 @@ title: HLL numerical flux
 The baseline approximate Riemann solver for the 1D Euler milestone is the
 Harten-Lax-van Leer (HLL) flux: two waves with a single intermediate state,
 chosen conservatively so the numerical method stays conservative by
-construction. See the  for the HLL-vs-HLLC
+construction. See [[numerics/fluxes/hll-vs-hllc|the HLL-vs-HLLC page]] for the
 decision and sources.
 
 ## Two-wave model
@@ -82,13 +82,13 @@ graph TD
 
 ## Related
 
-- [[numerics/1d/1d-euler|Numerics - 1D Euler milestone]]
+- [[numerics/1d/euler|Numerics - 1D Euler milestone]]
 - [[numerics/foundations/eos|Numerics - Ideal-gas equation of state]]
 - [[numerics/foundations/state-grid|Numerics - 1D state and uniform grid]]
 
 ## See also
 
-- [[numerics/fluxes/hll-vs-hllc||HLL vs HLLC]]
-- [[numerics/foundations/time-step||CFL time-step]]
-- [[numerics/1d/1d-euler||1D Euler]]
-- [[numerics/2d/2d-euler||2D Euler solver]]
+- [[numerics/fluxes/hll-vs-hllc|HLL vs HLLC]]
+- [[numerics/foundations/time-step|CFL time-step]]
+- [[numerics/1d/euler|1D Euler]]
+- [[numerics/2d/euler|2D Euler solver]]

@@ -2,10 +2,10 @@
 title: Aeroshell cross-check
 ---
 
-The sphere-cone capsule cross-check: entry-vehicle aerodynamics from a
+The sphere-cone capsule cross-check: my entry-vehicle aerodynamics from a
 modified-Newtonian panel method over the 10080-facet STL against a
 perfect-gas axisymmetric CFD run at the peak-q trajectory point. It is the
-sprint deliverable for rungs 2 and 3 of the roadmap.
+deliverable for rungs 2 and 3 of the roadmap.
 
 ## The case
 
@@ -36,10 +36,10 @@ field is meaningful, which is exactly what this cross-check uses.
 
 ## The cross-check numbers
 
-The modified-Newtonian axial force integrates to C_A = 0.573 with his
-Cp_max over the analytic meridian, 0.580 with the perfect-gas Cp_max,
-and 0.603 by his own panel integration over the STL facets (the facet
-integral reproduces his table value exactly, 0.6031). The three agree
+My modified-Newtonian panel method integrates to C_A = 0.573 with the
+entry Cp_max over the analytic meridian, 0.580 with the perfect-gas
+Cp_max, and 0.603 over the STL facets (the facet integral reproduces
+the table value exactly, 0.6031). The three agree
 within 5 percent, which validates the panel method and the analytic
 meridian against each other.
 
@@ -76,7 +76,7 @@ h-box), not a configuration change.
 
 ## Figures
 
-- the 3D shell colored by his own panel Cp (no CFD claims on it),
+- the 3D shell colored by my panel Cp (no CFD claims on it),
 - the fine-grid density field with the bow shock and the sampled
   surface,
 - the Cp(x) cross-check plot with the divergence annotated.
@@ -89,6 +89,6 @@ tooling behind the panel method. Every figure states perfect gas.
 
 ## See also
 
-- [Axisymmetric Euler](numerics/2d/axisymmetric.md)
-- [Sphere validation](verification/axisymmetric-sphere.md)
-- [Roadmap](roadmap.md)
+- [[numerics/2d/axisymmetric|Axisymmetric Euler]]
+- [[verification/axisymmetric-sphere|Sphere validation]]
+- [[roadmap|Roadmap]]

@@ -24,15 +24,16 @@ many threads, so the parallel result is bit-for-bit identical to the serial
 
 ## Measured scaling
 
-On the development box (an Intel i7-7700T, 4 cores / 8 threads, release build,
-384 by 384 mesh, 40 steps), the elapsed time vs thread count was:
+On my 4-core desktop (release build, 384 by 384 mesh, 40 steps), the elapsed
+time vs thread count was:
 
-    threads    time      speedup
-      1        1.80 s     1.00
-      2        1.26 s     1.43
-      4        0.97 s     1.86
-      6        0.88 s     2.04
-      8        1.03 s     1.75
+| threads | time | speedup |
+|--------:|------|--------:|
+| 1 | 1.80 s | 1.00 |
+| 2 | 1.26 s | 1.43 |
+| 4 | 0.97 s | 1.86 |
+| 6 | 0.88 s | 2.04 |
+| 8 | 1.03 s | 1.75 |
 
 The step is a tiny, memory-bound kernel, so the wall-clock ceiling is set by
 memory bandwidth and thread overhead, not arithmetic. Expect a plateau around
@@ -43,7 +44,7 @@ a single number rather than a per-thread curve.
 
 ## See also
 
-- [[numerics/foundations/memory-layout||Memory layout]]
-- [[numerics/parallel/simd||SIMD vectorization]]
+- [[numerics/foundations/memory-layout|Memory layout]]
+- [[numerics/parallel/simd|SIMD vectorization]]
 - [[performance/optimization-ledger|Optimization ledger]]
-- [[numerics/2d/2d-euler||2D Euler solver]]
+- [[numerics/2d/euler|2D Euler solver]]

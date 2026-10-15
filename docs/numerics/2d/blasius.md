@@ -10,14 +10,14 @@ solution is that answer.
 
 ## The similarity solution
 
-For a stream at speed `u_inf` over a plate starting at the leading edge, the
-layer is self-similar in the variable
+For a stream at speed $u_\infty$ over a plate starting at the leading edge,
+the layer is self-similar in the variable
 
-    eta = y sqrt(u_inf / (nu x))
+$$\eta = y\sqrt{\frac{u_\infty}{\nu x}}$$
 
-with f(eta) obeying
+with $f(\eta)$ obeying the Blasius ODE
 
-    f''' + 0.5 f f'' = 0,  f(0) = f'(0) = 0,  f'(inf) = 1
+$$f''' + \tfrac{1}{2} f f'' = 0, \qquad f(0) = f'(0) = 0, \quad f'(\infty) = 1$$
 
 The solver integrates this once at construction (fixed-step RK4 over
 [0, 12] with the shooting value f''(0) = 0.3320573), stores the table, and
@@ -27,10 +27,9 @@ condition prescribes is the published one, not a paraphrase of it.
 
 The quantities that matter downstream:
 
-- u = u_inf f'(eta)
-- v = 0.5 u_inf (eta f' - f) / sqrt(Re_x)
-- cf = 2 f''(0) / sqrt(Re_x) = 0.664 / sqrt(Re_x)
-- delta99 = 5.0 x / sqrt(Re_x)
+$$u = u_\infty f'(\eta), \qquad v = \frac{u_\infty}{2}\frac{\eta f' - f}{\sqrt{Re_x}}$$
+
+$$c_f = \frac{2 f''(0)}{\sqrt{Re_x}} = \frac{0.664}{\sqrt{Re_x}}, \qquad \delta_{99} = \frac{5.0\,x}{\sqrt{Re_x}}$$
 
 ## The hold
 
@@ -61,7 +60,7 @@ template for how that one will be judged.
 
 ## See also
 
-- [[numerics/2d/2d-boundaries||2D boundary conditions]]
-- [[numerics/2d/viscous||Viscous terms]]
-- [[numerics/2d/channel-flow||Channel flow]]
-- [[numerics/unstructured/sa-implementation||SA implementation]]
+- [[numerics/2d/boundaries|2D boundary conditions]]
+- [[numerics/2d/viscous|Viscous terms]]
+- [[numerics/2d/channel-flow|Channel flow]]
+- [[numerics/2d/sa-model|SA implementation]]

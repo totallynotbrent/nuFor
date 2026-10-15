@@ -53,10 +53,10 @@ The headline numbers the per-case tests lock down include:
 
 If any of those drifts, the regression gate turns red and the renumber is a
 signal that a change moved a verified number, not that the test is fine to
-patch around. (spec 189)
+patch around.
 
 ## See also
 
-- [[numerics/foundations/verification||Verification ladder]]
-- [[numerics/2d/2d-euler||2D Euler solver]]
-- [[numerics/3d/3d-solver||3D solver]]
+- [[verification/index|Verification ladder]]
+- [[numerics/2d/euler|2D Euler solver]]
+- [[numerics/3d/solver|3D solver]]

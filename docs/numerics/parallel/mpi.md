@@ -4,12 +4,21 @@ title: MPI
 
 The 2D equilibrium-air march runs MPI-parallel: `mpirun -np N nufor run
 case.toml` splits the grid into column slabs, one per rank, and the Fortran
-core owns the decomposition, the halo exchange, and the march. Rust stays the
-front door: every rank runs the same `nufor` binary and none of them call MPI
-from Rust. Rank 0 loads the case, drives the run, and writes the output; all
+core owns the decomposition, the halo exchange, and the march. I keep the
+parallelism entirely in Fortran on purpose: Rust stays the
+front door, every rank runs the same `nufor` binary, and none of them call
+MPI from Rust. Rank 0 loads the case, drives the run, and writes the output; all
 ranks call the Fortran kernels.
 
 ## How the parallel step works
+
+```mermaid
+flowchart LR
+    R0["rank 0<br/>slab 0 + ghosts"] <-->|"halo exchange"| R1["rank 1<br/>slab 1 + ghosts"]
+    R1 <-->|"halo exchange"| R2["rank 2<br/>slab 2 + ghosts"]
+    R2 <--> R0
+    R0 & R1 & R2 -->|"allreduce: global CFL"| DT["one dt for all"]
+```
 
 The grid is carved into column slabs along x, two ghost columns each side.
 Each rank runs the full RK2 step on its slab: MUSCL strip reconstruction,
@@ -78,20 +87,21 @@ array. A capsule field with full 2D momenta catches all three.
 
 ## Measured scaling
 
-On the development box (8 cores, pinned at a 35 W package limit, release
-build), the 34.6 km station case at 320x176, 30 steps:
+On my 8-core desktop (release build), the 34.6 km station case at 320x176,
+30 steps:
 
-    ranks      wall      speedup
-    serial     1.5 s     1.00
-    np=1       1.5 s     1.00
-    np=2       0.8 s     1.88
-    np=4       0.8 s     1.88
+| ranks | wall | speedup |
+|------:|------|--------:|
+| serial | 1.5 s | 1.00 |
+| np=1 | 1.5 s | 1.00 |
+| np=2 | 0.8 s | 1.88 |
+| np=4 | 0.8 s | 1.88 |
 
 np=4 does not beat np=2 here. The grid is 320 columns; at four ranks each
 slab is 80 columns wide, and the halo exchange plus the gather-per-step body
 broadcast eat the gains at that width. The message is that this march wants
 wider slabs or a bigger grid before more ranks pay off, which matches the
-memory-bandwidth-bound picture from [shared-memory threading](threading.md).
+memory-bandwidth-bound picture from [[numerics/parallel/threading|shared-memory threading]].
 
 np=1 matches serial wall time bit-for-bit in output, so choosing the MPI path
 costs nothing when the march might later scale.
