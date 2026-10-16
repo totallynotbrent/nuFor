@@ -11,18 +11,18 @@ use nufor_config::{
     Mesh, OutputFormat,
 };
 use nufor_core::ffi_mpi::{
-    march_euler2d_mpi, march_viscous2d_mpi, mpi_bcast_state, mpi_launched, mpi_rank, mpi_shutdown,
+    march_euler2d_mpi, march_rans2d_mpi, march_viscous2d_mpi, mpi_bcast_state, mpi_launched,
+    mpi_rank, mpi_shutdown,
 };
 use nufor_core::{
     advance2d_axi_rk2, advance2d_model_rk2, advance2d_model_visc_lts, advance2d_model_visc_rk2,
-    advance2d_sa_lts, advance2d_sa_model_rk2, advance2d_sa_rk2, advance3d_rk2, advance_ugrid,
-    apply_solid_fn, apply_solid_ref, body_cache, cons_to_prim2d, eos_pressure2d, euler_solve,
-    grid1d, grid2d, grid3d, prim_to_cons, prim_to_cons2d, prim_to_cons3d, read_restart,
-    read_restart2d, render_png, wall_distance2d, write_csv, write_h5, write_restart,
-    write_restart2d, write_vtk, write_vtk2d_model, write_vtk3d, Bc2d, Boundaries2d, Boundary,
-    Bounds3d, ConservedState, ConservedState2d, ConservedState3d, Error, EulerConfig, Grid1d,
-    Grid2d, Grid3d, OutputState, SaParams, SolidPolygon, SolidShape, SphereCone, SphereConeSdf,
-    TurbState, Ugrid,
+    advance2d_sa_lts, advance2d_sa_model_rk2, advance3d_rk2, advance_ugrid, apply_solid_fn,
+    apply_solid_ref, body_cache, cons_to_prim2d, eos_pressure2d, euler_solve, grid1d, grid2d,
+    grid3d, prim_to_cons, prim_to_cons2d, prim_to_cons3d, read_restart, read_restart2d, render_png,
+    wall_distance2d, write_csv, write_h5, write_restart, write_restart2d, write_vtk,
+    write_vtk2d_model, write_vtk3d, Bc2d, Boundaries2d, Boundary, Bounds3d, ConservedState,
+    ConservedState2d, ConservedState3d, Error, EulerConfig, Grid1d, Grid2d, Grid3d, OutputState,
+    SaParams, SolidPolygon, SolidShape, SphereCone, SphereConeSdf, TurbState, Ugrid,
 };
 use nufor_core::{model_from_config, park2t, ThermoModel};
 
@@ -1435,12 +1435,12 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     // fortran viscous kernel wall-treats domain faces only, so a masked
     // body under mpirun would silently skip the no-slip band.
     let visc_lam = cfg.physics.mu.is_some_and(|m| m > 0.0) && turb.is_none();
-    let visc_body = visc_lam && body.is_some();
+    let rans_sa = turb.is_some() && cfg.physics.mu.is_some_and(|m| m > 0.0);
+    let visc_body = (visc_lam || rans_sa) && body.is_some();
     if mpi_launched()
         && matches!(model, ThermoModel::EqAir { .. })
         && !visc_body
-        && (cfg.physics.mu.map_or(true, |m| m == 0.0) || visc_lam)
-        && turb.is_none()
+        && (cfg.physics.mu.map_or(true, |m| m == 0.0) || visc_lam || rans_sa)
     {
         let is_root = mpi_rank().unwrap_or(0) == 0;
         let mut solid_mask = vec![false; g.nx * g.ny];
@@ -1456,11 +1456,26 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
         // step per call. the mu/pr/wall params mirror the serial
         // advance2d_model_visc_rk2 call site.
         let mu0 = cfg.physics.mu.filter(|m| *m > 0.0);
-        let pr = 0.71f64;
+        let pr = cfg.physics.pr;
         let tw = cfg.physics.wall_temperature.unwrap_or(0.0);
         while t < t_end && steps < max_steps {
-            let r = match mu0 {
-                Some(m) => march_viscous2d_mpi(
+            let pr_t = turb.as_ref().map_or(0.9, |tb| tb.params.pr_t);
+            let r = match (&mu0, &turb) {
+                (Some(m), Some(tb)) => march_rans2d_mpi(
+                    &st,
+                    tb,
+                    &g,
+                    model,
+                    &bc,
+                    cfl,
+                    1,
+                    &solid_mask,
+                    *m,
+                    pr,
+                    pr_t,
+                    tw,
+                ),
+                (Some(m), None) => march_viscous2d_mpi(
                     &st,
                     &g,
                     model,
@@ -1469,14 +1484,25 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
                     f64::INFINITY,
                     1,
                     &solid_mask,
-                    m,
+                    *m,
                     pr,
                     tw,
-                ),
-                None => march_euler2d_mpi(&st, &g, model, &bc, cfl, f64::INFINITY, 1, &solid_mask),
+                )
+                .map(|r| (r, None)),
+                (None, _) => {
+                    march_euler2d_mpi(&st, &g, model, &bc, cfl, f64::INFINITY, 1, &solid_mask)
+                        .map(|r| (r, None))
+                }
             };
+            if let Some(nt) = r.as_ref().ok().and_then(|(_, nt)| nt.clone()) {
+                // keep the local turb field in lockstep with the gathered
+                // fortran transport output
+                if let Some(tb) = turb.as_mut() {
+                    tb.nu_tilde = nt;
+                }
+            }
             match r {
-                Ok(r) => {
+                Ok((r, _)) => {
                     if let Some(gathered) = r.state {
                         st = gathered;
                     }
@@ -2091,6 +2117,14 @@ fn write_run_log_2d(
 /// solve a 2d rans case with the spalart-allmaras model: viscous mean flow
 /// coupled to the transported nu_tilde, advancing both per heun stage.
 fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
+    let model = nufor_core::model_from_config(cfg);
+    // the fortran mpi rans lane covers the eqair closure without a body
+    // (masked bodies stay serial: the fortran kernel wall-treats domain
+    // faces only). run_case_2d builds the same turb state from the case
+    // config and routes it through march_rans2d_mpi under mpirun.
+    if mpi_launched() && matches!(model, ThermoModel::EqAir { .. }) && cfg.body.is_none() {
+        return run_case_2d(cfg, path);
+    }
     let g = match build_2d_mesh(&cfg.mesh) {
         Ok(g) => g,
         Err(e) => {
@@ -2099,7 +2133,7 @@ fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
         }
     };
     let gamma = cfg.physics.gamma;
-    let mut st = match ic2d_from_case(&cfg.initial_condition, &g, gamma) {
+    let mut st = match ic2d_from_case_model(&cfg.initial_condition, &g, gamma, model) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("initial condition error: {e}");
@@ -2238,27 +2272,25 @@ fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
                     break;
                 }
             }
-        } else if cfg.numerics.threads > 1 {
-            let nt = cfg.numerics.threads;
-            let step_cfg = nufor_core::StepConfig {
-                gamma,
-                cfl,
-                muscl: true,
-                nthreads: nt,
-            };
-            match nufor_core::advance2d_sa_rk2_par(&mut st, &mut turb, &g, &bc, step_cfg) {
-                Ok(dt) => {
-                    t += dt;
-                    true
-                }
-                Err(e) => {
-                    eprintln!("solver error: {e}");
-                    ok = false;
-                    break;
-                }
-            }
         } else {
-            match advance2d_sa_rk2(&mut st, &mut turb, &g, gamma, cfl, true, &bc) {
+            // the closure-aware sa driver: per-cell sutherland viscosity and
+            // the case's eos for pressure/temperature, threaded on
+            // cfg.numerics.threads. matches the fortran mpi rans lane.
+            match nufor_core::advance2d_sa_model_rk2(
+                &mut st,
+                &mut turb,
+                &g,
+                model,
+                cfl,
+                true,
+                &bc,
+                mu,
+                273.15,
+                110.4,
+                cfg.physics.wall_temperature.unwrap_or(0.0),
+                cfg.numerics.threads.max(1),
+                None,
+            ) {
                 Ok(dt) => {
                     t += dt;
                     true
@@ -2331,7 +2363,7 @@ fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
         if matches!(bc.north, Bc2d::NoSlipWall) {
             report_cf("top", false);
         }
-        write_case_vtk2d(path, &cfg.metadata.name, &g, &st, gamma)
+        write_case_vtk2d_model(path, &cfg.metadata.name, &g, &st, model)
     } else {
         1
     }
@@ -2712,10 +2744,6 @@ fn state3d(
         mz,
         e,
     })
-}
-
-fn write_case_vtk2d(path: &str, name: &str, g: &Grid2d, st: &ConservedState2d, gamma: f64) -> i32 {
-    write_case_vtk2d_model(path, name, g, st, ThermoModel::Perfect { gamma })
 }
 
 /// the snapshot writer dispatches on the case's closure so an eqair

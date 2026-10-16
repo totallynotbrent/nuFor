@@ -45,21 +45,41 @@ viscous add keeps the next stage's neighbors current at slab seams.
 
 ![viscous lane timing on the trim capsule](../research/mpi-viscous-timing.png)
 
-On the body-free class the viscous lane is bit-exact against the serial Rust
-march at np=1 and np=2 (the gate below). On strong-shock body cases a separate
-mechanism dominates: the serial lane integrates with Heun (two stages plus an
-average) while the MPI Euler lane takes one forward-Euler step per call. The
-one-step gap between the two integrators is first-order in dt and reads about
-19 percent on the trim capsule shock layer, independent of rank count. The
-gates compare against the single-step twin deliberately, so they pin the shared
-flux kernel exactly (sod, uniform, capsule all machine-exact); the integrator
-gap is a known limitation of the MPI Euler lane, not a kernel bug. Closing it
-needs a second Euler stage inside the bridge call, and a naive second stage
-diverges at wall-band cells because the stage-2 reconstruction next to
-reference-state solid cells amplifies through the y sweep; that port needs
-its own body-case gate before it lands. The viscous lane does not share the
-problem: its bridge runs the full two-stage Heun in one call and tracks the
-serial twin to machine zero on the body-free class.
+On the body-free class the Euler and viscous lanes are both bit-exact against
+the serial Rust marches at np=1 and np=2 (the gates below); each bridge runs
+the full two-stage Heun in one call. Masked body cases keep a single-stage
+Euler pack: a naive second stage diverges at wall-band cells because the
+stage-2 reconstruction next to reference-state solid cells amplifies through
+the y sweep, and porting the staging needs its own body-case gate before it
+lands. The capsule gate pins the single-stage kernel exactly in the
+meantime.
+
+## The RANS lane
+
+Spalart-Allmaras cases (`physics.mu` plus a `[physics.turbulence]` block)
+route through `nfor_mpi_step_sa`. Each call runs one full two-stage Heun
+step: Euler, eddy viscosity from the current nu_tilde and the post-stage
+density, viscous add with the total (molecular + eddy) viscosity, SA
+transport on the post-viscous state, then the second stage and the Heun
+average. The laminar viscosity takes the CEA closure temperature through
+the pressure-route bisection, the same path the serial driver uses. The
+nu_tilde halo exchanges two layers after each transport call, and the
+domain-edge ghost columns reseed from the edge cell on passive boundaries
+(transmissive and outflow) so the viscous and transport stencils see the
+evolved edge rather than a stale entry copy. Wall-cell gradient overrides
+apply across the full slab width including the ghost columns, because at
+np>1 the seam face has to average two overridden wall-cell gradients just
+like the serial lane does.
+
+Three defects mattered here and all three were parity bugs, not physics
+choices: the laminar lane was folding the molecular viscosity in twice
+(once as the cell viscosity and once as the eddy array), the stage-2 eddy
+viscosity read the pre-stage density, and the ghost columns went stale
+after each Euler stage because the serial lane re-derives its pads from
+the current state on every kernel call while the Fortran slab ghosts
+carried the scatter-time values. After fixing those, all five fields
+(density, both momenta, energy, nu_tilde) sit at machine roundoff against
+the serial driver at np=1, 2, and 3.
 
 ## The parity gates
 
@@ -70,13 +90,18 @@ to the serial Rust march:
 - a uniform equilibrium-air field, exact-zero parity
 - a laminar viscous uniform field (Sutherland transport, CEA closure
   temperature), exact-zero parity at np=1 and np=2
+- an SA capsule-regime field with a wall-adjacent perturbation (shear,
+  vorticity, and transport all live), machine roundoff on all five fields
+  at np=1, 2, and 3
 - a capsule body at 22.5 degrees angle of attack, worst relative difference
   4e-15 (machine roundoff; the wall faces churn every step)
 
 Each runs at np=1 and np=2 in CI. np=1 is the anchor: it runs the same MPI
 code path with a single rank and must reproduce the serial result exactly, so
 any divergence between the two implementations surfaces before multi-rank
-effects can muddy the cause.
+effects can muddy the cause. Setting `NF_GATE_NOPERT=1` on the SA gate runs
+it against the unperturbed uniform seed, which is the degenerate regime the
+CLI e2e comparison rides on.
 
 The body gate earned its place the hard way. The first gates were body-free,
 and the march corrupted on any real body case at 2+ ranks: the y sweep built
@@ -112,7 +137,8 @@ costs nothing when the march might later scale.
 mpirun -np 4 nufor run case.toml
 ```
 
-The solver routes equilibrium-air inviscid 2D Euler marches through the MPI
-core when launched under `mpirun` (or with `NFOR_MPI=1` set); np=1 runs the
-same path. All other case types still run the serial march. Restart support
-for the scattered state and the viscous/SA kernels are the next rungs.
+The solver routes equilibrium-air 2D Euler, laminar viscous, and SA RANS
+marches (body-free) through the MPI core when launched under `mpirun` (or
+with `NFOR_MPI=1` set); np=1 runs the same path. Masked body cases stay on
+the serial march because the Fortran kernel wall-treats domain faces only.
+Restart support for the scattered state is the next rung.

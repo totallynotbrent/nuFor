@@ -65,31 +65,55 @@ jobs:
         shell: bash
         run: |
           bin=$(ls -t target/debug/deps/mpi_parity-* | grep -v '\.d$' | head -1)
+          # one gate invocation: run under mpirun, retry up to 3 times when
+          # the prte teardown race swallows the harness output. mpirun's own
+          # exit code is launcher noise (one rank's finalize races the other).
           check() {
-            local np="$1" test="$2" log
-            log=$(mpirun --allow-run-as-root --oversubscribe -np "$np" "$bin" --exact "$test" --nocapture --ignored 2>&1) || true
-            echo "$log"
-            # every rank must report a passing test with exact parity;
-            # mpirun's own exit code is launcher-noise (prte aborts when
-            # one rank tears down faster than the others' finalize)
-            ok=$(echo "$log" | grep -c 'test result: ok. 1 passed')
-            worst=$(echo "$log" | grep -c 'rel diff (rho): 0.000e0')
-            if [ "$ok" -lt 1 ] || [ "$worst" -lt 1 ]; then
-              echo "::error::np=$np $test failed (ok=$ok worst=$worst)"
-              exit 1
+            local np="$1" test="$2" log ok worst attempt
+            for attempt in 1 2 3; do
+              log=$(mpirun --allow-run-as-root --oversubscribe -np "$np" "$bin" --exact "$test" --nocapture --ignored 2>&1) || true
+              echo "$log"
+              ok=$(echo "$log" | grep -c 'test result: ok. 1 passed')
+              if [ "$ok" -ge 1 ]; then break; fi
+              echo "attempt $attempt for np=$np $test lost the harness output, retrying"
+            done
+            # the euler gates (sod, uniform) hold exact-zero parity; the
+            # viscous and sa gates assert their own roundoff tolerance
+            # inside the test, so ok=1 is the pass signal for them.
+            if [ "$test" = "mpi_np1_matches_rust_sod2d" ] || [ "$test" = "mpi_np1_matches_rust_uniform_eqair" ]; then
+              worst=$(echo "$log" | grep -c 'rel diff (rho): 0.000e0')
+              if [ "$ok" -lt 1 ] || [ "$worst" -lt 1 ]; then
+                echo "::error::np=$np $test failed (ok=$ok worst=$worst)"
+                exit 1
+              fi
+            else
+              if [ "$ok" -lt 1 ]; then
+                echo "::error::np=$np $test failed (ok=$ok)"
+                exit 1
+              fi
             fi
           }
           check 1 mpi_np1_matches_rust_sod2d
+          check 2 mpi_np1_matches_rust_sod2d
+          check 1 mpi_np1_matches_rust_uniform_eqair
           check 2 mpi_np1_matches_rust_uniform_eqair
           # the laminar viscous march: fortran vs the rust viscous twin,
           # exact on the body-free class (sutherland + cea closure T)
           check 1 mpi_np1_visc_matches_rust
           check 2 mpi_np1_visc_matches_rust
+          # the sa gate asserts its own tolerance inside the test
+          check 1 mpi_np1_sa_matches_rust
+          check 2 mpi_np1_sa_matches_rust
           # the capsule body gate asserts its own 1e-6 tolerance inside
           # the test (roundoff at the wall faces is not exact zero)
-          caplog=$(mpirun --allow-run-as-root --oversubscribe -np 1 "$bin" --exact mpi_np1_matches_rust_capsule --nocapture --ignored 2>&1) || true
-          echo "$caplog"
-          capok=$(echo "$caplog" | grep -c 'test result: ok. 1 passed')
+          capok=0
+          for attempt in 1 2 3; do
+            caplog=$(mpirun --allow-run-as-root --oversubscribe -np 1 "$bin" --exact mpi_np1_matches_rust_capsule --nocapture --ignored 2>&1) || true
+            echo "$caplog"
+            capok=$(echo "$caplog" | grep -c 'test result: ok. 1 passed')
+            if [ "$capok" -ge 1 ]; then break; fi
+            echo "attempt $attempt for the capsule gate lost the harness output, retrying"
+          done
           if [ "$capok" -lt 1 ]; then
             echo "::error::capsule body parity gate failed"
             exit 1

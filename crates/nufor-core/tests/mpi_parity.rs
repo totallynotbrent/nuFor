@@ -4,8 +4,8 @@
 //! mpirun, see scratch/hermes-mpi-gates.sh).
 use nufor_core::ffi_mpi::{march_euler2d_mpi, march_viscous2d_mpi};
 use nufor_core::{
-    advance2d_model, advance2d_model_visc_rk2, grid2d, prim_to_cons2d, Bc2d, Boundaries2d,
-    ConservedState2d, ThermoModel,
+    advance2d_model, advance2d_model_rk2, advance2d_model_visc_rk2, grid2d, prim_to_cons2d, Bc2d,
+    Boundaries2d, ConservedState2d, ThermoModel,
 };
 
 fn uniform_eqair_state(g: &nufor_core::Grid2d, rho: f64, u: f64, p: f64) -> ConservedState2d {
@@ -80,7 +80,7 @@ fn mpi_np1_matches_rust_sod2d_inner() {
     let mut t = 0.0;
     let mut dt_ref_last = 0.0;
     for _ in 0..nsteps {
-        let (dt, _) = advance2d_model(
+        let (dt, _) = advance2d_model_rk2(
             &mut st_ref,
             &g,
             ThermoModel::EqAir { r_gas: 287.0 },
@@ -183,7 +183,7 @@ fn mpi_np1_matches_rust_uniform_eqair_inner() {
     let mut st_ref = uniform_eqair_state(&g, 1.0, 100.0, 1000.0);
     let mut dt_ref_last = 0.0;
     for _ in 0..nsteps {
-        let (dt, _) = advance2d_model(
+        let (dt, _) = advance2d_model_rk2(
             &mut st_ref,
             &g,
             ThermoModel::EqAir { r_gas: 287.0 },
@@ -313,7 +313,24 @@ fn mpi_np1_visc_matches_rust_inner() {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(5);
-    let mut st_ref = uniform_eqair_state(&g, 1.0, 100.0, 1000.0);
+    // capsule-regime seed (the eqair fits' intended envelope; the old
+    // rho=1.0 seed saturated the energy bracket and made every viscous
+    // flux identically zero) with a wall-adjacent perturbation so the
+    // gradients, shear, and conduction are actually exercised.
+    let (rho0, u0, p0) = (0.004f64, 6960.0f64, 287.0f64);
+    let perturb = |st: &mut nufor_core::ConservedState2d| {
+        let n = g.nx * g.ny;
+        for k in 0..n {
+            let (i, j) = (k % g.nx, k / g.nx);
+            if j == 0 && i % 7 == 0 {
+                st.rho[k] *= 1.05;
+                st.mx[k] *= 1.10;
+                st.e[k] *= 1.02;
+            }
+        }
+    };
+    let mut st_ref = uniform_eqair_state(&g, rho0, u0, p0);
+    perturb(&mut st_ref);
     let mut dt_ref_last = 0.0;
     for _ in 0..nsteps {
         let (dt, _) = advance2d_model_visc_rk2(
@@ -337,7 +354,8 @@ fn mpi_np1_visc_matches_rust_inner() {
     println!("rust visc dt last: {dt_ref_last:.6e}");
     let n = g.nx * g.ny;
     let solid = vec![false; n];
-    let st0 = uniform_eqair_state(&g, 1.0, 100.0, 1000.0);
+    let mut st0 = uniform_eqair_state(&g, rho0, u0, p0);
+    perturb(&mut st0);
     let r = march_viscous2d_mpi(
         &st0,
         &g,
@@ -544,6 +562,264 @@ fn mpi_np1_matches_rust_capsule() {
     std::thread::Builder::new()
         .stack_size(64 * 1024 * 1024)
         .spawn(mpi_np1_matches_rust_capsule_inner)
+        .expect("spawn mpi test thread")
+        .join()
+        .expect("mpi test thread panicked");
+}
+
+// the sa rans gate: body-free eqair case with a no-slip south wall so the
+// sa transport sees a real wall (wall distance, production, damping).
+// the mpi path (np=1) must track the serial advance2d_sa_model_rk2 to
+// 1e-6 over n steps on the state AND nu_tilde. non-uniform seed so the
+// viscous + transport fluxes are actually exercised.
+fn mpi_np1_sa_matches_rust_inner() {
+    use nufor_core::ffi_mpi::march_rans2d_mpi;
+    use nufor_core::{advance2d_sa_model_rk2, SaParams, TurbState};
+
+    let g = grid2d(48, 32, 0.0, 1.0, 0.0, 1.0).unwrap();
+    let bc = Boundaries2d {
+        west: Bc2d::Transmissive,
+        east: Bc2d::Transmissive,
+        south: Bc2d::NoSlipWall,
+        north: Bc2d::Transmissive,
+    };
+    let (mu0, pr, pr_t, tw) = (1.716e-5, 0.71, 0.9, 0.0);
+    let nsteps: usize = std::env::var("NF_MPI_STEPS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(3);
+    let n = g.nx * g.ny;
+    // capsule-regime seed (the eqair fits' envelope; rho=1.0 saturates the
+    // energy bracket) with a wall-adjacent perturbation so gradients,
+    // shear, vorticity, and the transport are all nonzero.
+    let (rho0, u0, p0) = (0.004f64, 6960.0f64, 287.0f64);
+    let mut st_ref = uniform_eqair_state(&g, rho0, u0, p0);
+    let nopert = std::env::var("NF_GATE_NOPERT").is_ok();
+    for k in 0..n {
+        let (i, j) = (k % g.nx, k / g.nx);
+        if !nopert && j == 0 && i % 7 == 0 {
+            st_ref.rho[k] *= 1.05;
+            st_ref.mx[k] *= 1.10;
+            st_ref.e[k] *= 1.02;
+        }
+    }
+    let d = nufor_core::wall_distance2d(&g, &bc, 1.0);
+    let nu = mu0 / rho0;
+    let mut turb_ref = TurbState {
+        nu_tilde: vec![3.0 * nu; n],
+        d,
+        params: SaParams {
+            mu: mu0,
+            pr,
+            nu_tilde_inf: 3.0 * nu,
+            pr_t,
+        },
+    };
+    let mut dt_ref_last = 0.0;
+    for _ in 0..nsteps {
+        let dt = advance2d_sa_model_rk2(
+            &mut st_ref,
+            &mut turb_ref,
+            &g,
+            ThermoModel::EqAir { r_gas: 287.0 },
+            0.4,
+            true,
+            &bc,
+            mu0,
+            273.15,
+            110.4,
+            tw,
+            1,
+            None,
+        )
+        .unwrap();
+        dt_ref_last = dt;
+    }
+    println!("rust sa dt last: {dt_ref_last:.6e}");
+
+    let mut st0 = uniform_eqair_state(&g, rho0, u0, p0);
+    for k in 0..n {
+        let (i, j) = (k % g.nx, k / g.nx);
+        if !nopert && j == 0 && i % 7 == 0 {
+            st0.rho[k] *= 1.05;
+            st0.mx[k] *= 1.10;
+            st0.e[k] *= 1.02;
+        }
+    }
+    let d2 = nufor_core::wall_distance2d(&g, &bc, 1.0);
+    let turb0 = TurbState {
+        nu_tilde: vec![3.0 * nu; n],
+        d: d2,
+        params: SaParams {
+            mu: mu0,
+            pr,
+            nu_tilde_inf: 3.0 * nu,
+            pr_t,
+        },
+    };
+    let solid = vec![false; n];
+    let (r, nt_out) = march_rans2d_mpi(
+        &st0,
+        &turb0,
+        &g,
+        ThermoModel::EqAir { r_gas: 287.0 },
+        &bc,
+        0.4,
+        nsteps,
+        &solid,
+        mu0,
+        pr,
+        pr_t,
+        tw,
+    )
+    .unwrap();
+    println!("fortran sa dt last: {:.6e}", r.dt_last);
+    let st_mpi = match r.state {
+        Some(s) => s,
+        None => return,
+    };
+    let nt_mpi = match nt_out {
+        Some(v) => v,
+        None => return,
+    };
+    // per-component field-scale denominators: a per-cell ratio blows up on
+    // dust values (my at the wall row sits ~1e-9 against a 1e-2 field scale)
+    // and would gate noise, not parity.
+    let scale = |v: &[f64]| v.iter().map(|x| x.abs()).fold(0.0f64, f64::max).max(1e-30);
+    let (s_rho, s_mx, s_my, s_e, s_nt) = (
+        scale(&st_ref.rho),
+        scale(&st_ref.mx),
+        scale(&st_ref.my),
+        scale(&st_ref.e),
+        scale(&turb_ref.nu_tilde),
+    );
+    let mut worst: f64 = 0.0;
+    let mut worst_k: usize = 0;
+    let mut worst_field = "";
+    let per_cell: Vec<[f64; 5]> = st_mpi
+        .rho
+        .iter()
+        .zip(&st_ref.rho)
+        .zip(&st_mpi.mx)
+        .zip(&st_ref.mx)
+        .zip(&st_mpi.my)
+        .zip(&st_ref.my)
+        .zip(&st_mpi.e)
+        .zip(&st_ref.e)
+        .zip(&nt_mpi)
+        .zip(&turb_ref.nu_tilde)
+        .map(|(((((((((r0, r1), m0), m1), y0), y1), e0), e1), t0), t1)| {
+            [
+                (r0 - r1).abs() / s_rho,
+                (m0 - m1).abs() / s_mx,
+                (y0 - y1).abs() / s_my,
+                (e0 - e1).abs() / s_e,
+                (t0 - t1).abs() / s_nt,
+            ]
+        })
+        .collect();
+    for (k, fields) in per_cell.iter().enumerate() {
+        for (name, d) in [
+            ("rho", fields[0]),
+            ("mx", fields[1]),
+            ("my", fields[2]),
+            ("e", fields[3]),
+            ("nt", fields[4]),
+        ] {
+            if d > worst {
+                worst = d;
+                worst_k = k;
+                worst_field = name;
+            }
+        }
+    }
+    println!(
+        "sa mpi-vs-rust worst rel diff: {worst:.3e} on {worst_field} at cell i={} j={}",
+        worst_k % g.nx,
+        worst_k / g.nx
+    );
+    {
+        let fields: [(&str, Vec<f64>, f64); 5] = [
+            (
+                "rho",
+                st_mpi
+                    .rho
+                    .iter()
+                    .zip(&st_ref.rho)
+                    .map(|(a, b)| (a - b).abs())
+                    .collect(),
+                s_rho,
+            ),
+            (
+                "mx",
+                st_mpi
+                    .mx
+                    .iter()
+                    .zip(&st_ref.mx)
+                    .map(|(a, b)| (a - b).abs())
+                    .collect(),
+                s_mx,
+            ),
+            (
+                "my",
+                st_mpi
+                    .my
+                    .iter()
+                    .zip(&st_ref.my)
+                    .map(|(a, b)| (a - b).abs())
+                    .collect(),
+                s_my,
+            ),
+            (
+                "e",
+                st_mpi
+                    .e
+                    .iter()
+                    .zip(&st_ref.e)
+                    .map(|(a, b)| (a - b).abs())
+                    .collect(),
+                s_e,
+            ),
+            (
+                "nt",
+                nt_mpi
+                    .iter()
+                    .zip(&turb_ref.nu_tilde)
+                    .map(|(a, b)| (a - b).abs())
+                    .collect(),
+                s_nt,
+            ),
+        ];
+        for (name, dv, s) in &fields {
+            let (mut km, mut mx) = (0usize, 0.0f64);
+            for (k, &x) in dv.iter().enumerate() {
+                if x > mx {
+                    mx = x;
+                    km = k;
+                }
+            }
+            println!(
+                "  field {name}: worst abs {mx:.3e} rel {:.3e} at i={} j={}",
+                mx / s,
+                km % g.nx,
+                km / g.nx
+            );
+        }
+    }
+    assert!(
+        worst < 1e-6,
+        "sa mpi-vs-rust drift {worst:.3e} on {worst_field} at cell {}",
+        worst_k
+    );
+    nufor_core::ffi_mpi::mpi_shutdown();
+}
+
+#[test]
+#[ignore] // run under mpirun, see the ci parity-smoke step
+fn mpi_np1_sa_matches_rust() {
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(mpi_np1_sa_matches_rust_inner)
         .expect("spawn mpi test thread")
         .join()
         .expect("mpi test thread panicked");

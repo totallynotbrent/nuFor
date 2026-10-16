@@ -132,6 +132,15 @@ contains
                        MPI_COMM_WORLD, ierr)
   end subroutine
 
+  subroutine global_min(local, global, d)
+    real(DP), intent(in) :: local
+    real(DP), intent(out) :: global
+    type(decomp_t), intent(in) :: d
+    integer :: ierr
+    call mpi_allreduce(local, global, 1, MPI_DOUBLE_PRECISION, MPI_MIN, &
+                       MPI_COMM_WORLD, ierr)
+  end subroutine
+
   ! is this rank the output rank (rank 0)?
   pure function is_rank0(d) result(r)
     type(decomp_t), intent(in) :: d
