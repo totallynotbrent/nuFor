@@ -145,7 +145,11 @@ flowchart LR
     door (case files, CLI, UI, output) and never calls MPI. Design,
     gates, and measured scaling: [[numerics/parallel/mpi|the MPI page]].
     Phase F1 parallelizes the euler_2d march (the capsule path) with the
-    np=1 bit-identity anchor; phase F2 adds viscous+SA; phase F3 lands
+    np=1 bit-identity anchor; phase F2 adds viscous+SA and is done: the
+    laminar viscous and SA lanes run the full two-stage Heun in one
+    bridge call and sit at machine roundoff against the serial drivers
+    on all five fields at np=1, 2, and 3, with the CLI routing
+    body-free eqair cases through the Fortran core. Phase F3 lands
     all new physics (live 2T, species) MPI-native from day one, which
     reorders rungs 5 and 8 to sit inside this one.
 

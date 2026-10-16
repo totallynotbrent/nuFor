@@ -70,6 +70,50 @@ extern "C" {
         dt_out: *mut f64,
         ierr: *mut i32,
     );
+    fn nfor_mpi_step_sa(
+        rho: *const f64,
+        mx: *const f64,
+        my: *const f64,
+        e: *const f64,
+        nt: *const f64,
+        d_slab: *const f64,
+        nloc: i32,
+        nx_l: i32,
+        ny: i32,
+        dx: f64,
+        dy: f64,
+        gamma: f64,
+        cfl: f64,
+        dt_cap: f64,
+        bc_w: i32,
+        bc_e: i32,
+        bc_s: i32,
+        bc_n: i32,
+        bc_vals: *const f64,
+        solid: *const i32,
+        mu0: f64,
+        t0_ref: f64,
+        s_par: f64,
+        pr: f64,
+        pr_t: f64,
+        tw: f64,
+        r_gas: f64,
+        rho2: *mut f64,
+        mx2: *mut f64,
+        my2: *mut f64,
+        e2: *mut f64,
+        nt2: *mut f64,
+        dt_out: *mut f64,
+        ierr: *mut i32,
+    );
+    fn nfor_mpi_gather_nt(
+        nt: *const f64,
+        nloc: i32,
+        nx: i32,
+        ny: i32,
+        out: *mut f64,
+        ierr: *mut i32,
+    );
     fn nfor_mpi_step(
         rho: *const f64,
         mx: *const f64,
@@ -662,6 +706,231 @@ pub fn march_viscous2d_mpi(
         wall,
         dt_last,
     })
+}
+
+/// the mpi rans march: one coupled sa heun step per call through the
+/// fortran core. nu_tilde and the wall distance travel with the state;
+/// the gathered nu_tilde returns alongside the state on rank 0.
+/// mirrors march_viscous2d_mpi's structure: caller owns the chunking.
+#[allow(clippy::too_many_arguments)]
+pub fn march_rans2d_mpi(
+    state0: &ConservedState2d,
+    turb0: &crate::turb2d::TurbState,
+    g: &Grid2d,
+    model: ThermoModel,
+    bc: &Boundaries2d,
+    cfl: f64,
+    max_steps: usize,
+    solid: &[bool],
+    mu0: f64,
+    pr: f64,
+    pr_t: f64,
+    wall_temperature: f64,
+) -> Result<(MpiMarchResult, Option<Vec<f64>>), Error> {
+    if !matches!(model, ThermoModel::EqAir { .. }) {
+        return Err(Error::InvalidArgs);
+    }
+    let model_r_gas = match model {
+        ThermoModel::EqAir { r_gas } => r_gas,
+        _ => 287.0,
+    };
+    MpiSession::new()?;
+    let (rank, i0, nx_local_i) = MpiSession::case_init(g.nx, g.ny)?;
+    let nx_local = nx_local_i as usize;
+    static SHIPPED_S: std::sync::Once = std::sync::Once::new();
+    SHIPPED_S.call_once(|| {
+        ship_cea_table();
+        ship_tgas1_tables();
+    });
+
+    let n = g.nx * g.ny;
+    let mut rho_l = vec![0.0f64; nx_local * g.ny];
+    let mut mx_l = vec![0.0f64; nx_local * g.ny];
+    let mut my_l = vec![0.0f64; nx_local * g.ny];
+    let mut e_l = vec![0.0f64; nx_local * g.ny];
+    let mut nt_l = vec![0.0f64; nx_local * g.ny];
+    let mut d_l = vec![0.0f64; nx_local * g.ny];
+    for j in 0..g.ny {
+        for i in 0..nx_local {
+            let k_src = j * g.nx + i0 as usize + i;
+            let k_dst = j * nx_local + i;
+            rho_l[k_dst] = state0.rho[k_src];
+            mx_l[k_dst] = state0.mx[k_src];
+            my_l[k_dst] = state0.my[k_src];
+            e_l[k_dst] = state0.e[k_src];
+            nt_l[k_dst] = turb0.nu_tilde[k_src];
+            d_l[k_dst] = turb0.d[k_src];
+        }
+    }
+    let solid_i32: Vec<i32> = {
+        let mut s = vec![0i32; nx_local * g.ny];
+        for j in 0..g.ny {
+            for i in 0..nx_local {
+                s[j * nx_local + i] = solid[j * g.nx + i0 as usize + i] as i32;
+            }
+        }
+        s
+    };
+    let bc_code = |b: &crate::solver2d::Bc2d| -> (i32, [f64; 5]) {
+        use crate::solver2d::Bc2d::*;
+        match b {
+            Transmissive | SupersonicOutflow => (0, [0.0; 5]),
+            SupersonicInflow { rho, u, v, p } => {
+                let ein = crate::eqair::energy_from_pressure(&[*rho], &[*p])
+                    .ok()
+                    .and_then(|v| v.first().copied())
+                    .unwrap_or(0.0);
+                (1, [*rho, *u, *v, *p, ein])
+            }
+            SlipWall => (3, [0.0; 5]),
+            NoSlipWall => (4, [0.0; 5]),
+            ProfileInflow { .. } => (1, [0.0; 5]),
+        }
+    };
+    let (bw, bvw) = bc_code(&bc.west);
+    let (be, bve) = bc_code(&bc.east);
+    let (bs, bvs) = bc_code(&bc.south);
+    let (bn, bvn) = bc_code(&bc.north);
+    let _ = (bvw, bve, bvs, bvn);
+    let bc_vals = [bvw, bve, bvs, bvn].concat();
+
+    let sa = turb0.params;
+    let mut t: f64 = 0.0;
+    let mut steps: usize = 0;
+    let mut dt_last: f64 = 0.0;
+    let wall_start = std::time::Instant::now();
+    let mut ierr: i32 = 0;
+    let mut rho2 = vec![0.0f64; rho_l.len()];
+    let mut mx2 = vec![0.0f64; mx_l.len()];
+    let mut my2 = vec![0.0f64; my_l.len()];
+    let mut e2 = vec![0.0f64; e_l.len()];
+    let mut nt2 = vec![0.0f64; nt_l.len()];
+
+    while steps < max_steps {
+        // the sa diffusivity cap from the full (slab) field, matching the
+        // serial lane's global cap: rho_min floored at 1e-6, nt_max
+        // floored at nu_tilde_inf, nu_sa = mu/rho_min + nt_max.
+        let rho_min = rho_l
+            .iter()
+            .cloned()
+            .fold(f64::INFINITY, f64::min)
+            .max(1e-6);
+        let nt_max = nt_l.iter().cloned().fold(sa.nu_tilde_inf, f64::max);
+        let nu_sa = mu0 / rho_min + nt_max;
+        let dt_sa = 0.25 * g.dx.min(g.dy).powi(2) * crate::sa::SIGMA / nu_sa;
+        let mut dt: f64 = 0.0;
+        unsafe {
+            nfor_mpi_step_sa(
+                rho_l.as_ptr(),
+                mx_l.as_ptr(),
+                my_l.as_ptr(),
+                e_l.as_ptr(),
+                nt_l.as_ptr(),
+                d_l.as_ptr(),
+                rho_l.len() as i32,
+                nx_local as i32,
+                g.ny as i32,
+                g.dx,
+                g.dy,
+                1.4,
+                cfl,
+                dt_sa,
+                bw,
+                be,
+                bs,
+                bn,
+                bc_vals.as_ptr(),
+                solid_i32.as_ptr(),
+                mu0,
+                273.15,
+                110.4,
+                pr,
+                pr_t,
+                wall_temperature,
+                model_r_gas,
+                rho2.as_mut_ptr(),
+                mx2.as_mut_ptr(),
+                my2.as_mut_ptr(),
+                e2.as_mut_ptr(),
+                nt2.as_mut_ptr(),
+                &mut dt,
+                &mut ierr,
+            );
+        }
+        if ierr != 0 {
+            return Err(Error::InvalidArgs);
+        }
+        std::mem::swap(&mut rho_l, &mut rho2);
+        std::mem::swap(&mut mx_l, &mut mx2);
+        std::mem::swap(&mut my_l, &mut my2);
+        std::mem::swap(&mut e_l, &mut e2);
+        std::mem::swap(&mut nt_l, &mut nt2);
+        t += dt;
+        dt_last = dt;
+        steps += 1;
+    }
+    let wall = wall_start.elapsed().as_secs_f64();
+
+    // gather state + nu_tilde
+    let mut gathered = vec![0.0f64; 4 * n];
+    let mut gathered_nt = vec![0.0f64; n];
+    unsafe {
+        nfor_mpi_gather(
+            rho_l.as_ptr(),
+            mx_l.as_ptr(),
+            my_l.as_ptr(),
+            e_l.as_ptr(),
+            rho_l.len() as i32,
+            g.nx as i32,
+            g.ny as i32,
+            gathered.as_mut_ptr(),
+            &mut ierr,
+        );
+    }
+    if ierr != 0 {
+        return Err(Error::InvalidArgs);
+    }
+    unsafe {
+        nfor_mpi_gather_nt(
+            nt_l.as_ptr(),
+            nt_l.len() as i32,
+            g.nx as i32,
+            g.ny as i32,
+            gathered_nt.as_mut_ptr(),
+            &mut ierr,
+        );
+    }
+    if ierr != 0 {
+        return Err(Error::InvalidArgs);
+    }
+    let state = if rank == 0 {
+        let mut st = ConservedState2d {
+            rho: vec![0.0; n],
+            mx: vec![0.0; n],
+            my: vec![0.0; n],
+            e: vec![0.0; n],
+        };
+        for k in 0..n {
+            st.rho[k] = gathered[k * 4];
+            st.mx[k] = gathered[k * 4 + 1];
+            st.my[k] = gathered[k * 4 + 2];
+            st.e[k] = gathered[k * 4 + 3];
+        }
+        Some(st)
+    } else {
+        None
+    };
+    let nt_out = if rank == 0 { Some(gathered_nt) } else { None };
+    Ok((
+        MpiMarchResult {
+            state,
+            steps,
+            time: t,
+            wall,
+            dt_last,
+        },
+        nt_out,
+    ))
 }
 
 /// whether this process was launched under mpirun with more than one rank
