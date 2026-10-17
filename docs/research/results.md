@@ -45,10 +45,15 @@ wall, nose-only domain at global dt, 420k steps.
 
 | quantity | value |
 |---|---|
-| edge plateau $\rho_e$, $T_e$, $p_e$ | 2.25e-4 kg/m3, 5040 K, 503 Pa |
+| edge plateau $\rho_e$, $T_e$, $p_e$ | 2.3e-4 kg/m3, 5040 K, 505 Pa |
 | planar closed form on the sim's edge state | 8.48 W/cm2 |
-| wall conductor at the stagnation face | 10.73 W/cm2 |
-| ratio, conductor / closed form | 1.27 |
+| wall conductor, settled-window mean (t > 0.7 ms) | 10.9 W/cm2 |
+| conductor band over the settled window | 7.4 to 14.0 W/cm2 |
+| ratio, settled mean / closed form | 1.28 |
+
+The 660k-step chain replaced the old single reading: the conductor
+holds a quasi-steady band instead of converging to a point, so the
+citable number is the mean and spread above.
 
 Details and the honest caveats: [[numerics/foundations/fay-riddell|Fay-Riddell stagnation heating]].
 

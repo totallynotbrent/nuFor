@@ -28,10 +28,14 @@ when their gates pass.
   passes are threaded; the hi-res anchor runs 8x faster than the serial
   march (3.96 h for 11,549 steps at 1280x640 on my desktop).
 - Fay-Riddell stagnation heating gate (rung 6): done. The
-  wall-resolved cylinder gate closes at conductor 10.7 W/cm2 vs the
-  planar closed form 8.5 on the march's own edge state (+27%, the
-  conductor still converging downward); wall heat flux is citable
-  output now.
+  wall-resolved cylinder gate ran a full 660k-step continuous chain:
+  the conductor holds a quasi-steady band of 7.4 to 14.0 W/cm2
+  (settled mean 10.9) against the planar closed form 8.5 on the
+  march's own edge state, so the citable number is a mean with a
+  spread. The band is stagnation-region momentum residue sloshing
+  the wall gradient, not a convergence trend; closing the last gap
+  needs the cp and Lewis-number corrections on the march's own wall
+  state. Wall heat flux is citable output now.
 - Body-fitted O-grid: the sphere-cone capsule runs on a curvilinear
   O-grid (`cases/capsule-reentry-ogrid`) with the nose seam treated
   as a symmetry plane. Four geometry/flux defects that poisoned the
@@ -214,8 +218,8 @@ reads C_D 0.406, L/D 0.371, peak pressure 1.17 MPa at 8217 K, and
 lands inside the Newtonian trim band; the previous anchor numbers
 (3.96 h for 11549 steps) predate the rebuild. Wall heat flux became
 citable output at rung 6: the Fay-Riddell gate validates the wall
-closures, and the conductor reads above the planar closed form with
-the gap still converging downward. The defensible
+closures, and the conductor reads as a quasi-steady band (mean 10.9,
+spread 7.4 to 14.0 W/cm2) against the planar closed form's 8.5. The defensible
 report posture: Newtonian numbers stay the design basis, the CFD sweep
 is the confirmatory run with a limitations paragraph, and rungs 5-6
 are the upgrade path.

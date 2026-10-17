@@ -92,24 +92,36 @@ conduction) rather than a handbook number.
 
 ## The gate result
 
-420k steps at global dt, zero bad cells, the thermal sublayer
-resolved (~3 mm on a 250 um first cell). The march's own edge
-plateau: $\rho_e = 2.25 \times 10^{-4}$ kg/m³, $T_e$ = 5040 K,
-$p_e$ = 503 Pa, $\beta$ = 2114 s⁻¹.
+660k steps at global dt in one continuous chain, zero bad cells,
+the thermal sublayer resolved (~3 mm on a 250 um first cell). The
+march's own edge plateau: $\rho_e \approx 2.3 \times 10^{-4}$
+kg/m³, $T_e \approx$ 5040 K, $p_e \approx$ 505 Pa, $\beta$ = 2114
+s⁻¹, steady across the settled window.
+
+The conductor does not settle to a single number; it holds a
+quasi-steady band. Across the settled window (t > 0.7 ms) the peak
+stagnation heat flux breathes between 9.6 and 14.0 W/cm² with a mean
+of 10.9 and a standard deviation of 1.7:
 
 | quantity | value |
 |---|---|
 | planar closed form $q_{2D}$ on the sim's edge state | 8.48 W/cm² |
-| wall conductor $q_w$ at the stagnation face | 10.73 W/cm² |
-| ratio | 1.27 |
+| wall conductor, settled-window mean | 10.9 W/cm² |
+| band (min to max over the settled window) | 7.4 to 14.0 W/cm² |
+| last-three-chunk mean at the chain's end | 9.8 W/cm² |
+| ratio, settled mean / closed form | 1.28 |
 
-The conductor reads high and converges downward across extensions
-(11.0 at 360k, 10.7 at 420k) as the stagnation-band momentum residue
-(~30 m/s, ~0.5% of the edge velocity) decays; the band velocity
-sloshes the one-sided temperature gradient steeper than the steady
-layer would. The +27% spread is the gate's honest first reading:
-the closed form assumes a steady Hiemenz layer, constant $c_p$, and
-Lewis number one; the march has none of those guarantees mid-transit.
+The swing is the stagnation-band momentum residue: a few tens of
+m/s of band velocity (~0.5% of the edge velocity) sloshing the
+one-sided wall gradient steeper and shallower than the steady layer
+would, on a time scale comparable to the band's own transit. The
+earlier single reading of 10.73 at 420k steps was one sample of
+this band, not a convergence point; the longer chain shows the
+residue does not decay monotonically, it persists. The closed form
+(8.48) sits near the band's floor, and the band's mean reads about
+28% above it. Part of that spread is physics the closed form does
+not carry: it assumes a steady Hiemenz layer, constant $c_p$, and
+Lewis number one, and the march has none of those guarantees.
 
 ![the gate: stagnation-line thermal structure and wall heat flux vs the planar closed form](../research/fay-riddell-gate.png)
 
@@ -117,5 +129,9 @@ What the gate pins: the eqair bow shock forms at the right standoff
 (~0.43 m vs Casseau's), the sublayer is monotone with no
 checkerboard, the conductor magnitude is physical, and the
 closed-form chain (shock state to $\beta$ to $q$) reproduces the
-solver's answer to 27% on a first wall-resolved run. Wall heat flux
-is now a citable output.
+solver's answer to within the band's spread on a wall-resolved run.
+The honest citable statement is a mean with a spread, not a point:
+9 to 11 W/cm² on the 8.5 W/cm² closed form. Closing the remaining
+gap needs the $c_p$ and Lewis-number corrections to the closed form
+on the march's own wall state, which is the next piece of this
+rung.
