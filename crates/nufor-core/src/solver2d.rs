@@ -149,6 +149,19 @@ pub enum Bc2d {
     Transmissive,
     /// fixed freestream primitive state, used at a supersonic inflow face.
     SupersonicInflow { rho: f64, u: f64, v: f64, p: f64 },
+    /// subsonic reservoir inflow: the ghost is the isentropic expansion
+    /// of a (pt, tt) reservoir to the local interior pressure, velocity
+    /// directed into the domain. the interior pressure feeding the ghost
+    /// lets acoustic waves leave through the inflow face.
+    ReservoirInflow {
+        pt: f64,
+        tt: f64,
+        gamma: f64,
+        gas_const: f64,
+    },
+    /// subsonic outflow at a fixed back pressure: the ghost copies the
+    /// interior except the pressure, which is pinned.
+    SubsonicOutflow { p_back: f64 },
     /// inflow carrying a boundary-layer profile: u(y)/v(y) from the profile,
     /// rho/p from the freestream values.
     ProfileInflow {
@@ -187,6 +200,7 @@ pub(crate) fn ghost_value(
     var: usize,
     normal_var: usize,
     face_pos: f64,
+    p_int: f64,
 ) -> f64 {
     match bc {
         Bc2d::Transmissive | Bc2d::SupersonicOutflow => interior,
@@ -210,6 +224,49 @@ pub(crate) fn ghost_value(
             3 => *p,
             _ => *u,
         },
+        Bc2d::ReservoirInflow {
+            pt,
+            tt,
+            gamma,
+            gas_const,
+        } => {
+            // expand the reservoir to the interior pressure; var 3 is the
+            // closure variable (p for perfect gas, e_int otherwise) and
+            // the caller passes the interior value of it.
+            // the ghost expands the reservoir isentropically to the
+            // interior face pressure for every variable, so the inflow
+            // lets acoustic waves reflect back upstream (the standard
+            // subsonic stagnation-inflow ghost). p_int carries the
+            // interior closure value (pressure on the perfect-gas lanes)
+            // regardless of which variable this call answers.
+            let p_loc = if var == 3 {
+                interior.max(1e-9)
+            } else {
+                p_int.max(1e-9)
+            };
+            let g = *gamma;
+            let cp = g * gas_const / (g - 1.0);
+            let pr = (p_loc / pt).clamp(1e-9, 1.0);
+            let t_loc = tt * pr.powf((g - 1.0) / g);
+            let rho_loc = p_loc / (gas_const * t_loc.max(1.0));
+            let u_loc = (2.0 * cp * (tt - t_loc)).max(0.0).sqrt();
+            match var {
+                0 => rho_loc,
+                3 => p_loc,
+                // the reservoir carries no tangential velocity: the
+                // ghost's tangential component is zero on every side,
+                // the normal component is the expansion speed.
+                2 => 0.0,
+                _ => u_loc,
+            }
+        }
+        Bc2d::SubsonicOutflow { p_back } => {
+            if var == 3 {
+                *p_back
+            } else {
+                interior
+            }
+        }
         Bc2d::ProfileInflow { profile, rho, p } => match var {
             0 => *rho,
             3 => *p,
@@ -376,8 +433,8 @@ pub(crate) fn advance2d_capped_dts(
         let y_row = g.centers_y[j * nx];
         let pad = |c: &[f64], var: usize| -> Vec<f64> {
             let mut out = vec![0.0; nx + 2];
-            out[0] = ghost_value(&bc.west, c[0], var, 1, y_row);
-            out[nx + 1] = ghost_value(&bc.east, c[nx - 1], var, 1, y_row);
+            out[0] = ghost_value(&bc.west, c[0], var, 1, y_row, pp[0]);
+            out[nx + 1] = ghost_value(&bc.east, c[nx - 1], var, 1, y_row, pp[nx - 1]);
             out[1..=nx].copy_from_slice(c);
             out
         };
@@ -440,8 +497,8 @@ pub(crate) fn advance2d_capped_dts(
         let x_ghost_n = 2.0 * g.faces_x[nx] - x_col;
         let pad = |c: &[f64], var: usize| -> Vec<f64> {
             let mut out = vec![0.0; ny + 2];
-            out[0] = ghost_value(&bc.south, c[0], var, 2, x_ghost_s);
-            out[ny + 1] = ghost_value(&bc.north, c[ny - 1], var, 2, x_ghost_n);
+            out[0] = ghost_value(&bc.south, c[0], var, 2, x_ghost_s, cp[0]);
+            out[ny + 1] = ghost_value(&bc.north, c[ny - 1], var, 2, x_ghost_n, cp[ny - 1]);
             out[1..=ny].copy_from_slice(c);
             out
         };
@@ -676,8 +733,8 @@ pub fn advance2d_capped_par(
         let y_row = g.centers_y[j * nx];
         let pad = |c: &[f64], var: usize| -> Vec<f64> {
             let mut out = vec![0.0; nx + 2];
-            out[0] = ghost_value(&bc.west, c[0], var, 1, y_row);
-            out[nx + 1] = ghost_value(&bc.east, c[nx - 1], var, 1, y_row);
+            out[0] = ghost_value(&bc.west, c[0], var, 1, y_row, pp[0]);
+            out[nx + 1] = ghost_value(&bc.east, c[nx - 1], var, 1, y_row, pp[nx - 1]);
             out[1..=nx].copy_from_slice(c);
             out
         };
@@ -727,8 +784,8 @@ pub fn advance2d_capped_par(
         let x_ghost_n = 2.0 * g.faces_x[nx] - x_col;
         let pad = |c: &[f64], var: usize| -> Vec<f64> {
             let mut out = vec![0.0; ny + 2];
-            out[0] = ghost_value(&bc.south, c[0], var, 2, x_ghost_s);
-            out[ny + 1] = ghost_value(&bc.north, c[ny - 1], var, 2, x_ghost_n);
+            out[0] = ghost_value(&bc.south, c[0], var, 2, x_ghost_s, cp[0]);
+            out[ny + 1] = ghost_value(&bc.north, c[ny - 1], var, 2, x_ghost_n, cp[ny - 1]);
             out[1..=ny].copy_from_slice(c);
             out
         };

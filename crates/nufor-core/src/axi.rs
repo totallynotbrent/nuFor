@@ -968,10 +968,10 @@ pub(crate) fn compute_axi_fluxes(
             let mut out = vec![0.0; nx + 2];
             out[0] = west_x
                 .filter(|_| var == 3)
-                .unwrap_or_else(|| ghost_value(&bc.west, c[0], var, 1, y_row));
+                .unwrap_or_else(|| ghost_value(&bc.west, c[0], var, 1, y_row, px[0]));
             out[nx + 1] = east_x
                 .filter(|_| var == 3)
-                .unwrap_or_else(|| ghost_value(&bc.east, c[nx - 1], var, 1, y_row));
+                .unwrap_or_else(|| ghost_value(&bc.east, c[nx - 1], var, 1, y_row, px[nx - 1]));
             out[1..=nx].copy_from_slice(c);
             out
         };
@@ -1014,10 +1014,10 @@ pub(crate) fn compute_axi_fluxes(
             let mut out = vec![0.0; ny + 2];
             out[0] = south_x_cache
                 .filter(|_| var == 3)
-                .unwrap_or_else(|| ghost_value(&bc.south, c[0], var, 2, x_ghost_s));
-            out[ny + 1] = north_x_cache
-                .filter(|_| var == 3)
-                .unwrap_or_else(|| ghost_value(&bc.north, c[ny - 1], var, 2, x_ghost_n));
+                .unwrap_or_else(|| ghost_value(&bc.south, c[0], var, 2, x_ghost_s, cx[0]));
+            out[ny + 1] = north_x_cache.filter(|_| var == 3).unwrap_or_else(|| {
+                ghost_value(&bc.north, c[ny - 1], var, 2, x_ghost_n, cx[ny - 1])
+            });
             out[1..=ny].copy_from_slice(c);
             out
         };
@@ -1155,12 +1155,24 @@ pub(crate) fn compute_axi_fluxes(
                 let right_solid = f < nxg && solid(f, j);
                 if left_solid || right_solid {
                     // the fluid cell with the mirror on the solid side.
-                    let side = if left_solid { f } else { f - 1 };
-                    let q = mirror_hllc(side + j * nxg, 0, right_solid);
-                    fx[j].mass[f] = q.mass;
-                    fx[j].mx[f] = q.mx;
-                    fx[j].my[f] = q.my;
-                    fx[j].e[f] = q.e;
+                    // a solid cell flush with the domain edge leaves no
+                    // fluid cell on that face: the domain-boundary flux
+                    // there belongs to the outer bc, not the wall pass,
+                    // so it is left untouched.
+                    let side = if left_solid {
+                        Some(f)
+                    } else if f > 0 {
+                        Some(f - 1)
+                    } else {
+                        None
+                    };
+                    if let Some(side) = side.filter(|s| *s < nxg) {
+                        let q = mirror_hllc(side + j * nxg, 0, right_solid);
+                        fx[j].mass[f] = q.mass;
+                        fx[j].mx[f] = q.mx;
+                        fx[j].my[f] = q.my;
+                        fx[j].e[f] = q.e;
+                    }
                 }
             }
         }
@@ -1169,12 +1181,20 @@ pub(crate) fn compute_axi_fluxes(
                 let below_solid = f > 0 && solid(i, f - 1);
                 let above_solid = f < nyg && solid(i, f);
                 if below_solid || above_solid {
-                    let side = if below_solid { f } else { f - 1 };
-                    let q = mirror_hllc(i + side * nxg, 1, above_solid);
-                    fy[i].mass[f] = q.mass;
-                    fy[i].mx[f] = q.mx;
-                    fy[i].my[f] = q.my;
-                    fy[i].e[f] = q.e;
+                    let side = if below_solid {
+                        Some(f)
+                    } else if f > 0 {
+                        Some(f - 1)
+                    } else {
+                        None
+                    };
+                    if let Some(side) = side.filter(|s| *s < nyg) {
+                        let q = mirror_hllc(i + side * nxg, 1, above_solid);
+                        fy[i].mass[f] = q.mass;
+                        fy[i].mx[f] = q.mx;
+                        fy[i].my[f] = q.my;
+                        fy[i].e[f] = q.e;
+                    }
                 }
             }
         }
@@ -1281,6 +1301,100 @@ pub fn advance2d_model_rk2(
         state.e[k] = 0.5 * state.e[k] + 0.5 * s1.e[k];
     }
     Ok((dt, 0.0))
+}
+
+#[allow(clippy::too_many_arguments)]
+/// local-time-stepping axi march: the steady-state acceleration
+/// variant of `advance2d_axi`. every cell advances on its own
+/// acoustic dt, so only the converged state is meaningful and the
+/// reported `dt` is the field maximum (a progress marker, not a
+/// physical time).
+pub fn advance2d_axi_lts(
+    state: &mut ConservedState2d,
+    g: &Grid2d,
+    model: ThermoModel,
+    cfl: f64,
+    muscl: bool,
+    bc: &Boundaries2d,
+    nthreads: usize,
+    wall: Option<&dyn Fn(f64, f64) -> f64>,
+) -> Result<(f64, f64), Error> {
+    let (nx, ny) = (g.nx, g.ny);
+    let idx = |i: usize, j: usize| j * nx + i;
+    let n = nx * ny;
+    let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
+    let a = thermo::sound_speed(model, &state.rho, &et, &u, &v)?;
+    let mut dts = vec![0.0f64; n];
+    let mut dt_max = 0.0f64;
+    let h = g.dx.min(g.dy);
+    for (((dt_k, uk), vk), ak) in dts.iter_mut().zip(&u).zip(&v).zip(&a) {
+        let s = (uk.abs().max(vk.abs()) + ak).max(1e-12);
+        *dt_k = cfl * h / s;
+        dt_max = dt_max.max(*dt_k);
+    }
+    // one forward-euler step on local dts is enough for a steady
+    // march: the rk2 averaging across different local dts mixes
+    // states at different pseudo-times, so the plain euler update is
+    // the consistent choice here (the 2d lts lanes do the same).
+    let (p, e_int) = {
+        let mut e_int = vec![0.0f64; n];
+        for k in 0..n {
+            e_int[k] = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
+        }
+        (thermo::pressure(model, &state.rho, &e_int, &u, &v)?, e_int)
+    };
+    let (fx, fy) = compute_axi_fluxes(model, state, g, muscl, bc, &p, &e_int, nthreads, wall)?;
+    let mut resid = 0.0f64;
+    for j in 0..ny {
+        let (rm, rp) = (g.faces_y[j], g.faces_y[j + 1]);
+        let rc = 0.5 * (rm + rp);
+        let dr = g.dys[j];
+        for (i, fycol) in fy.iter().enumerate() {
+            let k = idx(i, j);
+            let dt = dts[k];
+            let dxi = dt / g.dxs[i];
+            let radial = |f: &Vec<f64>| (rp * f[j + 1] - rm * f[j]) / (rc * dr);
+            let drho = -(dxi * (fx[j].mass[i + 1] - fx[j].mass[i]) + dt * radial(&fycol.mass));
+            let dmx = -(dxi * (fx[j].mx[i + 1] - fx[j].mx[i]) + dt * radial(&fycol.mx));
+            let dmy =
+                -(dxi * (fx[j].my[i + 1] - fx[j].my[i]) + dt * radial(&fycol.my)) + dt * p[k] / rc;
+            let de = -(dxi * (fx[j].e[i + 1] - fx[j].e[i]) + dt * radial(&fycol.e));
+            // positivity guard for the local step: a fast cell that
+            // outruns a strong transient can drive its density or
+            // internal energy negative in one euler step; scaling the
+            // increment back to keep the state physical preserves the
+            // march instead of aborting it.
+            let rho_new = state.rho[k] + drho;
+            let e_int_new = state.e[k] + de
+                - 0.5 * (state.mx[k] + dmx).powi(2) / rho_new
+                - 0.5 * (state.my[k] + dmy).powi(2) / rho_new;
+            if rho_new > 0.0 && e_int_new > 0.0 {
+                state.rho[k] = rho_new;
+                state.mx[k] += dmx;
+                state.my[k] += dmy;
+                state.e[k] += de;
+                resid = resid
+                    .max(drho.abs())
+                    .max(dmx.abs())
+                    .max(dmy.abs())
+                    .max(de.abs());
+            } else {
+                // halve the increment once; if still bad, skip the
+                // cell this pseudo-step.
+                let rho_half = state.rho[k] + 0.5 * drho;
+                let e_half = state.e[k] + 0.5 * de
+                    - 0.5 * (state.mx[k] + 0.5 * dmx).powi(2) / rho_half
+                    - 0.5 * (state.my[k] + 0.5 * dmy).powi(2) / rho_half;
+                if rho_half > 0.0 && e_half > 0.0 {
+                    state.rho[k] = rho_half;
+                    state.mx[k] += 0.5 * dmx;
+                    state.my[k] += 0.5 * dmy;
+                    state.e[k] += 0.5 * de;
+                }
+            }
+        }
+    }
+    Ok((dt_max, resid))
 }
 
 #[allow(clippy::too_many_arguments)]

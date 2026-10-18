@@ -71,6 +71,37 @@ frozen-Pr evaluation waits for the species rung.
 
 Details and the honest caveats: [[numerics/foundations/fay-riddell|Fay-Riddell stagnation heating]].
 
+## Nozzle cold flow (rungs 7 + 7a)
+
+Liou's CDV nozzle (AIAA 87-0355) as the axisymmetric Euler case,
+at the archive's three exit pressure ratios. Deep-converged
+marches (t = 160 to 400; the supersonic exit Mach is identical
+between t = 160 and t = 400).
+
+| case | regime | exit p/pt vs 1d | exit Mach vs 1d | mass flux spread |
+|------|--------|-----------------|-----------------|------------------|
+| pe/pt = 0.89 | subsonic | 0.884 vs 0.890 | 0.414 vs 0.411 | +-5% (still settling) |
+| pe/pt = 0.16 | fully supersonic | 0.192 vs 0.160 | 1.75 mass-avg vs 1.854 (peak 1.837) | 0.06% |
+| pe/pt = 0.75 | normal shock | 0.755 vs 0.750 | shock at x ~ 6 vs 1d 7.56 | post-shock noisy |
+
+The subsonic case is the cleanest gate (0.7% on both exit
+quantities). The supersonic case chokes at the throat (M = 1.017)
+and conserves mass flux to 0.06% across three planes; its exit
+Mach sits 5.5% under the 1D value because the staircase wall
+pinches the effective throat area ~4% under the analytic contour.
+The shock case captures the shock but stands it early with
+staircase noise downstream: captured, not resolved, the honest
+weak point that cut cells (rung 13) exist to fix.
+
+The continuum probe (rung 7) ships with these runs and every
+other 2D/axisymmetric run: Bird's gradient-length local Knudsen
+number per cell against the 0.05 breakdown threshold, in the run
+log.
+
+Details, the reservoir-inflow and back-pressure boundary
+conditions, and the figures:
+[[numerics/2d/nozzle-cold-flow|Nozzle cold flow]].
+
 ## The trim anchor
 
 The finest shipped case is the trimmed capsule: 384x192, viscous, a 1600 K

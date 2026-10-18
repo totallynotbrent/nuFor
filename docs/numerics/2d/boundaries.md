@@ -28,6 +28,21 @@ unchanged.
   built-in Blasius laminar layer anchored at a virtual leading edge, or a
   tabulated y/u/v file. The viscous pass uses the same profile for its ghost
   gradient, so the incoming shear the layer feels matches what it carries.
+- ReservoirInflow: a subsonic stagnation-state inflow. The ghost expands
+  (pt, Tt) isentropically to the local interior face pressure, so the inflow
+  is not a fixed state: a compression wave traveling upstream meets a ghost
+  that answers with a denser, slower state, the acoustic feedback a
+  supersonic-inflow ghost cannot give. The tangential velocity is zero.
+  This is the chamber-inflow condition the nozzle rung runs on.
+- SubsonicOutflow: the ghost copies the interior but pins the ghost
+  pressure to a fixed back value, the standard subsonic exit for the
+  pressure-ratio nozzle studies. The config surface is
+  `[boundaries] right = "subsonic_outflow"` with the back pressure read
+  from `[boundaries.outflow_state]`.
+
+The two engine conditions live on the rust lanes (the axisymmetric and
+planar marches); the MPI Fortran core carries them as transmissive until
+its boundary vocabulary grows.
 
 ## Use
 

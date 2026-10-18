@@ -15,14 +15,15 @@ use nufor_core::ffi_mpi::{
     mpi_rank, mpi_shutdown,
 };
 use nufor_core::{
-    advance2d_axi_rk2, advance2d_model_rk2, advance2d_model_visc_lts, advance2d_model_visc_rk2,
-    advance2d_sa_lts, advance2d_sa_model_rk2, advance3d_rk2, advance_ugrid, apply_solid_fn,
-    apply_solid_ref, body_cache, cons_to_prim2d, eos_pressure2d, euler_solve, grid1d, grid2d,
-    grid3d, prim_to_cons, prim_to_cons2d, prim_to_cons3d, read_restart, read_restart2d, render_png,
-    wall_distance2d, write_csv, write_h5, write_restart, write_restart2d, write_vtk,
-    write_vtk2d_model, write_vtk3d, Bc2d, Boundaries2d, Boundary, Bounds3d, ConservedState,
-    ConservedState2d, ConservedState3d, Error, EulerConfig, Grid1d, Grid2d, Grid3d, OutputState,
-    SaParams, SolidPolygon, SolidShape, SphereCone, SphereConeSdf, TurbState, Ugrid,
+    advance2d_axi_lts, advance2d_axi_rk2, advance2d_model_rk2, advance2d_model_visc_lts,
+    advance2d_model_visc_rk2, advance2d_sa_lts, advance2d_sa_model_rk2, advance3d_rk2,
+    advance_ugrid, apply_solid_fn, apply_solid_ref, body_cache, cons_to_prim2d, eos_pressure2d,
+    euler_solve, grid1d, grid2d, grid3d, prim_to_cons, prim_to_cons2d, prim_to_cons3d,
+    read_restart, read_restart2d, render_png, wall_distance2d, write_csv, write_h5, write_restart,
+    write_restart2d, write_vtk, write_vtk2d_model, write_vtk3d, Bc2d, Boundaries2d, Boundary,
+    Bounds3d, ConservedState, ConservedState2d, ConservedState3d, Error, EulerConfig, Grid1d,
+    Grid2d, Grid3d, OutputState, SaParams, SolidPolygon, SolidShape, SphereCone, SphereConeSdf,
+    TurbState, Ugrid,
 };
 use nufor_core::{model_from_config, park2t, ThermoModel};
 
@@ -945,7 +946,13 @@ pub fn case_body_fns(body: &Option<nufor_config::BodySection>) -> Option<CaseBod
 /// boundary kinds to solver bcs, for the euler-family runners. a
 /// supersonic_inflow side reads its state from boundaries.inflow_state,
 /// falling back to the uniform freestream.
-pub fn case_side_bc_euler(k: BoundaryKind, inflow: Option<(f64, f64, f64, f64)>) -> Bc2d {
+pub fn case_side_bc_euler(
+    k: BoundaryKind,
+    inflow: Option<(f64, f64, f64, f64)>,
+    gas_const: f64,
+    gamma: f64,
+    p_back: Option<f64>,
+) -> Bc2d {
     match k {
         BoundaryKind::Wall => Bc2d::NoSlipWall,
         BoundaryKind::SlipWall => Bc2d::SlipWall,
@@ -953,6 +960,22 @@ pub fn case_side_bc_euler(k: BoundaryKind, inflow: Option<(f64, f64, f64, f64)>)
         BoundaryKind::SupersonicInflow | BoundaryKind::Inflow => match inflow {
             Some((rho, u, v, p)) => Bc2d::SupersonicInflow { rho, u, v, p },
             None => Bc2d::Transmissive,
+        },
+        // the reservoir inflow reads its stagnation state from
+        // inflow_state: pt = the state's p, tt from rho/p through the
+        // case gas constant.
+        BoundaryKind::ReservoirInflow => match inflow {
+            Some((rho, _u, _v, p)) if rho > 0.0 && p > 0.0 => Bc2d::ReservoirInflow {
+                pt: p,
+                tt: p / (rho * gas_const),
+                gas_const,
+                gamma,
+            },
+            _ => Bc2d::Transmissive,
+        },
+        BoundaryKind::SubsonicOutflow => match p_back {
+            Some(p) if p > 0.0 => Bc2d::SubsonicOutflow { p_back: p },
+            _ => Bc2d::Transmissive,
         },
         BoundaryKind::ProfileInflow | BoundaryKind::Periodic | BoundaryKind::Outflow => {
             Bc2d::Transmissive
@@ -981,20 +1004,28 @@ fn freestream(cfg: &CaseConfig) -> (f64, f64, f64, f64) {
 
 /// the full Boundaries2d for a case, the same mapping the runners use.
 pub fn case_boundaries(cfg: &CaseConfig) -> Boundaries2d {
+    let pb = cfg.boundaries.outflow_state.as_ref().map(|s| s.p);
+    let (rc, gm) = (cfg.physics.gas_constant, cfg.physics.gamma);
     Boundaries2d {
-        west: case_side_bc_euler(cfg.boundaries.left, case_inflow_state(cfg)),
-        east: case_side_bc_euler(cfg.boundaries.right, None),
+        west: case_side_bc_euler(cfg.boundaries.left, case_inflow_state(cfg), rc, gm, pb),
+        east: case_side_bc_euler(cfg.boundaries.right, None, rc, gm, pb),
         south: case_side_bc_euler(
             cfg.boundaries
                 .bottom
                 .unwrap_or(nufor_config::BoundaryKind::Outflow),
             None,
+            rc,
+            gm,
+            pb,
         ),
         north: case_side_bc_euler(
             cfg.boundaries
                 .top
                 .unwrap_or(nufor_config::BoundaryKind::Outflow),
             None,
+            rc,
+            gm,
+            pb,
         ),
     }
 }
@@ -1011,32 +1042,52 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
         }
     };
     let gamma = cfg.physics.gamma;
+    // restart support mirrors the planar runner: a [time] restart_in
+    // seeds the march (mesh dims must match), a restart_out saves the
+    // final state for chaining.
+    let mut restart_step = 0u64;
+    let mut restart_time = 0.0f64;
     let model = model_from_config(cfg);
-    let mut st = match ic2d_from_case_model(&cfg.initial_condition, &g, gamma, model) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("initial condition error: {e}");
-            return 2;
-        }
+    let mut st = match &cfg.time.restart_in {
+        Some(rpath) => match read_restart2d(Path::new(rpath)) {
+            Ok(rd) => {
+                if rd.nx != g.nx || rd.ny != g.ny {
+                    eprintln!(
+                        "restart mesh mismatch: case {}x{} vs file {}x{}",
+                        g.nx, g.ny, rd.nx, rd.ny
+                    );
+                    return 2;
+                }
+                restart_step = rd.step;
+                restart_time = rd.time;
+                rd.state
+            }
+            Err(e) => {
+                eprintln!("restart read error: {e}");
+                return 2;
+            }
+        },
+        None => match ic2d_from_case_model(&cfg.initial_condition, &g, gamma, model) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("initial condition error: {e}");
+                return 2;
+            }
+        },
     };
     let body = case_body_fns(&cfg.body);
     if let Some((dist, normal)) = &body {
         apply_solid_fn(&mut st, &g, dist.as_ref(), normal.as_ref(), gamma);
     }
-    let bc = Boundaries2d {
-        west: case_side_bc_euler(cfg.boundaries.left, case_inflow_state(cfg)),
-        east: case_side_bc_euler(cfg.boundaries.right, None),
-        south: case_side_bc_euler(
-            cfg.boundaries.bottom.unwrap_or(BoundaryKind::SlipWall),
-            None,
-        ),
-        north: case_side_bc_euler(
-            cfg.boundaries
-                .top
-                .unwrap_or(BoundaryKind::SupersonicOutflow),
-            None,
-        ),
-    };
+    let mut bc = case_boundaries(cfg);
+    // the axisymmetric defaults: the south side is the symmetry axis
+    // (slip wall) and the north side vents unless the case says more.
+    if cfg.boundaries.bottom.is_none() {
+        bc.south = Bc2d::SlipWall;
+    }
+    if cfg.boundaries.top.is_none() {
+        bc.north = Bc2d::SupersonicOutflow;
+    }
     let cfl = cfg.numerics.cfl;
     let t_end = cfg.time.final_time;
     let max_steps = if let Some(ms) = get_adhoc_max_steps() {
@@ -1047,21 +1098,35 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
         1_000_000
     };
     let t0 = Instant::now();
-    let mut t = 0.0;
+    let mut t = restart_time;
     let mut steps = 0usize;
     let mut ok = true;
     while t < t_end && steps < max_steps {
-        match advance2d_axi_rk2(
-            &mut st,
-            &g,
-            model,
-            cfl,
-            true,
-            &bc,
-            cfg.numerics.threads,
-            body.as_ref()
-                .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
-        ) {
+        match if cfg.numerics.local_time_stepping {
+            advance2d_axi_lts(
+                &mut st,
+                &g,
+                model,
+                cfl,
+                true,
+                &bc,
+                cfg.numerics.threads,
+                body.as_ref()
+                    .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
+            )
+        } else {
+            advance2d_axi_rk2(
+                &mut st,
+                &g,
+                model,
+                cfl,
+                true,
+                &bc,
+                cfg.numerics.threads,
+                body.as_ref()
+                    .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
+            )
+        } {
             Ok((dt, _)) => t += dt,
             Err(e) => {
                 eprintln!("solver error at step {steps}: {e}");
@@ -1091,7 +1156,33 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
             t,
             t0.elapsed().as_secs_f64()
         );
-        write_case_vtk2d_model(path, &cfg.metadata.name, &g, &st, model)
+        let rc = write_case_vtk2d_model(path, &cfg.metadata.name, &g, &st, model);
+        if rc == 0 {
+            write_run_log_2d(
+                cfg,
+                path,
+                &g,
+                &st,
+                model,
+                steps,
+                t,
+                t0.elapsed().as_secs_f64(),
+            );
+        }
+        if let Some(rpath) = &cfg.time.restart_out {
+            if let Err(e) = write_restart2d(
+                Path::new(rpath),
+                &st,
+                g.nx,
+                g.ny,
+                gamma,
+                t,
+                restart_step + steps as u64,
+            ) {
+                eprintln!("restart write error: {e}");
+            }
+        }
+        rc
     } else {
         1
     }
@@ -2036,10 +2127,62 @@ fn write_run_log_2d(
             )
         }
     };
+    // continuum-validity probe (rung 7): bird's gradient-length local
+    // knudsen over the flow cells, with the 0.05 breakdown threshold.
+    // the molecular viscosity is sutherland at the local temperature
+    // when the case gives a reference mu, else the perfect-gas N2 law.
+    let continuum_line = {
+        let gas_const = cfg.physics.gas_constant;
+        let l_ref = cfg
+            .physics
+            .reference
+            .as_ref()
+            .map(|r| r.l)
+            .filter(|l| *l > 0.0)
+            .unwrap_or_else(|| (g.faces_x[g.nx] - g.faces_x[0]).abs());
+        let mu_ref = cfg.physics.mu.filter(|m| *m > 0.0);
+        let mu_cell: Vec<f64> = if let Some(mu0) = mu_ref {
+            temp.iter()
+                .map(|&t| nufor_core::sutherland_mu(mu0, t.max(1.0), 273.15, 110.4))
+                .collect()
+        } else {
+            temp.iter()
+                .map(|&t| nufor_core::fay_riddell::mu_n2(t.max(1.0)))
+                .collect()
+        };
+        let mut solid = vec![false; g.nx * g.ny];
+        if let Some((dist, _)) = case_body_fns(&cfg.body) {
+            solid = nufor_core::solid_mask(g, dist.as_ref()).to_vec();
+        }
+        let pr = nufor_core::continuum_probe::continuum_probe(
+            g,
+            rho,
+            &temp,
+            &mu_cell,
+            gas_const,
+            &solid,
+            rho_ref,
+            temp.first().copied().unwrap_or(220.0),
+            mu_cell.first().copied().unwrap_or(1.7e-5),
+            l_ref,
+        );
+        let (wi, wj) = (pr.worst_cell % g.nx, pr.worst_cell / g.nx);
+        let (wx, wy) = (g.centers_x[wi], g.centers_y[wj * g.nx]);
+        format!(
+            "\ncontinuum probe (bird gradient-length knudsen):\n  kn_inf (lambda_inf/l_ref) {:.3e}\n  max kn_gll(rho) {:.3e} at ({:.3}, {:.3})\n  max kn_gll(t) {:.3e}\n  cells above breakdown threshold {:.1} pct\n",
+            pr.kn_inf,
+            pr.kn_rho_max,
+            wx,
+            wy,
+            pr.kn_t_max,
+            100.0 * pr.frac_breakdown
+        )
+    };
     let mut txt = txt;
     if !noneq_line.is_empty() {
         txt.push_str(&noneq_line);
     }
+    txt.push_str(&continuum_line);
     if !qwall_s.is_empty() {
         txt.push('\n');
         txt.push_str(&qwall_s);
@@ -2210,6 +2353,10 @@ fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
                 InitialCondition::Blast { ambient, .. } => ambient.p,
             },
         },
+        // the reservoir inflow and subsonic back-pressure outflow are
+        // euler-lane bcs; the sa lane treats them as transmissive until
+        // its own nozzle story exists.
+        BoundaryKind::ReservoirInflow | BoundaryKind::SubsonicOutflow => Bc2d::Transmissive,
         BoundaryKind::ProfileInflow => match &profile {
             Some(p) => Bc2d::ProfileInflow {
                 profile: std::sync::Arc::new(p.clone()),

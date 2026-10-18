@@ -304,6 +304,10 @@ pub struct Boundaries {
     /// the fixed state a `supersonic_inflow` side carries.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inflow_state: Option<State>,
+    /// the back pressure a `subsonic_outflow` side holds; only the
+    /// pressure field is read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outflow_state: Option<State>,
 }
 
 /// how a profile-inflow side prescribes its boundary layer.
@@ -334,6 +338,17 @@ pub enum BoundaryKind {
     ProfileInflow,
     /// a fixed supersonic inflow state (see inflow_state).
     SupersonicInflow,
+    /// a subsonic reservoir inflow: the ghost holds a state consistent
+    /// with the stagnation state in `inflow_state` interpreted as
+    /// (rho, u, v, p) of a reservoir where u is ignored; the face state
+    /// relaxes to the local pressure so pressure information leaves the
+    /// domain (the chamber-inflow treatment the nozzle rung uses).
+    ReservoirInflow,
+    /// a subsonic outflow at a fixed back pressure: the ghost copies
+    /// the interior except the pressure, which is pinned to
+    /// `outflow_state.p` (see outflow_state). used for the nozzle
+    /// studies whose exit is subsonic.
+    SubsonicOutflow,
     /// an inviscid slip wall: the ghost mirrors the normal velocity.
     /// the axisymmetric south boundary uses this as the symmetry axis.
     SlipWall,

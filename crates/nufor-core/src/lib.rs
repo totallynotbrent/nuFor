@@ -10,6 +10,7 @@ mod axi;
 mod blasius;
 mod body;
 mod cfl;
+pub mod continuum_probe;
 pub mod curvilinear;
 mod cutcell;
 mod cutcell_march;
@@ -57,7 +58,7 @@ mod viscous3d;
 mod wall_dist;
 
 pub use axi::{
-    advance2d_axi, advance2d_axi_rk2, advance2d_model, advance2d_model_rk2,
+    advance2d_axi, advance2d_axi_lts, advance2d_axi_rk2, advance2d_model, advance2d_model_rk2,
     advance2d_model_visc_lts, advance2d_model_visc_rk2, advance2d_sa_model_rk2, model_local_dts,
 };
 pub use blasius::{BlasiusProfile, BlasiusTable, CF_CONST};
