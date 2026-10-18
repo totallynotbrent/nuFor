@@ -13,10 +13,12 @@ pressure ratios that exercise every regime of 1D nozzle theory.
 
 The area law, in the archive's units:
 
-$$A(x) = \begin{cases}
-1.75 - 0.75\cos\left((0.2x - 1)\pi\right) & 0 \le x < 5 \\
-1.25 - 0.25\cos\left((0.2x - 1)\pi\right) & 5 \le x \le 10
-\end{cases}$$
+$$
+A(x) = \begin{cases}
+1.75 - 0.75\cos\left((0.2x - 1)\pi\right), \quad 0 \le x < 5 \\
+1.25 - 0.25\cos\left((0.2x - 1)\pi\right), \quad 5 \le x \le 10
+\end{cases}
+$$
 
 so A(0) = 2.5, A(5) = 1.0 (the throat), A(10) = 1.5. The
 axisymmetric radius is $r(x) = \sqrt{A(x)/\pi}$: 0.892 at the
@@ -32,10 +34,12 @@ Two new boundary conditions arrived with this rung.
 The **reservoir inflow** (west) holds a stagnation state and
 expands it to the local face pressure:
 
-$$p_{ghost} = p_{int}, \quad
+$$
+p_{ghost} = p_{int}, \quad
 T_{ghost} = T_t \left(\frac{p_{int}}{p_t}\right)^{(\gamma-1)/\gamma}, \quad
 \rho_{ghost} = \frac{p_{int}}{R T_{ghost}}, \quad
-u_{ghost} = \sqrt{2 c_p (T_t - T_{ghost})}$$
+u_{ghost} = \sqrt{2 c_p (T_t - T_{ghost})}
+$$
 
 so the inflow is not a fixed state: when the throat chokes and a
 compression wave travels upstream, the ghost answers it with a

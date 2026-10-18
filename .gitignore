@@ -43,6 +43,7 @@ output/
 cases/**/*.vtk
 cases/**/run-log.txt
 cases/**/run-log.csv
+cases/**/run-log-refined.csv
 cases/**/march-stdout.txt
 # generated mesh files (rebuild with each case's mesh_gen.py)
 cases/**/mesh_faces.txt
