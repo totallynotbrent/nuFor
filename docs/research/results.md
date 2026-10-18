@@ -46,14 +46,28 @@ wall, nose-only domain at global dt, 420k steps.
 | quantity | value |
 |---|---|
 | edge plateau $\rho_e$, $T_e$, $p_e$ | 2.3e-4 kg/m3, 5040 K, 505 Pa |
-| planar closed form on the sim's edge state | 8.48 W/cm2 |
-| wall conductor, settled-window mean (t > 0.7 ms) | 10.9 W/cm2 |
-| conductor band over the settled window | 7.4 to 14.0 W/cm2 |
-| ratio, settled mean / closed form | 1.28 |
+| wall conductor, converged (refined 132x98 mesh) | 10.7 to 11.2 W/cm2 |
+| conductor swing on the refined mesh | +-0.5 W/cm2 |
+| closed form, pure-N2 Sutherland transport | 8.48 W/cm2 |
+| closed form, CEA mixture transport at the edge state | 10.69 W/cm2 |
+| agreement, converged march vs corrected closed form | 0 to 4% |
 
-The 660k-step chain replaced the old single reading: the conductor
-holds a quasi-steady band instead of converging to a point, so the
-citable number is the mean and spread above.
+The 660k-step chain on the original 84x384 grid never settled: the
+conductor held a 7.4-14.0 W/cm2 band indefinitely. The tangential
+direction was the problem: the Hiemenz layer is ~11 mm and the
+uniform 31 mm spacing aliased it to a third of a cell. The refined
+132x98 grid (100 um wall cells, 2 mm at the stagnation line) kills
+the breathing entirely: the conductor converges to 10.7-11.2 W/cm2
+with +-0.5 swing and stays there across the settled window.
+
+The remaining offset against the original closed-form number was
+the closed form's own transport: at the edge state the gas is over
+60% dissociated atoms, and CEA's mixture viscosity is 1.51x
+Sutherland's pure-N2 value, which the form carries at the square
+root (+23%) plus the Prandtl shift (+3%). With real-gas transport
+the closed form reads 10.69 W/cm2 against the march's 10.7-11.2:
+agreement to within a few percent. The 3-8% residual against a
+frozen-Pr evaluation waits for the species rung.
 
 Details and the honest caveats: [[numerics/foundations/fay-riddell|Fay-Riddell stagnation heating]].
 

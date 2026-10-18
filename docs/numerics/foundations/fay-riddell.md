@@ -111,27 +111,74 @@ of 10.9 and a standard deviation of 1.7:
 | last-three-chunk mean at the chain's end | 9.8 W/cm² |
 | ratio, settled mean / closed form | 1.28 |
 
-The swing is the stagnation-band momentum residue: a few tens of
-m/s of band velocity (~0.5% of the edge velocity) sloshing the
-one-sided wall gradient steeper and shallower than the steady layer
-would, on a time scale comparable to the band's own transit. The
-earlier single reading of 10.73 at 420k steps was one sample of
-this band, not a convergence point; the longer chain shows the
-residue does not decay monotonically, it persists. The closed form
-(8.48) sits near the band's floor, and the band's mean reads about
-28% above it. Part of that spread is physics the closed form does
-not carry: it assumes a steady Hiemenz layer, constant $c_p$, and
-Lewis number one, and the march has none of those guarantees.
+The 8.48 in this table is the closed form as implemented (pure-N2
+Sutherland transport, Pr 0.72); the transport correction that
+explains the ratio comes below, after the refined-mesh chain.
+A second chain on a refined mesh settles the question of where
+the spread lives. The original grid resolves the wall-normal
+Hiemenz layer well (~43 cells across its 11 mm) but barely touches
+the tangential structure: uniform dy of 31 mm against an ~11 mm
+layer, so the stagnation band was aliased to a third of a cell. The
+refined mesh clusters both directions (100 um wall cells, 2 mm at
+the stagnation line, 132x98) and the march behaves completely
+differently: the transient drains and the conductor converges to
+10.7-11.2 W/cm2 with a swing of only +-0.5, no band breathing at
+all across the settled window (t = 0.3 to 0.6 ms, 24 chunks).
+
+| quantity | coarse mesh (84x384) | refined mesh (132x98) |
+|---|---|---|
+| settled mean $q_w$ | 10.9 W/cm2 | 11.2 W/cm2 |
+| swing | 7.4 to 14.0 W/cm2 | +-0.5 W/cm2 |
+| late-window mean | 9.8 W/cm2 | 10.8 W/cm2 |
+
+So the wide band was tangential under-resolution: once the layer is
+resolved, the conductor converges. But the level does not move much,
+and that raised the question of which side owns the ~27% offset
+between the converged march (10.7-11.2) and the planar closed form
+(8.48). The answer is the closed form's transport model. The closed
+form as implemented uses Sutherland's law for pure N2 and a
+perfect-gas Prandtl number of 0.72, but at the edge state the gas
+is not pure N2: CEA equilibrium composition at 505 Pa and 5040 K is
+37% N2, 31% N, 32% O by mole, and that mixture's viscosity is
+1.53e-4 Pa s against Sutherland's 1.01e-4, a factor of 1.51. Since
+the form scales with the square root of the edge viscosity, real-gas
+transport alone carries +23%, and the equilibrium-air Prandtl number
+(0.689 vs 0.72) adds another 3%. Re-evaluating the same closed form
+with CEA mixture transport at the march's own edge state reads
+
+| closed form evaluated on the march's edge state | value |
+|---|---|
+| pure-N2 Sutherland mu, Pr 0.72 (as implemented) | 8.48 W/cm2 |
+| CEA mixture mu (1.53e-4), equilibrium Pr 0.689 | 10.69 W/cm2 |
+| CEA mixture mu, frozen Pr 0.726 | 10.36 W/cm2 |
+| the march, converged on the refined mesh | 10.7 to 11.2 W/cm2 |
+
+The corrected closed form lands at the bottom edge of the march's
+converged band, 0-4% below the settled mean. The 27% gap is
+explained: it was never the solver and never a resolution artifact,
+it was the closed form's own pure-N2 transport at conditions where
+the gas is over 60% atoms. The residual question is small and
+honest: the near-wall layer is chemically frozen (wall at 1000 K,
+pure N2), so the frozen-Pr bracket (10.36) is arguably the more
+physical evaluation, which would leave the march 3-8% above the
+corrected form. That residual is either the wall gradient's
+one-sided treatment at the stagnation face or the real spread
+between a frozen-wall-layer evaluation and a fully-equilibrium one;
+resolving it cleanly waits for the species rung, where the wall
+closures get a real composition profile to work with.
 
 ![the gate: stagnation-line thermal structure and wall heat flux vs the planar closed form](../research/fay-riddell-gate.png)
 
 What the gate pins: the eqair bow shock forms at the right standoff
 (~0.43 m vs Casseau's), the sublayer is monotone with no
-checkerboard, the conductor magnitude is physical, and the
-closed-form chain (shock state to $\beta$ to $q$) reproduces the
-solver's answer to within the band's spread on a wall-resolved run.
-The honest citable statement is a mean with a spread, not a point:
-9 to 11 W/cm² on the 8.5 W/cm² closed form. Closing the remaining
-gap needs the $c_p$ and Lewis-number corrections to the closed form
-on the march's own wall state, which is the next piece of this
-rung.
+checkerboard, the conductor magnitude is physical, and the march
+agrees with the closed form once the closed form is evaluated with
+real-gas transport: 10.7-11.2 W/cm2 converged against 10.69 with CEA
+mixture viscosity and equilibrium Prandtl at the same edge state,
+0-4% apart. The earlier 27% gap was the closed form's pure-N2
+Sutherland transport at 5040 K, where the gas is over 60% atomic.
+The citable statement: the solver's stagnation heat flux matches the
+planar Fay-Riddell form with CEA equilibrium-air transport to within
+a few percent at Casseau's Mach-20 conditions. The residual 3-8%
+against a frozen-Pr evaluation is left for the species rung, where
+the wall closures get a real composition profile.

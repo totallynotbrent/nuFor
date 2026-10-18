@@ -98,8 +98,14 @@ flowchart LR
    one-sided conductor in the viscous stage, and closure-lane
    conduction with real units. The planar closed form is in the tree
    (`fay_riddell_q_2d`), pinned to the Beckwith-Cohen similarity
-   constant and the Rankine-Hugoniot tables. This is the gate that
-   makes any wall heat flux the solver prints citable.
+   constant and the Rankine-Hugoniot tables. A tangentially refined
+   mesh converges the conductor to 10.7-11.2 W/cm2 with +-0.5 swing
+   (the coarse tangential grid breathed 7.4-14.0), and the original
+   27% gap against the closed form closes to a few percent once the
+   form is evaluated with CEA real-gas transport at the edge state
+   (the gas there is over 60% dissociated atoms; mixture viscosity
+   is 1.51x Sutherland's pure-N2 value). This is the gate that makes
+   any wall heat flux the solver prints citable.
 7. **Continuum-validity probe per station**: Knudsen number and Bird's
    breakdown parameter from the freestream, one line in the run log.
    Cheap, and it puts a number behind "continuum CFD applies here"
