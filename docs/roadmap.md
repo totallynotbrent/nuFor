@@ -2,14 +2,14 @@
 title: Roadmap
 ---
 
-nuFor's trajectory is a ladder: each rung is a validated solver
+nuFor's trajectory is a ladder: each step is a validated solver
 capability with its analytic gates, in an order where every milestone
 makes the next one possible. I don't commit to dates; milestones land
 when their gates pass.
 
 The focus is 2D: planar and axisymmetric. The 3D Euler and viscous
 solvers exist and stay validated in the tree, but the roadmap below
-plans no further 3D work; every rung ahead is 2D (or axisymmetric,
+plans no further 3D work; everything ahead is 2D (or axisymmetric,
 which carries 3D axisymmetric reality at 2D cost).
 
 ## Where we are
@@ -27,16 +27,16 @@ which carries 3D axisymmetric reality at 2D cost).
   validated stagnation-heating chain (bow shock, Fay-Riddell closed
   form, wall conductor, CEA real-gas transport agreement to a few
   percent); Kn/Bird continuum probes in the flowfield post-mortem;
-  the CDV nozzle cold-flow rung (reservoir inflow, subsonic
+  the CDV nozzle cold-flow case (reservoir inflow, subsonic
   back-pressure outflow, restart chaining on the axisymmetric
   runner, three pressure-ratio regimes against the 1D solution);
   restart chaining, VTK/CSV output, and a web UI with live runs.
 - Web UI: case gallery, mesh view, live runs, validation dock.
 - 3D inviscid Euler: validated, committed.
 - 3D viscous Navier-Stokes: validated, committed.
-- Masked bodies (rung 2): done, validated on the cylinder bow shock and
+- Masked bodies: done, validated on the cylinder bow shock and
   the sphere-cone trade-study geometry.
-- Axisymmetric solver (rung 3): done, validated on the sphere bow shock
+- Axisymmetric solver: done, validated on the sphere bow shock
   against the Ambrosio-Wortman standoff. The capsule ran at the
   peak-q point, Mach 22 perfect gas: bow shock, post-shock states, and
   the surface Cp cross-check against the modified-Newtonian numbers.
@@ -48,7 +48,7 @@ which carries 3D axisymmetric reality at 2D cost).
 - Performance: the static body classification is cached and the closure
   passes are threaded; the hi-res anchor runs 8x faster than the serial
   march (3.96 h for 11,549 steps at 1280x640 on my desktop).
-- Fay-Riddell stagnation heating gate (rung 6): done. The
+- Fay-Riddell stagnation heating gate: done. The
   wall-resolved cylinder gate ran a full 660k-step continuous chain:
   the conductor holds a quasi-steady band of 7.4 to 14.0 W/cm2
   (settled mean 10.9) against the planar closed form 8.5 on the
@@ -67,7 +67,7 @@ which carries 3D axisymmetric reality at 2D cost).
   corner with zero floor hits end to end.
 - Unstructured 2D: a gmsh-driven finite-volume path exists
   (`ugrid.rs`, advance_ugrid) with the Sod gate; a prototype, not yet a
-  validated rung.
+  validated capability.
 
 ## The ladder, in order
 
@@ -80,7 +80,7 @@ flowchart LR
     E --> F["equilibrium air<br/>CEA + TGAS1"]
     F --> G["Park 2T<br/>nonequilibrium"]
     F --> H["Fay-Riddell<br/>heating gate"]
-    H --> I["species continuity<br/>rung 8"]
+    H --> I["species continuity<br/>(Park 5)"]
 
     I --> K["catalytic walls<br/>AMR, unstructured"]
     G --> I
@@ -102,7 +102,7 @@ flowchart LR
 5. **Live two-temperature nonequilibrium (Park 2T)**: done. `e_v` is a
    live field (unpinned t_v) with Millikan-White + Park-cutoff
    relaxation and the t_rxn = sqrt(T Tv) mixing rule; the 5-species
-   rates (Park 1990) sit in park.rs waiting for rung 8. Gates: the
+   rates (Park 1990) now march under the five-species chemistry. Gates: the
    analytic Landau-Teller decay box, energy conservation to machine
    precision, then the Mach 20 nitrogen cylinder (Casseau et al. 2016)
    as the external anchor. License note: hyStrath is GPL-3.0, same as
@@ -145,7 +145,7 @@ flowchart LR
    at the throat) with mass flux conserved to 0.06% and the
    exit-plane Mach peaking at 1.837 against the 1D 1.854, and
    the shock run captures the normal shock (station early, the
-   staircase's known weakness, cut cells are rung 13's answer).
+   staircase's known weakness, cut cells are the planned answer).
    The axisymmetric runner gained restart chaining alongside.
    Results and figures on the nozzle page. The cooled-wall
    variant (wall heat flux through the validated conductor for
@@ -166,28 +166,29 @@ flowchart LR
    ceiling, atomic fraction rising monotonically through the shock
    layer; results on the research page).
 9. **Catalytic wall brackets**: non-catalytic and fully-catalytic wall
-   options for the diffusive species flux at the surface. With rung 8
-   this brackets the heating answer for TPS (fully-catalytic is the
+   options for the diffusive species flux at the surface. With the
+   species fields landed this brackets the heating answer for TPS
+   (fully-catalytic is the
    conservative bound a report wants). The Maxwell velocity-slip and
    Smoluchowski temperature-jump wall conditions from the same body of
    work are optional extras: below 43 km the trajectory is continuum
-   (Kn << 1), so slip walls are a research branch, not a rung.
+   (Kn << 1), so slip walls are a research branch, not a planned step.
 9a. **Combustion chemistry (engine chamber flow)**: finite-rate
    H2/O2 (and later CH4/O2) chemistry on the species-continuity
-   machinery from rung 8: a fuel/oxidizer reaction mechanism with
+   machinery: a fuel/oxidizer reaction mechanism with
    its own D0 set routed through the closure, chamber injection as a
    composition + enthalpy inflow, and a nonreacting path that stays
    free of the overhead. Gates: adiabatic flame temperature against
    CEA at chamber conditions, equilibrium composition at fixed
    (T, p) against CEA, then a subscale chamber-to-throat run matching
-   CEA's equilibrium exit state. This is the rung that turns the
+   CEA's equilibrium exit state. This is the step that turns the
    nozzle cold-flow lane into a live engine simulation.
 9b. **Engine wall conditions**: cooled-wall and film-cooling
    treatments for the engine lane: isothermal and Bartz-style
    conjugate wall options on the nozzle contour, an injected-wall
    species/enthalpy flux for film cooling, and the wall heat flux
-   bracket the report wants (cold wall vs cooled wall). Rides on rungs
-   8, 9 and 9a; the TPS catalytic-wall machinery is the same wall
+   bracket the report wants (cold wall vs cooled wall). Rides on the
+   species, catalytic-wall, and combustion steps; the TPS catalytic-wall machinery is the same wall
    machinery pointed at engine conditions.
 10. **3D SA/RANS**: cut. nuFor is a 2D code (planar and
     axisymmetric) by focus; the 3D Euler and viscous solvers stay in
@@ -201,7 +202,7 @@ flowchart LR
     follow the nonequilibrium structure, not just the shock.
 12. **Unstructured meshes**: triangles in 2D. The gmsh
     prototype exists and the research note is written; promoting it to
-    a validated rung is the largest single lift. Arbitrary geometries
+    a validated capability is the largest single lift. Arbitrary geometries
     without the staircase are the payoff: the structural advantage
     OpenFOAM-based solvers inherit for free.
 13. **Cut cells**: fractional-cell geometry at curved walls instead of
@@ -211,7 +212,7 @@ flowchart LR
     straddle defeat it. The next solver step here is a wall-local
     redistribution (multi-level flux redistribution or h-box) that
     keeps the shock layer out of the averaging.
-14. **MPI-parallel Fortran core**: the parallelism rung. Fortran owns
+14. **MPI-parallel Fortran core**: the parallelism step. Fortran owns
     the parallel solver core (domain decomposition, halo
     exchange, the march) behind one coarse FFI; Rust stays the front
     door (case files, CLI, UI, output) and never calls MPI. Design,
@@ -223,7 +224,7 @@ flowchart LR
     on all five fields at np=1, 2, and 3, with the CLI routing
     body-free eqair cases through the Fortran core. Phase F3 lands
     all new physics (live 2T, species) MPI-native from day one, which
-    reorders rungs 5 and 8 to sit inside this one.
+    pulls the nonequilibrium and species work inside this one.
 
 ## What we deliberately do not borrow
 
@@ -231,7 +232,7 @@ flowchart LR
   the aeroshell trajectory has no magnetic interaction. This is
   hyStrath's differentiator and dead weight here.
 - DSMC and hybrid CFD-DSMC: below 43 km the flow is continuum by orders
-  of Knudsen. The breakdown probe (rung 7) is the honest boundary.
+  of Knudsen. The breakdown probe is the honest boundary.
 - 11-species ionized air and electron-energy modes: ionization is
   negligible below ~9.5 km/s at these altitudes; five species covers
   air chemistry to about 12,000 K.
@@ -285,18 +286,18 @@ table's 1 MPa cap. The 1280x640 anchor re-measured on the new grid
 reads C_D 0.406, L/D 0.371, peak pressure 1.17 MPa at 8217 K, and
 lands inside the Newtonian trim band; the previous anchor numbers
 (3.96 h for 11549 steps) predate the rebuild. Wall heat flux became
-citable output at rung 6: the Fay-Riddell gate validates the wall
+citable output since the Fay-Riddell gate validated the wall
 closures, and the conductor reads as a quasi-steady band (mean 10.9,
 spread 7.4 to 14.0 W/cm2) against the planar closed form's 8.5. The defensible
 report posture: Newtonian numbers stay the design basis, the CFD sweep
-is the confirmatory run with a limitations paragraph, and rungs 5-6
-are the upgrade path.
+is the confirmatory run with a limitations paragraph, and the
+nonequilibrium and heating upgrades are the path.
 
 ## Rocket engine CFD, later
 
 The other thing I eventually want to run with the case workflow. When the
 aeroshell scope closes: nozzle and internal flows over uploaded
-geometry. Combustion chemistry arrives only after rung 8's species
+geometry. Combustion chemistry arrives only after the species
 continuity is validated; until then the engine work is the cold-flow
 aerodynamics and the perfect-gas cross-check, the same role nuFor
 plays for the aeroshell.

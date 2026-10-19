@@ -33,7 +33,7 @@ range on a 400-cell mesh. The L1 density error shrinks as the mesh refines,
 confirming first-order convergence.
 
 The Sod test rides on the solver, flux, and CFL tests already landed, and is
-the first rung of the verification ladder.
+the first step of the verification ladder.
 
 ## See also
 

@@ -33,7 +33,7 @@ unchanged.
   is not a fixed state: a compression wave traveling upstream meets a ghost
   that answers with a denser, slower state, the acoustic feedback a
   supersonic-inflow ghost cannot give. The tangential velocity is zero.
-  This is the chamber-inflow condition the nozzle rung runs on.
+  This is the chamber-inflow condition the nozzle case runs on.
 - SubsonicOutflow: the ghost copies the interior but pins the ghost
   pressure to a fixed back value, the standard subsonic exit for the
   pressure-ratio nozzle studies. The config surface is

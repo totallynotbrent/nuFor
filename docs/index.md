@@ -10,8 +10,8 @@ title: nuFor
 > exercised across a four-station atmospheric-entry sweep with a
 > 1280x640 anchor run, and live two-temperature nonequilibrium
 > (Park 2T) on the research path, plus the wall-resolved stagnation
-> heating gate (Fay-Riddell, rung 6). Species continuity and
-> unstructured meshes are the next rungs on the
+> heating gate (Fay-Riddell). Species continuity has landed;
+> unstructured meshes are next on the
 > [[roadmap|roadmap]]. Cases run from the CLI today; the web UI
 > covers the fixed case set with field visualization, probes, and
 > CSV / VTK / HDF5 export.
@@ -85,4 +85,4 @@ equilibrium-air closure, live two-temperature nonequilibrium (Park 2T),
 five-species finite-rate chemistry (Park 5), and an MPI-parallel
 Fortran march. Open work: unstructured meshes, catalytic walls, and
 broad experimental validation. The
-[[roadmap|roadmap]] tracks it rung by rung.
+[[roadmap|roadmap]] tracks it capability by capability.

@@ -1,4 +1,4 @@
-# nozzle cold-flow rung figures on the shared house template: the
+# nozzle cold-flow figures on the shared house template: the
 # centerline mach vs the 1d area-mach solution for the three pressure
 # ratios, and the wall-pressure distribution.
 import sys
@@ -75,7 +75,7 @@ for ax, (tag, vtk, color, label) in zip(axes, cases):
     ax.annotate("throat", (5.06, 0.06), fontsize=9)
 axes[-1].set_xlabel("x")
 fig.tight_layout()
-save(fig, "nozzle-cdv-mach")
+save(fig, "nozzle-cdv-mach", out_dir=os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "docs", "numerics", "2d"))
 
 fig, ax = figure()
 for tag, vtk, color, label in cases:
@@ -101,4 +101,4 @@ ax.set_ylabel("wall p/pt")
 ax.set_title("wall pressure vs the 1d solution (gray dashed)")
 ax.legend()
 fig.tight_layout()
-save(fig, "nozzle-cdv-wallp")
+save(fig, "nozzle-cdv-wallp", out_dir=os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "docs", "numerics", "2d"))

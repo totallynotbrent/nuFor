@@ -6,10 +6,10 @@
 - `nufor-core::fay_riddell`: the stagnation-point cold-wall heating
   closed form (perfect-gas Lewis-one, Sutherland transport) with the
   post-shock edge chain, pinned by Rankine-Hugoniot table gates and
-  scaling gates. The rung-6 anchor; docs in
+  scaling gates. The stagnation-heating anchor; docs in
   `docs/numerics/foundations/fay-riddell.md`.
 
-Rung 5, two-temperature relaxation: `physics.eos = "park2t"` carries a
+Two-temperature relaxation: `physics.eos = "park2t"` carries a
 live vibrational energy field on the nitrogen Euler march (harmonic
 oscillator, Millikan-White plus Park cutoff relaxation, backward-Euler)
 and writes the vibrational temperature to `<case>-tv.vtk`. Gates pin the
@@ -249,7 +249,7 @@ and a verification suite.
 
 - 1D finite-volume Euler solver: HLL and HLLC fluxes, CFL time-step control,
   MUSCL reconstruction with the van Leer limiter, verified against the exact
-  Riemann solution (Sod, Lax, and the four-rung ladder).
+  Riemann solution (Sod, Lax, and the four-step ladder).
 - 2D Euler solver with HLLC flux. Oblique-shock and shock-reflection cases
   verified against shock relations. Positivity-preserving update.
 - 2D viscous Navier-Stokes terms, Poiseuille-channel validation.

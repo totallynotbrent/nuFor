@@ -2,11 +2,11 @@
 title: Continuum-validity probe
 ---
 
-Rung 7: the run-log line that answers whether the Navier-Stokes
+The run-log line that answers whether the Navier-Stokes
 closure the solver integrates is even valid where it is being
-integrated. I added it because every rung on the ladder marches a
-continuum solution, and the ladder's later rungs (catalytic walls,
-combustion) inherit that assumption; the probe states it explicitly
+integrated. I added it because every solver capability on the roadmap
+marches a continuum solution, and the planned work (catalytic walls,
+combustion) inherits that assumption; the probe states it explicitly
 per run instead of leaving it implicit.
 
 ## Bird's breakdown parameter
@@ -77,10 +77,9 @@ probe earns its keep at the top of the atmosphere: the trajectory
 sweep's highest-altitude station is where the stagnation region
 first approaches the 0.05 line, and a reentry case run at skip-
 entry densities will state exactly which cells crossed it. That is
-the input the DSMC rung would need (rung 7 exists to tell the
-hybrid story honestly, and the threshold is the industry-standard
-0.05 so the numbers here compare directly with the hybrid-CFD
-literature).
+the input a hybrid CFD-DSMC treatment would need, and the threshold
+is the industry-standard 0.05 so the numbers here compare directly
+with the hybrid-CFD literature.
 
 ## Module
 

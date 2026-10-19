@@ -3,17 +3,17 @@ title: Five-species finite-rate chemistry (Park)
 ---
 
 The equilibrium closure assumes the composition relaxes instantly;
-the two-temperature rung carries the vibrational lag but keeps the
-gas chemically frozen. This rung carries the chemistry itself: five
-species, five reactions, finite rates, and a composition field that
-the flow advects and the reactions rewrite.
+the two-temperature model carries the vibrational lag but keeps the
+gas chemically frozen. The chemistry itself is what this page adds:
+five species, five reactions, finite rates, and a composition field
+that the flow advects and the reactions rewrite.
 
 ## The model
 
 Species mass fractions $Y_s$ for N2, O2, NO, N, O, one field per
 species per cell, advected with the HLLC face mass fluxes
 
-$$\frac{\\partial \\rho Y_s}{\\partial t} + \\nabla \\cdot (\\rho Y_s \\mathbf{u}) = \\dot{\\omega}_s$$
+$$\frac{\partial \rho Y_s}{\partial t} + \nabla \cdot (\rho Y_s \mathbf{u}) = \dot{\omega}_s$$
 
 with upwind $Y_s$ at each face (the contact-preserving choice: the
 mass flux already knows which side of a contact the face sits on, so
@@ -22,7 +22,7 @@ roundoff).
 
 The reaction set is the Park (1990) five-reaction air model:
 
-| reaction | forward $A$, $\\eta$, $T_d$ | collider |
+| reaction | forward $A$, $\eta$, $T_d$ | collider |
 |---|---|---|
 | N2 + M -> 2N + M | 7.0e15, -1.6, 113200 K | M = N2, O2, NO |
 | N2 + M -> 2N + M | 3.0e16, -1.6, 113200 K | M = N, O |
@@ -39,12 +39,12 @@ catches any unit slip.
 
 Backward rates come from the equilibrium constants,
 
-$$k_b = \\frac{k_f(T)}{K_c(T)}$$
+$$k_b = \frac{k_f(T)}{K_c(T)}$$
 
 with $K_c$ from Park's 1985 five-coefficient curve fits (the
 companion fits for these forward rates):
 
-$$\\ln K_c = B_1 + B_2 \\ln Z + B_3 Z + B_4 Z^2 + B_5 Z^3, \\qquad Z = \\frac{10000}{T}$$
+$$\ln K_c = B_1 + B_2 \ln Z + B_3 Z + B_4 Z^2 + B_5 Z^3, \qquad Z = \frac{10000}{T}$$
 
 $K_c$ carries $mol/cm^3$ units for the dissociation reactions
 (mole-count change +1) and is dimensionless for the exchange
@@ -64,7 +64,7 @@ five-species tables: the atoms carry the dissociation energy (N:
 33.6 MJ/kg, O: 15.4), NO carries the Hess-cycle residual, and the
 ground-state molecules are zero. The internal energy per mass is
 
-$$e = \\sum_s Y_s \\left( c_{v,s} T + h^0_s \\right)$$
+$$e = \sum_s Y_s \left( c_{v,s} T + h^0_s \right)$$
 
 so dissociation draws from the thermal pool (the products carry more
 formation energy) and recombination returns it. Total energy is
@@ -72,9 +72,9 @@ conserved by construction: the conserved state never changes during
 the chemistry substep, only $Y$ does, and the temperature re-solves
 from the same $e$ at the new composition.
 
-The mixture closure: $R_{mix} = (\\sum Y_s/M_s)^{-1}$, $c_{v,mix} = \\sum Y_s c_{v,s}$,
-$p = \\rho R_{mix} T$, $a = \\sqrt{\\gamma_{mix} p / \\rho}$ with
-$\\gamma_{mix} = 1 + R_{mix}/c_{v,mix}$. All the closure quantities are
+The mixture closure: $R_{mix} = (\sum Y_s/M_s)^{-1}$, $c_{v,mix} = \sum Y_s c_{v,s}$,
+$p = \rho R_{mix} T$, $a = \sqrt{\gamma_{mix} p / \rho}$ with
+$\gamma_{mix} = 1 + R_{mix}/c_{v,mix}$. All the closure quantities are
 per-cell: the flux functions see the composition through face-pair
 closure states, so a contact in composition bends the wave speeds
 honestly.
@@ -105,8 +105,18 @@ frozen ceiling (dissociation cooling), the atomic fraction rises
 monotonically through the shock layer, and the stagnation-line
 temperature and composition land in or above the published bands for
 the right physical reason (one-temperature rates dissociate faster
-than the published two-temperature runs). Numbers and figures:
+than the published two-temperature runs). Full numbers:
 [[research/results|the results page]].
+
+![Shock-layer temperature and atomic nitrogen mass fraction](cyl-park5-fields.png)
+
+![Stagnation-line temperature and composition](cyl-park5-stagline.png)
+
+The standoff sits at the non-reacting value rather than the
+published reacting one: the published reduction is a shock-layer
+thinning the cool recombining wall drives, and an inviscid slip wall
+does not carry that. The peak temperature and composition are the
+scalars that transfer cleanly at this resolution.
 
 ## Using it
 
@@ -128,8 +138,8 @@ snapshot writer adds the five mass-fraction fields (`y_N2` through
 `y_O`) and computes pressure, temperature, and mach through the
 species closure.
 
-The lane is inviscid cartesian in this rung: the viscous,
+The lane is inviscid cartesian: the viscous,
 curvilinear, cut-cell, and unstructured marches reject `park5`
 loudly (an invalid-arguments error at startup) rather than
 silently running frozen. Wiring the species fields through those
-lanes is later-rung work.
+lanes is future work.

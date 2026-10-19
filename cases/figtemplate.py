@@ -47,11 +47,14 @@ def figure(nrows=1, ncols=1, **kwargs):
 
 
 def save(fig, name, out_dir=None):
-    """write docs/research/<name>.png relative to the CALLER's case dir.
-
-    interactive callers (stdin, -c strings) have no real file, so they
-    pass out_dir explicitly.
+    """write <out_dir>/<name>.png, defaulting next to the case's
+    directory so figures can be copied to the docs page they
+    illustrate. interactive callers (stdin, -c strings) have no real
+    file, so they pass out_dir explicitly.
     """
+    if out_dir is None:
+        caller = os.path.dirname(os.path.abspath(inspect.stack()[1].filename))
+        out_dir = caller
     if out_dir is None:
         caller = os.path.dirname(os.path.abspath(inspect.stack()[1].filename))
         out_dir = os.path.normpath(os.path.join(caller, "..", "..", "docs", "research"))

@@ -2,7 +2,7 @@
 title: Fay-Riddell stagnation heating
 ---
 
-The rung-6 validation anchor: the closed form for stagnation-point
+The stagnation-heating validation anchor: the closed form for stagnation-point
 cold-wall heat flux on a blunt nose, which I implemented in
 `nufor-core::fay_riddell` as the perfect-gas Lewis-number-one form.
 
@@ -18,7 +18,7 @@ where the edge state is the post-normal-shock state at the nose and
 $h_{0e}$ the total enthalpy behind that shock. Viscosity is
 Sutherland's law for N2. Lewis number one means the
 dissociation-enthalpy bracket of the full form is absent; that term
-activates when the species rung lands, where the wall enthalpy picks
+activates when the five-species chemistry lands, where the wall enthalpy picks
 up the formation-enthalpy difference between edge and wall
 composition.
 
@@ -53,7 +53,7 @@ Hiemenz and Homann similarity equations directly
   (0.89 Pa, 220 K, 1 m nose, 1000 K wall) the closed form reads
   $1.15 \times 10^5$ W/m², the expected order for that class.
 
-![fay-riddell scaling across nose radius](../research/fay-riddell-scaling.png)
+![fay-riddell scaling across nose radius](fay-riddell-scaling.png)
 
 ## What is deliberately not claimed
 
@@ -164,10 +164,10 @@ physical evaluation, which would leave the march 3-8% above the
 corrected form. That residual is either the wall gradient's
 one-sided treatment at the stagnation face or the real spread
 between a frozen-wall-layer evaluation and a fully-equilibrium one;
-resolving it cleanly waits for the species rung, where the wall
+resolving it cleanly waits for the five-species chemistry, where the wall
 closures get a real composition profile to work with.
 
-![the gate: stagnation-line thermal structure and wall heat flux vs the planar closed form](../research/fay-riddell-gate.png)
+![the gate: stagnation-line thermal structure and wall heat flux vs the planar closed form](fay-riddell-gate.png)
 
 What the gate pins: the eqair bow shock forms at the right standoff
 (~0.43 m vs Casseau's), the sublayer is monotone with no
@@ -180,5 +180,5 @@ Sutherland transport at 5040 K, where the gas is over 60% atomic.
 The citable statement: the solver's stagnation heat flux matches the
 planar Fay-Riddell form with CEA equilibrium-air transport to within
 a few percent at Casseau's Mach-20 conditions. The residual 3-8%
-against a frozen-Pr evaluation is left for the species rung, where
-the wall closures get a real composition profile.
+against a frozen-Pr evaluation is left for the composition-aware
+wall closures, where the wall gets a real composition profile.

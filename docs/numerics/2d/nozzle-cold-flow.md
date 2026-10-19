@@ -2,9 +2,9 @@
 title: Nozzle cold flow
 ---
 
-Rung 7a: the axisymmetric converging-diverging nozzle, the first
-case on the ladder that is an engine component rather than a
-reentry shape. The validation case is Liou's CDV nozzle (AIAA
+The axisymmetric converging-diverging nozzle, the first case on
+the ladder that is an engine component rather than a reentry
+shape. The validation case is Liou's CDV nozzle (AIAA
 87-0355, the NPARC/WIND verification archive version): a
 cosine area law from chamber to exit, run at three exit
 pressure ratios that exercise every regime of 1D nozzle theory.
@@ -29,7 +29,7 @@ march is the inviscid axisymmetric Euler lane on a 160x48 grid.
 
 ## Boundary conditions
 
-Two new boundary conditions arrived with this rung.
+Two new boundary conditions arrived with the nozzle work.
 
 The **reservoir inflow** (west) holds a stagnation state and
 expands it to the local face pressure:
@@ -103,7 +103,7 @@ never chokes, matching the regime call.
 **p_e/p_t = 0.16 (fully supersonic).** The throat chokes
 (centerline M = 1.017 at x = 5) and the expansion runs to the
 exit with mass flux conserved to 0.06% across the inlet, throat
-and exit planes, the tightest statement of steady state the rung
+and exit planes, the tightest statement of steady state the case
 produces. The exit plane shows the expected axisymmetric
 profile: M lowest on the axis (1.731, where the pressure is
 highest), peaking mid-radius at 1.837 against the 1D 1.854, and
@@ -121,14 +121,14 @@ staircase-induced oscillation that the other two cases do not
 show. The exit pressure still matches the back value (0.755
 against 0.750), so the far field is right, but the shock station
 and the post-shock wall pressure are the weakest part of this
-rung, and the honest verdict is: captured, not yet resolved.
-The cut-cell rung (13) is the ladder's answer to this.
+part of the case, and the honest verdict is: captured, not yet resolved.
+Cut cells are the ladder's answer to this.
 
 ## The staircase caveat
 
 The wall is a staircase on a Cartesian mesh, so the wall
-pressure carries the step-induced ripple the cut-cell and
-unstructured rungs (11-13) are on the ladder to remove, the
+pressure carries the step-induced ripple that cut cells and
+unstructured meshes are on the ladder to remove, the
 effective throat area runs a few percent under the analytic
 one, and the shock case's post-shock noise lives exactly where
 the steps interact with a standing discontinuity. The
@@ -136,9 +136,9 @@ centerline and exit-plane gates are clean because the axis
 region is far from the steps; the wall distribution is reported
 as-is with that caveat attached.
 
-![centerline Mach vs 1d](/research/nozzle-cdv-mach.png)
+![centerline Mach vs 1d](nozzle-cdv-mach.png)
 
-![wall pressure vs 1d](/research/nozzle-cdv-wallp.png)
+![wall pressure vs 1d](nozzle-cdv-wallp.png)
 
 ## Gates summary
 

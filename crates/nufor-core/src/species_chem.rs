@@ -5,13 +5,13 @@
 //! `park::RATES` (si units, m3/mol/s). backward rates come from the
 //! equilibrium constants through
 //!
-//!     k_b = k_f(T) / K_c(T)
+//! `k_b = k_f(T) / K_c(T)`
 //!
 //! with K_c the concentration-form equilibrium constant from park's
 //! 1985 five-coefficient curve fits (TP-2867 table III, the companion
 //! fits for these exact forward rates):
 //!
-//!     ln K_c = B1 + B2 ln Z + B3 Z + B4 Z^2 + B5 Z^3,  Z = 10000/T
+//! `ln K_c = B1 + B2 ln Z + B3 Z + B4 Z^2 + B5 Z^3,  Z = 10000/T`
 //!
 //! K_c carries mol/cm3 units for the three dissociation reactions
 //! (delta-nu = +1) and is dimensionless for the two exchange

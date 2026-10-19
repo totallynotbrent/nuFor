@@ -131,7 +131,9 @@ correlations (Fay-Riddell) are posed at.
 
 1D and 3D marches still run the perfect gas; the planar and
 axisymmetric 2D paths (the hypersonic entry paths) are the
-closure-aware ones. The nonequilibrium rungs are built on top of
+closure-aware ones. The nonequilibrium models are built on top of
 this: two-temperature vibration ([[numerics/foundations/two-temperature]])
 and five-species chemistry ([[numerics/foundations/five-species]]) are
 the next steps past equilibrium.
+
+![March steps and wall time per trajectory station](station-sweep.png)

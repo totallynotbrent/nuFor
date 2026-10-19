@@ -25,7 +25,9 @@ jobs:
           cache: npm
           cache-dependency-path: docs-site/package-lock.json
       - run: cd docs-site && npm ci --legacy-peer-deps
+      - run: cd docs-site && node check_math.cjs
       - run: cd docs-site && node ./quartz/bootstrap-cli.mjs build -d ../docs
+      - run: cd docs-site && python3 check_rendered.py
       - uses: actions/upload-pages-artifact@v3
         with:
           path: docs-site/public

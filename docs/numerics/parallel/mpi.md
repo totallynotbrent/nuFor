@@ -43,7 +43,7 @@ transport physics is identical to the serial path. The viscous stencil needs
 one cell, well inside the two-cell halos; a second halo refresh after each
 viscous add keeps the next stage's neighbors current at slab seams.
 
-![viscous lane timing on the trim capsule](../research/mpi-viscous-timing.png)
+![viscous lane timing on the trim capsule](mpi-viscous-timing.png)
 
 On the body-free class the Euler and viscous lanes are both bit-exact against
 the serial Rust marches at np=1 and np=2 (the gates below); each bridge runs
@@ -115,6 +115,8 @@ array. A capsule field with full 2D momenta catches all three.
 On my 8-core desktop (release build), the 34.6 km station case at 320x176,
 30 steps:
 
+![MPI strong scaling on the station case](mpi-scaling.png)
+
 | ranks | wall | speedup |
 |------:|------|--------:|
 | serial | 1.5 s | 1.00 |
@@ -141,4 +143,4 @@ The solver routes equilibrium-air 2D Euler, laminar viscous, and SA RANS
 marches (body-free) through the MPI core when launched under `mpirun` (or
 with `NFOR_MPI=1` set); np=1 runs the same path. Masked body cases stay on
 the serial march because the Fortran kernel wall-treats domain faces only.
-Restart support for the scattered state is the next rung.
+Restart support for the scattered state is the next step.

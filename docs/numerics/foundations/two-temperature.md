@@ -5,7 +5,7 @@ title: Two-temperature relaxation (Park 2T)
 The equilibrium-air closure assumes every energy mode shares one
 temperature. Behind a strong shock that is wrong on the microsecond
 scale: the translational pool jumps across the shock while the
-vibrational modes fill over many collisions. The two-temperature rung
+vibrational modes fill over many collisions. The two-temperature model
 carries that lag as a live field.
 
 ## The model
@@ -40,11 +40,11 @@ equilibrium value, so a cold freestream starts vibrationally cold and
 the shock layer is where the split develops. The reaction temperature
 coupling (`sqrt(T * T_v)`, the Park mixing rule for dissociation
 rates) is already implemented in the rates module and activates when
-the species-continuity rung lands.
+the five-species chemistry marches.
 
 ## Validation
 
-Three gates pin the rung:
+Three gates pin the model:
 
 - the `T_v(e_v)` inversion round-trips the caloric form to 1e-9
 - a thermostatted box at fixed translational temperature tracks the
@@ -64,9 +64,9 @@ quantitative standoff comparison against the published hy2Foam and
 dsmcFoam profiles needs the wall-resolved viscous lane, which is the
 Fay-Riddell gate's work (see the roadmap ladder).
 
-![park 2T gate curves](../research/park2t-gates.png)
+![park 2T gate curves](park2t-gates.png)
 
-![casseau stagnation line](../research/casseau-stagnation.png)
+![casseau stagnation line](casseau-stagnation.png)
 
 ## Using it
 

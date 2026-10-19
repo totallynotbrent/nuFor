@@ -12,7 +12,7 @@ make it so.
 ## Setup
 
 A sphere of radius 1 centred at (2, 0), masked onto the grid with the
-rung-2 solid-cell mask. The half-domain is $y \in [0, 3]$ with the
+solid-cell mask. The half-domain is $y \in [0, 3]$ with the
 symmetry axis on the south face (`SlipWall`, which is the axis
 condition: the ghost's negated radial velocity makes the axis flux
 mass-free). Mach-2 inflow on the west face, outflow on the east. The

@@ -4,8 +4,8 @@ title: Aeroshell cross-check
 
 The sphere-cone capsule cross-check: my entry-vehicle aerodynamics from a
 modified-Newtonian panel method over the 10080-facet STL against a
-perfect-gas axisymmetric CFD run at the peak-q trajectory point. It is the
-deliverable for rungs 2 and 3 of the roadmap.
+perfect-gas axisymmetric CFD run at the peak-q trajectory point. It
+exercises the masked-body and axisymmetric capabilities end to end.
 
 ## The case
 
@@ -70,7 +70,7 @@ flux (the exact inviscid layout) rings and collapses the timestep in
 every stabilization scheme tried. So the C_A gap does not close
 through this cut-cell implementation: the failure is documented with
 the mechanism identified (wall pump plus pool straddle), and the
-next solver rung is a wall-local redistribution that keeps the shock
+next solver step is a wall-local redistribution that keeps the shock
 layer out of the average (multi-level flux redistribution or
 h-box), not a configuration change.
 

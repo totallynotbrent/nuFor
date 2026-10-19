@@ -1,4 +1,4 @@
-# Rung-8 gate: Mach 20 dissociating nitrogen cylinder (Casseau et al.
+# Park5 chemistry gate: Mach 20 dissociating nitrogen cylinder (Casseau et al.
 # 2016, Aerospace 3(4):45 / AIP 1786:050006). 2D planar Euler with
 # park5 finite-rate chemistry, pure N2. Inviscid-comparable scalars:
 # shock standoff ~0.25 m reacting (0.29 non-reacting), peak shock-layer
@@ -8,7 +8,7 @@
 #
 # The wall in the canonical case is isothermal 1000 K with slip/jump
 # boundary conditions; the Euler lane here uses the slip wall (wall
-# heat flux and wall composition are the Fay-Riddell rung's quantities).
+# heat flux and wall composition are the Fay-Riddell gate's quantities).
 schema_version = 1
 
 [metadata]

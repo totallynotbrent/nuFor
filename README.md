@@ -11,7 +11,8 @@ A CPU-first computational fluid dynamics research code built in Rust and Fortran
 > MPI-parallel Fortran march for the 2D equilibrium-air cases,
 > exercised across a four-station atmospheric-entry sweep with a
 > 1280x640 anchor run. Spalart-Allmaras 3D, two-temperature
-> nonequilibrium, and unstructured meshes are the next rungs on the
+> nonequilibrium, live five-species chemistry, and an MPI-parallel
+> Fortran march, with unstructured meshes next on the
 > [roadmap](docs/roadmap.md). Cases run from the CLI today; the web UI
 > covers the fixed case set with field visualization, probes, and
 > CSV / VTK / HDF5 export.

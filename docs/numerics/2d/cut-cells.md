@@ -162,7 +162,7 @@ ten thousand negative densities along the flank and the wake cut band.
 The C_A gap does not close through this implementation, and the honest
 number remains the staircase C_A of about 0.256, flat across the 320,
 640, and 1280 runs, so that bias is systematic rather than a
-resolution artifact. The next rung is a wall-local scheme that keeps
+resolution artifact. The next step is a wall-local scheme that keeps
 the shock layer out of the averaging, multi-level flux redistribution
 or an h-box method, and that is research now, not a configuration
 change to the current scheme.

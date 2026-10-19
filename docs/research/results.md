@@ -11,9 +11,8 @@ with the code instead of drifting from it.
 Four trajectory stations at 22.5 degrees angle of attack, equilibrium air,
 viscous with a 300 K wall, 320x176 grid, marched to t = 15 ms. This is the
 sweep that anchors the hypersonic 2D path; the 34.6 km station is the peak-q
-point of my re-entry trajectory.
-
-![March steps and wall time per trajectory station](station-sweep.png)
+point of my re-entry trajectory. March steps and wall time per station are
+plotted on [[numerics/foundations/equilibrium-air|the equilibrium-air page]].
 
 | station | steps | wall (s) | max density ratio | peak p (Pa) | max T (K) |
 |---------|-------|----------|-------------------|-------------|-----------|
@@ -35,13 +34,11 @@ Lift-to-drag across the sweep runs 0.55, 0.61, 0.65, 0.72 from sea level
 to 42.5 km: the cleaner freestream at altitude rewards the same 22.5
 degree shell with a better ratio.
 
-## Stagnation heating gate (rung 6)
+## Stagnation heating gate
 
 The Fay-Riddell case (`cases/cylinder-stagnation-fay`): the Casseau
 Mach-20 nitrogen freestream on a 1 m cylinder nose, 1000 K isothermal
 wall, nose-only domain at global dt, 420k steps.
-
-![Stagnation-line thermal structure and wall heat flux vs the planar closed form](fay-riddell-gate.png)
 
 | quantity | value |
 |---|---|
@@ -67,18 +64,18 @@ Sutherland's pure-N2 value, which the form carries at the square
 root (+23%) plus the Prandtl shift (+3%). With real-gas transport
 the closed form reads 10.69 W/cm2 against the march's 10.7-11.2:
 agreement to within a few percent. The 3-8% residual against a
-frozen-Pr evaluation waits for the species rung.
+frozen-Pr evaluation waits for the composition-aware wall closures.
 
 Details and the honest caveats: [[numerics/foundations/fay-riddell|Fay-Riddell stagnation heating]].
 
-## Dissociating nitrogen cylinder (rung 8)
+## Dissociating nitrogen cylinder
 
 The park5 chemistry gate (`cases/cylinder-m20-park5`): the Casseau
 Mach-20 nitrogen cylinder, 1 m radius, pure N2 freestream at 6047 m/s
 (M = 20.0), 400x200 grid, inviscid with slip walls, park 5-species
-finite-rate chemistry, 3231 steps.
-
-![Temperature and atomic nitrogen mass fraction fields](cyl-park5-fields.png)
+finite-rate chemistry, 3231 steps. The temperature and composition
+fields and the stagnation-line profiles are on
+[[numerics/foundations/five-species|the five-species page]].
 
 | quantity | run value | published reference |
 |---|---|---|
@@ -86,8 +83,6 @@ finite-rate chemistry, 3231 steps.
 | stagnation-line peak T | 14.5 kK | 13.5-15 kK (2-T published); one-T ceiling 17.3 kK |
 | stagnation-line N mole fraction at the wall | 0.38 | 0.1-0.25 (2-T published) |
 | peak N mass fraction (near-wall layer) | 0.50 | order 0.1-0.25 mole |
-
-![Stagnation-line temperature and composition](cyl-park5-stagline.png)
 
 The dissociation is unmistakable: the frozen perfect-gas ceiling at
 Mach 20 is 17.3 kK, and the reacting run peaks 2.8 kK below it with
@@ -112,10 +107,11 @@ both land in or above their expected bands for the right reason.
 Drag from the pressure integral is not comparable at this resolution:
 at the shoulder the wrapped shock sits on the surface cells, so the
 integral picks up post-shock pressures and reads several times the
-Newtonian 1.33. The cut-cell rung is the honest fix for body-mounted
-shocks.
+Newtonian 1.33. Cut cells are the honest fix for body-mounted
+shocks, and until then surface-integrated drag from this lane is
+measurement-limited, not citable.
 
-## Nozzle cold flow (rungs 7 + 7a)
+## Nozzle cold flow
 
 Liou's CDV nozzle (AIAA 87-0355) as the axisymmetric Euler case,
 at the archive's three exit pressure ratios. Deep-converged
@@ -135,9 +131,9 @@ Mach sits 5.5% under the 1D value because the staircase wall
 pinches the effective throat area ~4% under the analytic contour.
 The shock case captures the shock but stands it early with
 staircase noise downstream: captured, not resolved, the honest
-weak point that cut cells (rung 13) exist to fix.
+weak point that cut cells exist to fix.
 
-The continuum probe (rung 7) ships with these runs and every
+The continuum probe ships with these runs and every
 other 2D/axisymmetric run: Bird's gradient-length local Knudsen
 number per cell against the 0.05 breakdown threshold, in the run
 log.
@@ -159,9 +155,8 @@ render on the repository front page.
 ## MPI scaling
 
 The multi-rank Fortran march measured on the 34.6 km station case, 320x176,
-30 steps, on my 8-core desktop:
-
-![MPI strong scaling on the station case](mpi-scaling.png)
+30 steps, on my 8-core desktop (scaling plot on
+[[numerics/parallel/mpi|the MPI page]]):
 
 | ranks  | wall (s) | speedup |
 |--------|----------|---------|
