@@ -19,6 +19,12 @@ pub enum ThermoModel {
     /// case gas constant: the state is dimensional, so it sets the
     /// conduction cp (kappa = cp/pr) in the viscous pass.
     EqAir { r_gas: f64 },
+    /// park 5-species mixture (rung 8): pressure and sound speed come
+    /// from the species closure (species_closure module) reading the
+    /// per-cell mass fractions carried in the march's SpeciesState.
+    /// the scalar members are unused by the closure itself; `gamma_shaping`
+    /// only feeds the hllc wave-speed estimate.
+    Park5 { gamma_shaping: f64 },
 }
 
 /// pressure for a whole field under the chosen closure.
@@ -49,6 +55,14 @@ pub fn pressure(
             Ok(p)
         }
         ThermoModel::EqAir { .. } => crate::eqair_cea::pressure(rho, e, u, v),
+        ThermoModel::Park5 { .. } => {
+            // the species closure needs the per-cell composition, which this
+            // signature does not carry: the species march computes its own
+            // pressure and sound-speed fields through species_closure. reaching
+            // this arm is a wiring bug, so fail loudly instead of guessing
+            // perfect-gas values behind the caller's back.
+            Err(Error::InvalidArgs)
+        }
     }
 }
 
@@ -82,6 +96,14 @@ pub fn temperature(model: ThermoModel, rho: &[f64], p: &[f64]) -> Result<Vec<f64
             Ok(out)
         }
         ThermoModel::EqAir { .. } => crate::eqair_cea::temperature(rho, p),
+        ThermoModel::Park5 { .. } => {
+            // the species closure needs the per-cell composition, which this
+            // signature does not carry: the species march computes its own
+            // pressure and sound-speed fields through species_closure. reaching
+            // this arm is a wiring bug, so fail loudly instead of guessing
+            // perfect-gas values behind the caller's back.
+            Err(Error::InvalidArgs)
+        }
     }
 }
 
@@ -116,6 +138,14 @@ pub fn sound_speed(
             // acoustic stiffness, so route the cfl cap through the table.
             Ok(crate::eqair_cea::sound_speed(rho, &e, u, v)?)
         }
+        ThermoModel::Park5 { .. } => {
+            // the species closure needs the per-cell composition, which this
+            // signature does not carry: the species march computes its own
+            // pressure and sound-speed fields through species_closure. reaching
+            // this arm is a wiring bug, so fail loudly instead of guessing
+            // perfect-gas values behind the caller's back.
+            Err(Error::InvalidArgs)
+        }
     }
 }
 
@@ -128,6 +158,9 @@ pub fn model_from_config(cfg: &nufor_config::CaseConfig) -> ThermoModel {
         },
         Eos::EqAir => ThermoModel::EqAir {
             r_gas: cfg.physics.gas_constant,
+        },
+        Eos::Park5 => ThermoModel::Park5 {
+            gamma_shaping: cfg.physics.gamma,
         },
     }
 }

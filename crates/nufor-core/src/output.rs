@@ -135,6 +135,11 @@ pub fn write_vtk2d_model(
     st: &ConservedState2d,
     model: ThermoModel,
 ) -> Result<(), Error> {
+    if matches!(model, ThermoModel::Park5 { .. }) {
+        // park5 snapshots need the composition for pressure and temperature:
+        // route them through the species-aware writer instead.
+        return Err(Error::InvalidArgs);
+    }
     let n = g.nx * g.ny;
     let (u, v, et) = crate::state2d::cons_to_prim2d(&st.rho, &st.mx, &st.my, &st.e)?;
     let e_int: Vec<f64> = (0..n)
@@ -153,6 +158,8 @@ pub fn write_vtk2d_model(
             let t_ = crate::thermo::temperature(model, &st.rho, &p_)?;
             (p_, t_)
         }
+        // park5 was rejected above (needs the species-aware writer).
+        crate::thermo::ThermoModel::Park5 { .. } => unreachable!(),
     };
     let a = crate::thermo::sound_speed(model, &st.rho, &et, &u, &v)?;
     let mach: Vec<f64> = (0..n)
@@ -170,6 +177,59 @@ pub fn write_vtk2d_model(
     append_scalar(&mut s, "energy", &st.e);
     append_scalar(&mut s, "mach", &mach);
     append_scalar(&mut s, "temperature", &temp);
+    write_all(path, &s)
+}
+
+/// the park5 snapshot writer: pressure, temperature and mach under
+/// the species closure at the cell composition, plus the five mass
+/// fractions as their own scalar fields.
+pub fn write_vtk2d_park5(
+    path: &Path,
+    g: &Grid2d,
+    st: &ConservedState2d,
+    species: &crate::species::SpeciesState,
+) -> Result<(), Error> {
+    let n = g.nx * g.ny;
+    let (u, v, et) = crate::state2d::cons_to_prim2d(&st.rho, &st.mx, &st.my, &st.e)?;
+    let e_int: Vec<f64> = (0..n)
+        .map(|k| et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]))
+        .collect();
+    let mut p = vec![0.0f64; n];
+    let mut temp = vec![0.0f64; n];
+    let mut a = vec![0.0f64; n];
+    for k in 0..n {
+        let y_cell: [f64; crate::park::NS] = [
+            species.y[0][k],
+            species.y[1][k],
+            species.y[2][k],
+            species.y[3][k],
+            species.y[4][k],
+        ];
+        p[k] = crate::species_closure::pressure_at(st.rho[k], e_int[k], &y_cell);
+        temp[k] = crate::species_closure::temperature_at(e_int[k], &y_cell);
+        a[k] = crate::species_closure::sound_speed_at(st.rho[k], e_int[k], &y_cell);
+    }
+    let mach: Vec<f64> = (0..n)
+        .map(|k| (u[k] * u[k] + v[k] * v[k]).sqrt() / a[k].max(1e-6))
+        .collect();
+    let mut s = String::with_capacity(n * 96);
+    s.push_str(
+        "# vtk DataFile Version 3.0\nnuFor 2d park5 snapshot\nASCII\nDATASET STRUCTURED_POINTS\n",
+    );
+    s.push_str(&format!(
+        "DIMENSIONS {} {} 1\nORIGIN {} {} 0\nSPACING {} {} 1\n",
+        g.nx, g.ny, g.xmin, g.ymin, g.dx, g.dy
+    ));
+    s.push_str(&format!("POINT_DATA {}\n", n));
+    append_scalar(&mut s, "density", &st.rho);
+    append_scalar(&mut s, "pressure", &p);
+    append_scalar(&mut s, "energy", &st.e);
+    append_scalar(&mut s, "mach", &mach);
+    append_scalar(&mut s, "temperature", &temp);
+    const NAMES: [&str; crate::park::NS] = ["y_N2", "y_O2", "y_NO", "y_N", "y_O"];
+    for (i, name) in NAMES.iter().enumerate() {
+        append_scalar(&mut s, name, &species.y[i]);
+    }
     write_all(path, &s)
 }
 

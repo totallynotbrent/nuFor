@@ -38,7 +38,7 @@ fn default_case_revision() -> u32 {
     1
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Physics {
     /// equation set to solve.
@@ -57,9 +57,15 @@ pub struct Physics {
     /// sets (euler ignores it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mu: Option<f64>,
-    /// thermodynamic closure: perfect gas or equilibrium air.
+    /// thermodynamic closure: perfect gas, equilibrium air, or one of
+    /// the park nonequilibrium lanes.
     #[serde(default)]
     pub eos: Eos,
+    /// the working gas, by the 5-species park model's composition:
+    /// "air" (default) or "n2" (pure nitrogen, the dissociation
+    /// gates). park5 reads it for the initial composition.
+    #[serde(default = "default_gas", skip_serializing_if = "is_default_gas")]
+    pub gas: String,
     /// molecular prandtl number for the heat flux (default 0.72, air).
     #[serde(
         default = "default_prandtl",
@@ -92,6 +98,14 @@ pub struct Turbulence {
     pub pr_t: f64,
 }
 
+fn default_gas() -> String {
+    "air".to_string()
+}
+
+fn is_default_gas(g: &str) -> bool {
+    g == "air"
+}
+
 fn default_prandtl() -> f64 {
     0.72
 }
@@ -122,6 +136,12 @@ pub enum Eos {
     /// vibrational energy field (landau-teller relaxation).
     #[serde(rename = "park2t")]
     Park2t,
+    /// park 5-species finite-rate chemistry: mass-fraction fields
+    /// with advective transport and the park-1990 reaction set
+    /// (forward rates plus equilibrium constants for the backward
+    /// direction). inviscid cartesian only in this rung.
+    #[serde(rename = "park5")]
+    Park5,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

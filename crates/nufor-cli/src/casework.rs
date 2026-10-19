@@ -578,6 +578,13 @@ fn march_case(
         nufor_core::ThermoModel::EqAir { .. } => {
             nufor_core::eqair_energy(&[rho], &[p]).map_err(|e| e.to_string())?[0]
         }
+        nufor_core::ThermoModel::Park5 { .. } => {
+            // uniform park5 ICs start as standard air. the closure's internal
+            // energy carries the formation offset (e = a T + b), so invert the
+            // target pressure exactly: T from the mixture gas constant, then
+            // e_int from the closure's own coefficients.
+            nufor_core::species_march::air_ic_energy(rho, p)
+        }
     };
     let e_cell = e_int + 0.5 * u * u;
     let mut st = ConservedState2d {

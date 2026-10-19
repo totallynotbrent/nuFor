@@ -745,6 +745,11 @@ pub fn add_viscous_cells_mu(
             crate::thermo::ThermoModel::Perfect { .. } => {
                 crate::thermo::temperature(cl, &state.rho, &p)?
             }
+            crate::thermo::ThermoModel::Park5 { .. } => {
+                // the temperature closure needs the per-cell composition;
+                // the viscous lane does not serve park5 in rung 8.
+                return Err(Error::InvalidArgs);
+            }
         }
     } else {
         let p = eos_pressure2d(gamma, &state.rho, &et, &u, &v)?;

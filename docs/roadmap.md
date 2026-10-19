@@ -152,16 +152,19 @@ flowchart LR
    a Bartz-style comparison) stays open for the viscous engine
    lane; the thrust-coefficient post-processing lands with the
    9a chamber work where a thrust statement becomes meaningful.
-8. **Species continuity (5-species Park nonequilibrium)**: the big
-   real-gas rung. Species mass fractions as transported fields with the
-   Park 1990 dissociation/exchange set already tabulated in park.rs,
-   D0 energies routed through the closure, positivity handling, and a
-   nonreacting path that pays no reacting overhead. Gates: mass
-   conservation to roundoff, equilibrium composition against published
-   air tables at fixed (T, p), then the Mach 20 nitrogen cylinder with
-   dissociation. The reacting-flow ordering in the main README holds:
-   this rung starts only after thermodynamics and transport are
-   separately trustworthy.
+8. **Species continuity (5-species Park nonequilibrium)**: done.
+   Species mass fractions as transported fields with the Park 1990
+   dissociation/exchange set from park.rs, backward rates through the
+   Park 1985 equilibrium-constant fits, formation energies routed
+   through the closure on the atom-positive convention, positivity
+   handling, and the operator-split chemistry substep. The inviscid
+   cartesian lane carries it; viscous/curvilinear/cut-cell lanes
+   reject the model loudly until wired. Gates: the equilibrium
+   constants against the verified table, the exchange-reaction cycle,
+   the source term nulled at the closed-form equilibrium composition,
+   and the Mach 20 nitrogen cylinder (peak T 2.8 kK under the frozen
+   ceiling, atomic fraction rising monotonically through the shock
+   layer; results on the research page).
 9. **Catalytic wall brackets**: non-catalytic and fully-catalytic wall
    options for the diffusive species flux at the surface. With rung 8
    this brackets the heating answer for TPS (fully-catalytic is the

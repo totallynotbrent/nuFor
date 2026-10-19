@@ -16,6 +16,9 @@ use crate::error::Error;
 use crate::state2d::ConservedState2d;
 use crate::Grid2d;
 
+/// number of species in the park 5-species air set.
+pub const NS: usize = 5;
+
 /// species index. order is fixed across the module.
 pub const N_N2: usize = 0;
 pub const N_O2: usize = 1;

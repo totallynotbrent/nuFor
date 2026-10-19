@@ -131,6 +131,7 @@ correlations (Fay-Riddell) are posed at.
 
 1D and 3D marches still run the perfect gas; the planar and
 axisymmetric 2D paths (the hypersonic entry paths) are the
-closure-aware ones. Extending the closure through the remaining
-solvers is queued on the roadmap with nonequilibrium
-(two-temperature Park) as the next rung after it.
+closure-aware ones. The nonequilibrium rungs are built on top of
+this: two-temperature vibration ([[numerics/foundations/two-temperature]])
+and five-species chemistry ([[numerics/foundations/five-species]]) are
+the next steps past equilibrium.

@@ -82,6 +82,7 @@ Every milestone closes against an analytical or benchmark case, tracked on the
 The current build: 1D/2D/3D structured Euler, 2D/3D viscous terms,
 Spalart-Allmaras RANS, masked bodies, an axisymmetric solver, the
 equilibrium-air closure, live two-temperature nonequilibrium (Park 2T),
-and an MPI-parallel Fortran march. Open work: 5-species reacting flow,
-unstructured meshes, and broad experimental validation. The
+five-species finite-rate chemistry (Park 5), and an MPI-parallel
+Fortran march. Open work: unstructured meshes, catalytic walls, and
+broad experimental validation. The
 [[roadmap|roadmap]] tracks it rung by rung.

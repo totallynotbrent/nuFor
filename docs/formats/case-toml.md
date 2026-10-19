@@ -76,7 +76,8 @@ silently change a run.
 | `metadata.case_revision` | int | no (default 1) | >= 1 | Revision counter for the case definition. |
 | `physics.equations` | string | yes | `euler_1d` \| `euler_2d` \| `euler_3d` \| `euler_axi` \| `rans_2d_sa` | Equation set; the case-run wiring (`nufor run`) chooses the solver by this. `euler_axi` is axisymmetric Euler (see [[formats/case-body]]), `rans_2d_sa` the 2D Reynolds-averaged Navier-Stokes with Spalart-Allmaras. |
 | `physics.gamma` | float | yes | > 1 | Ratio of specific heats; with `eos = "eqair"` this is the fallback for degenerate cells only. |
-| `physics.eos` | string | no (default `perfect`) | `perfect` \| `eqair` \| `park2t` | Thermodynamic closure: constant-gamma perfect gas, equilibrium air via the CEA grid (see [[numerics/foundations/equilibrium-air]]), or two-temperature nitrogen with a live vibrational field (see [[numerics/foundations/two-temperature]]). |
+| `physics.eos` | string | no (default `perfect`) | `perfect` \| `eqair` \| `park2t` \| `park5` | Thermodynamic closure: constant-gamma perfect gas, equilibrium air via the CEA grid (see [[numerics/foundations/equilibrium-air]]), two-temperature nitrogen with a live vibrational field (see [[numerics/foundations/two-temperature]]), or five-species finite-rate chemistry (see [[numerics/foundations/five-species]]). |
+| `physics.gas` | string | no (default `air`) | `air` \| `n2` | Freestream composition for `eos = "park5"`: standard air (0.767 N2 / 0.233 O2 by mass) or pure nitrogen for the dissociation gates. |
 | `physics.gas_constant` | float | yes | > 0 | Specific gas constant, J/(kg K) in SI. |
 | `physics.unit_system` | string | no (default `si`) | `si` \| `nondim` | Unit convention for reported fields. |
 | `physics.reference` | table | no | rho, p, l > 0 | Nondimensionalization reference state. |

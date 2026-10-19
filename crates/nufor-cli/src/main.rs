@@ -20,10 +20,10 @@ use nufor_core::{
     advance_ugrid, apply_solid_fn, apply_solid_ref, body_cache, cons_to_prim2d, eos_pressure2d,
     euler_solve, grid1d, grid2d, grid3d, prim_to_cons, prim_to_cons2d, prim_to_cons3d,
     read_restart, read_restart2d, render_png, wall_distance2d, write_csv, write_h5, write_restart,
-    write_restart2d, write_vtk, write_vtk2d_model, write_vtk3d, Bc2d, Boundaries2d, Boundary,
-    Bounds3d, ConservedState, ConservedState2d, ConservedState3d, Error, EulerConfig, Grid1d,
-    Grid2d, Grid3d, OutputState, SaParams, SolidPolygon, SolidShape, SphereCone, SphereConeSdf,
-    TurbState, Ugrid,
+    write_restart2d, write_vtk, write_vtk2d_model, write_vtk2d_park5, write_vtk3d, Bc2d,
+    Boundaries2d, Boundary, Bounds3d, ConservedState, ConservedState2d, ConservedState3d, Error,
+    EulerConfig, Grid1d, Grid2d, Grid3d, OutputState, SaParams, SolidPolygon, SolidShape,
+    SphereCone, SphereConeSdf, TurbState, Ugrid,
 };
 use nufor_core::{model_from_config, park2t, ThermoModel};
 
@@ -1156,7 +1156,7 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
             t,
             t0.elapsed().as_secs_f64()
         );
-        let rc = write_case_vtk2d_model(path, &cfg.metadata.name, &g, &st, model);
+        let rc = write_case_vtk2d_model(path, &cfg.metadata.name, &g, &st, model, None);
         if rc == 0 {
             write_run_log_2d(
                 cfg,
@@ -1486,6 +1486,25 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
         }
     }
     let bc = case_boundaries(cfg);
+    // park5 cases carry the composition beside the flow state: pure
+    // nitrogen for the dissociation gates, standard air otherwise.
+    let mut park5_species = if matches!(model, ThermoModel::Park5 { .. }) {
+        let built = match cfg.physics.gas.as_str() {
+            "n2" => {
+                nufor_core::species::SpeciesState::uniform(g.nx * g.ny, &[1.0, 0.0, 0.0, 0.0, 0.0])
+            }
+            _ => Ok(nufor_core::species::SpeciesState::air(g.nx * g.ny)),
+        };
+        Some(match built {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("park5 initial composition error: {e}");
+                return 2;
+            }
+        })
+    } else {
+        None
+    };
     let cfl = cfg.numerics.cfl;
     let t_end = cfg.time.final_time;
     let max_steps = if let Some(ms) = get_adhoc_max_steps() {
@@ -1643,7 +1662,7 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
             st.e.iter().cloned().fold(f64::INFINITY, f64::min),
             st.e.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
         );
-        let rc = write_case_vtk2d_model(path, &cfg.metadata.name, &g, &st, model);
+        let rc = write_case_vtk2d_model(path, &cfg.metadata.name, &g, &st, model, None);
         if rc == 0 {
             write_run_log_2d(cfg, path, &g, &st, model, steps, t, wall);
         }
@@ -1776,6 +1795,21 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
                         .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
                 )
             }
+        } else if let Some(sp) = park5_species.as_mut() {
+            // the park5 lane: the species march carries the composition
+            // through the flow step, the transport pass and the chemistry
+            // substep in one rk2 update.
+            nufor_core::species_march::advance2d_park5_rk2(
+                &mut st,
+                sp,
+                &g,
+                cfl,
+                true,
+                &bc,
+                cfg.numerics.threads,
+                body.as_ref()
+                    .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
+            )
         } else {
             advance2d_model_rk2(
                 &mut st,
@@ -1829,7 +1863,14 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
             "case {} ({})\nthink: 2d, {}x{}\nsteps: {}\ntime: {:.4}\nwall: {:.3}s",
             cfg.metadata.name, path, g.nx, g.ny, steps, t, wall
         );
-        let rc = write_case_vtk2d_model(path, &cfg.metadata.name, &g, &st, model);
+        let rc = write_case_vtk2d_model(
+            path,
+            &cfg.metadata.name,
+            &g,
+            &st,
+            model,
+            park5_species.as_ref(),
+        );
         if rc == 0 && park_lane {
             // the vibrational temperature field: the two-temperature
             // readout (t_v per cell from the stored vibrational energy).
@@ -2510,7 +2551,7 @@ fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
         if matches!(bc.north, Bc2d::NoSlipWall) {
             report_cf("top", false);
         }
-        write_case_vtk2d_model(path, &cfg.metadata.name, &g, &st, model)
+        write_case_vtk2d_model(path, &cfg.metadata.name, &g, &st, model, None)
     } else {
         1
     }
@@ -2710,6 +2751,11 @@ fn ic_uniform_energy(rho: f64, p: f64, model: ThermoModel) -> Result<f64, String
         ThermoModel::EqAir { .. } => nufor_core::eqair_energy(&[rho], &[p])
             .map(|v| v[0])
             .map_err(|e| e.to_string()),
+        ThermoModel::Park5 { .. } => {
+            // uniform park5 ICs start as standard air; e_int carries the
+            // formation offset through the mixture closure.
+            Ok(nufor_core::species_march::air_ic_energy(rho, p))
+        }
     }
 }
 
@@ -2901,9 +2947,22 @@ fn write_case_vtk2d_model(
     g: &Grid2d,
     st: &ConservedState2d,
     model: ThermoModel,
+    species: Option<&nufor_core::species::SpeciesState>,
 ) -> i32 {
     let dir = case_dir(path);
     let dst = dir.join(format!("{name}.vtk"));
+    if let (Some(sp), true) = (species, matches!(model, ThermoModel::Park5 { .. })) {
+        return match write_vtk2d_park5(&dst, g, st, sp) {
+            Ok(()) => {
+                println!("wrote: {}", dst.display());
+                0
+            }
+            Err(e) => {
+                eprintln!("output error: {e}");
+                1
+            }
+        };
+    }
     match write_vtk2d_model(&dst, g, st, model) {
         Ok(()) => {
             println!("wrote: {}", dst.display());

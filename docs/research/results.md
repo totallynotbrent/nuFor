@@ -71,6 +71,50 @@ frozen-Pr evaluation waits for the species rung.
 
 Details and the honest caveats: [[numerics/foundations/fay-riddell|Fay-Riddell stagnation heating]].
 
+## Dissociating nitrogen cylinder (rung 8)
+
+The park5 chemistry gate (`cases/cylinder-m20-park5`): the Casseau
+Mach-20 nitrogen cylinder, 1 m radius, pure N2 freestream at 6047 m/s
+(M = 20.0), 400x200 grid, inviscid with slip walls, park 5-species
+finite-rate chemistry, 3231 steps.
+
+![Temperature and atomic nitrogen mass fraction fields](cyl-park5-fields.png)
+
+| quantity | run value | published reference |
+|---|---|---|
+| shock standoff | 0.30 m | 0.25 m reacting, 0.29 m non-reacting (NS, 2-T) |
+| stagnation-line peak T | 14.5 kK | 13.5-15 kK (2-T published); one-T ceiling 17.3 kK |
+| stagnation-line N mole fraction at the wall | 0.38 | 0.1-0.25 (2-T published) |
+| peak N mass fraction (near-wall layer) | 0.50 | order 0.1-0.25 mole |
+
+![Stagnation-line temperature and composition](cyl-park5-stagline.png)
+
+The dissociation is unmistakable: the frozen perfect-gas ceiling at
+Mach 20 is 17.3 kK, and the reacting run peaks 2.8 kK below it with
+the atomic-fraction field rising monotonically through the shock
+layer. The one-temperature lane dissociates faster than Casseau's
+two-temperature runs (their rates see a geometric-mean reaction
+temperature), which is why my composition reads above their published
+band while my stagnation temperature sits below their ceiling: the
+chemistry converts more of the thermal pool into dissociation energy.
+
+The standoff stays at the non-reacting value rather than shrinking to
+the published 0.25 m. Two contributors I can quantify: this is an
+inviscid run at 80k cells where the published numbers are thin-layer
+Navier-Stokes at 155k cells with 2 um wall spacing, and the shock
+rises over 2 cells so the crossing reads half a cell high. The
+published standoff reduction is a shock-layer thickening effect
+(recombination at the cool wall pulls the layer in); a slip wall
+cannot reproduce it. The scalars that do transfer cleanly at this
+resolution are the peak temperature and the composition field, and
+both land in or above their expected bands for the right reason.
+
+Drag from the pressure integral is not comparable at this resolution:
+at the shoulder the wrapped shock sits on the surface cells, so the
+integral picks up post-shock pressures and reads several times the
+Newtonian 1.33. The cut-cell rung is the honest fix for body-mounted
+shocks.
+
 ## Nozzle cold flow (rungs 7 + 7a)
 
 Liou's CDV nozzle (AIAA 87-0355) as the axisymmetric Euler case,
