@@ -165,14 +165,15 @@ flowchart LR
    and the Mach 20 nitrogen cylinder (peak T 2.8 kK under the frozen
    ceiling, atomic fraction rising monotonically through the shock
    layer; results on the research page).
-9. **Catalytic wall brackets**: non-catalytic and fully-catalytic wall
-   options for the diffusive species flux at the surface. With the
-   species fields landed this brackets the heating answer for TPS
-   (fully-catalytic is the
-   conservative bound a report wants). The Maxwell velocity-slip and
+9. **Catalytic wall brackets**: done. Non-catalytic and
+   fully-catalytic wall options on the species viscous lane, with
+   Wilke mixture transport and effective-binary diffusion through
+   the shock layer. The Mach 20 cylinder pair brackets the wall
+   heating between the two conditions; the machinery and numbers
+   are on the catalytic walls page. The Maxwell velocity-slip and
    Smoluchowski temperature-jump wall conditions from the same body of
-   work are optional extras: below 43 km the trajectory is continuum
-   (Kn << 1), so slip walls are a research branch, not a planned step.
+   work stay research extras: below 43 km the trajectory is continuum
+   (Kn << 1), so slip walls are a branch, not a planned step.
 9a. **Combustion chemistry (engine chamber flow)**: finite-rate
    H2/O2 (and later CH4/O2) chemistry on the species-continuity
    machinery: a fuel/oxidizer reaction mechanism with

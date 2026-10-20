@@ -138,8 +138,12 @@ snapshot writer adds the five mass-fraction fields (`y_N2` through
 `y_O`) and computes pressure, temperature, and mach through the
 species closure.
 
-The lane is inviscid cartesian: the viscous,
-curvilinear, cut-cell, and unstructured marches reject `park5`
-loudly (an invalid-arguments error at startup) rather than
-silently running frozen. Wiring the species fields through those
-lanes is future work.
+A park5 case with `physics.mu > 0` leaves the inviscid lane for
+the species viscous march: Wilke mixture transport, effective-binary
+diffusion, and the isothermal wall with its catalytic condition.
+That lane and its heating bracket live on
+[[numerics/foundations/catalytic-walls|the catalytic walls page]].
+The curvilinear, cut-cell, and unstructured marches still reject
+`park5` loudly (an invalid-arguments error at startup) rather than
+silently running frozen; wiring the species fields through them is
+future work.

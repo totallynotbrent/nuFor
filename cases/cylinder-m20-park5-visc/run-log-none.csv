@@ -1,0 +1,8 @@
+case,steps,time,nx,wall_s,viscous,tw,eos,rho_ratio,p_peak_pa,t_at_peak_k,t_max_k
+cylinder-m20-park5-visc-full,3000,0.002567,400,2004.8,true,1000,Park5 { gamma_shaping: 1.4 },8.62975e1,7.874e4,112784,153908
+cylinder-m20-park5-visc-none,1500,qw_peak_mwm2,0.244066,x,1.014,y,0.009
+cylinder-m20-park5-visc-none,1500,0.001246,400,1365.0,true,1000,Park5 { gamma_shaping: 1.4 },1.03260e2,4.017e3,7070,21229
+cylinder-m20-park5-visc-none,3000,qw_peak_mwm2,0.237447,x,0.963,y,0.315
+cylinder-m20-park5-visc-none,3000,0.002756,400,1996.9,true,1000,Park5 { gamma_shaping: 1.4 },2.42396e2,6.925e3,5757,19580
+cylinder-m20-park5-visc-none,3237,qw_peak_mwm2,0.239621,x,0.963,y,0.315
+cylinder-m20-park5-visc-none,3237,0.003001,400,2092.3,true,1000,Park5 { gamma_shaping: 1.4 },2.59746e2,7.263e3,5622,19282

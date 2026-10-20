@@ -183,3 +183,28 @@ The thread-sharded 2D step, measured in the 1.5.0 era on a 384x384 mesh,
 1.75x at eight (hyperthread oversubscription). The step is memory-bound, so
 the plateau tracks memory bandwidth rather than core count. Full table on the
 [[numerics/parallel/threading|threading page]].
+
+
+## Catalytic wall bracket
+
+The park5 viscous lane's heating bracket
+(`cases/cylinder-m20-park5-visc`): the same Mach 20 nitrogen
+cylinder with `physics.mu = 1.716e-5` and an isothermal 1000 K
+no-slip wall, run twice with `catalytic_wall = "none"` vs
+`"full"`. Both runs march to t = 3 ms (3237 and 3236 steps) and
+finish clean; the species fields conserve sum-Y to 5e-8.
+
+| quantity | non-catalytic | fully-catalytic |
+|---|---|---|
+| peak wall heat flux | 0.240 MW/m^2 | 1.216 MW/m^2 |
+
+The 5.1x amplification is the catalytic formation-enthalpy term
+at a cold wall: atoms that reach the surface recombine, and each
+recombination deposits its 33.6 MJ/kg formation enthalpy into the
+wall. The field cross-section shows the companion effect: the
+fully-catalytic run's atomic nitrogen collapses toward the wall
+(0.09 vs 0.02 in the first fluid ring) while the hot shock-layer
+core is unchanged.
+
+Details: [[numerics/foundations/catalytic-walls|the catalytic
+walls page]].

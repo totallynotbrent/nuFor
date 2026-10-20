@@ -82,6 +82,14 @@ pub struct Physics {
     /// correlations (fay-riddell) are posed at a fixed wall temperature.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wall_temperature: Option<f64>,
+    /// catalytic wall recombination for the park5 viscous lane:
+    /// "none" (dY/dn = 0 at the wall, the default) or "full" (the wall
+    /// composition is the equilibrium value at the wall temperature;
+    /// atoms recombine on contact and deposit their formation
+    /// enthalpy). the definitions follow the production codes' wall
+    /// options (LAURA jtype 0 / fully-catalytic; DPLR icatmd 0 / 2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catalytic_wall: Option<String>,
 }
 
 /// the sa turbulence block of a rans_2d_sa case.

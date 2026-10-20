@@ -139,8 +139,11 @@ costs nothing when the march might later scale.
 mpirun -np 4 nufor run case.toml
 ```
 
-The solver routes equilibrium-air 2D Euler, laminar viscous, and SA RANS
-marches (body-free) through the MPI core when launched under `mpirun` (or
-with `NFOR_MPI=1` set); np=1 runs the same path. Masked body cases stay on
-the serial march because the Fortran kernel wall-treats domain faces only.
-Restart support for the scattered state is the next step.
+The solver routes equilibrium-air 2D Euler (body-free and masked-body both),
+laminar viscous, and SA RANS marches (body-free) through the MPI core when
+launched under `mpirun` (or with `NFOR_MPI=1` set); np=1 runs the same path.
+Masked-body Euler cases march in single-step chunks so rank 0 can re-project
+the wall band between steps (the body gate above); viscous masked-body cases
+stay on the serial Rust march because the Fortran viscous kernel wall-treats
+domain faces only, so a body under mpirun would silently skip the no-slip
+band. Restart support for the scattered state is the next step.

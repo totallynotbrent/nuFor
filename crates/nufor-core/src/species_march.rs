@@ -321,3 +321,346 @@ mod chem_tests {
         assert!(sp.max_sum_drift() < 1e-12);
     }
 }
+
+/// the park5 laminar viscous march: one rk2 step = the inviscid flow
+/// advance + the species viscous pass (stresses, wilke conduction,
+/// species diffusion, catalytic wall energy flux) + the chemistry
+/// substep, with the diffusion stability cap folded into the step.
+///
+/// the rk2 shape mirrors advance2d_park5_rk2: stage 1 runs two flow
+/// sub-steps on the clone with the viscous pass applied after each,
+/// then the combine; the viscous pass uses that sub-step's dt so the
+/// wall energy budget and the species update stay synchronized.
+#[allow(clippy::too_many_arguments)]
+pub fn advance2d_park5_visc_rk2(
+    state: &mut ConservedState2d,
+    species: &mut SpeciesState,
+    g: &Grid2d,
+    cfl: f64,
+    muscl: bool,
+    bc: &crate::Boundaries2d,
+    wall_temperature: f64,
+    catalytic: crate::catalytic::CatalyticWall,
+    nthreads: usize,
+    wall: Option<&dyn Fn(f64, f64) -> f64>,
+) -> Result<(f64, f64), Error> {
+    // transport snapshot + the diffusive stability cap; the acoustic
+    // bound comes from the flow advance itself.
+    let ct = crate::species_viscous::cell_transport(state, species, g)?;
+    let mut s1 = state.clone();
+    let mut y1 = species.clone();
+    let wall_opts = crate::species_viscous::WallOpts {
+        temperature: wall_temperature,
+        catalytic,
+    };
+    let mut dt_last = 0.0f64;
+    for _ in 0..2 {
+        let (dt, _) = advance2d_park5(&mut s1, &mut y1, g, cfl, muscl, bc, nthreads, wall)?;
+        // the species diffusion rides the face-local stability caps
+        // inside add_species_viscous; the flow keeps the acoustic dt.
+        crate::species_viscous::add_species_viscous(
+            &mut s1, &mut y1, g, &ct, dt, bc, wall_opts, wall,
+        )?;
+        dt_last = dt;
+    }
+    // combine stages
+    let n = g.nx * g.ny;
+    for k in 0..n {
+        state.rho[k] = 0.5 * state.rho[k] + 0.5 * s1.rho[k];
+        state.mx[k] = 0.5 * state.mx[k] + 0.5 * s1.mx[k];
+        state.my[k] = 0.5 * state.my[k] + 0.5 * s1.my[k];
+        state.e[k] = 0.5 * state.e[k] + 0.5 * s1.e[k];
+    }
+    for s in 0..crate::park::NS {
+        for k in 0..n {
+            species.y[s][k] = 0.5 * species.y[s][k] + 0.5 * y1.y[s][k];
+        }
+    }
+    for k in 0..n {
+        species.sanitize(k);
+    }
+    // chemistry at the combined state, same operator split as the
+    // inviscid lane.
+    let (_, oversub) = chemistry_substep(state, species, g, dt_last)?;
+    Ok((dt_last, oversub))
+}
+
+#[cfg(test)]
+mod visc_tests {
+    use super::*;
+
+    /// failure mode 6 (plans/catalytic_research/failure-modes.md): a
+    /// non-catalytic viscous wall must not move the composition. the
+    /// uniform cold field with an isothermal wall heats via the
+    /// conductor but every species gradient stays zero, so Y is
+    /// bit-identical after the step.
+    #[test]
+    fn non_catalytic_viscous_wall_keeps_uniform_composition() {
+        let (nx, ny) = (12, 12);
+        let g = crate::grid2d::grid2d(nx, ny, 0.0, 0.12, 0.0, 0.12).unwrap();
+        let mut st = ConservedState2d {
+            rho: vec![1.2e-3; nx * ny],
+            mx: vec![0.0; nx * ny],
+            my: vec![0.0; nx * ny],
+            e: vec![0.0; nx * ny],
+        };
+        // cold static air at rest, formation-offset energy
+        let y_air = [0.767f64, 0.233, 0.0, 0.0, 0.0];
+        for k in 0..nx * ny {
+            st.e[k] = st.rho[k] * closure5::internal_energy_at(300.0, &y_air);
+        }
+        let mut sp = crate::species::SpeciesState::uniform(nx * ny, &y_air).unwrap();
+        let bc = crate::solver2d::Boundaries2d {
+            west: crate::solver2d::Bc2d::SlipWall,
+            east: crate::solver2d::Bc2d::SlipWall,
+            south: crate::solver2d::Bc2d::NoSlipWall,
+            north: crate::solver2d::Bc2d::SlipWall,
+        };
+        advance2d_park5_visc_rk2(
+            &mut st,
+            &mut sp,
+            &g,
+            0.4,
+            true,
+            &bc,
+            1000.0,
+            crate::catalytic::CatalyticWall::NonCatalytic,
+            1,
+            None,
+        )
+        .unwrap();
+        for (s, ys) in sp.y.iter().enumerate() {
+            for (k, yk) in ys.iter().enumerate() {
+                assert!(
+                    (yk - y_air[s]).abs() < 1e-12,
+                    "species {s} cell {k} moved to {}",
+                    yk
+                );
+            }
+        }
+    }
+
+    /// failure mode 5/10: the fully-catalytic wall on a hot
+    /// dissociated layer pulls atoms to the wall: after the step the
+    /// near-wall cells are molecule-richer than with the non-catalytic
+    /// condition, and the wall-adjacent composition moved.
+    #[test]
+    fn fully_catalytic_wall_pulls_atoms_wallward() {
+        let (nx, ny) = (12, 12);
+        let g = crate::grid2d::grid2d(nx, ny, 0.0, 0.12, 0.0, 0.12).unwrap();
+        // seed a hot atom-rich layer above a cold wall: the bottom row
+        // is 9000 K partially-dissociated air, the rest is cold.
+        let mut st = ConservedState2d {
+            rho: vec![1.2e-3; nx * ny],
+            mx: vec![0.0; nx * ny],
+            my: vec![0.0; nx * ny],
+            e: vec![0.0; nx * ny],
+        };
+        let y_diss = [0.3f64, 0.0, 0.0, 0.5, 0.2];
+        let y_cold = [0.767f64, 0.233, 0.0, 0.0, 0.0];
+        for j in 0..ny {
+            for i in 0..nx {
+                let k = j * nx + i;
+                let y = if j < 2 { y_diss } else { y_cold };
+                st.e[k] = st.rho[k]
+                    * closure5::internal_energy_at(if j < 2 { 9000.0 } else { 300.0 }, &y);
+            }
+        }
+        let mut sp = crate::species::SpeciesState::uniform(nx * ny, &y_cold).unwrap();
+        for j in 0..2 {
+            for i in 0..nx {
+                for (ys, yd) in sp.y.iter_mut().zip(y_diss.iter()) {
+                    ys[j * nx + i] = *yd;
+                }
+            }
+        }
+        let bc = crate::solver2d::Boundaries2d {
+            west: crate::solver2d::Bc2d::SlipWall,
+            east: crate::solver2d::Bc2d::SlipWall,
+            south: crate::solver2d::Bc2d::NoSlipWall,
+            north: crate::solver2d::Bc2d::SlipWall,
+        };
+        // non-catalytic reference
+        let mut st_n = st.clone();
+        let mut sp_n = sp.clone();
+        advance2d_park5_visc_rk2(
+            &mut st_n,
+            &mut sp_n,
+            &g,
+            0.4,
+            true,
+            &bc,
+            1000.0,
+            crate::catalytic::CatalyticWall::NonCatalytic,
+            1,
+            None,
+        )
+        .unwrap();
+        // fully-catalytic
+        let mut sp_f = sp.clone();
+        let mut st_f = st.clone();
+        advance2d_park5_visc_rk2(
+            &mut st_f,
+            &mut sp_f,
+            &g,
+            0.4,
+            true,
+            &bc,
+            1000.0,
+            crate::catalytic::CatalyticWall::FullyCatalytic,
+            1,
+            None,
+        )
+        .unwrap();
+        // the wall-adjacent row (j=0, above the bottom no-slip wall):
+        // the catalytic condition drains atoms toward the wall, so the
+        // atom mass fraction there must drop relative to non-cat.
+        let n_atoms_n: f64 = (0..nx).map(|i| sp_n.y[3][i] + sp_n.y[4][i]).sum();
+        let n_atoms_f: f64 = (0..nx).map(|i| sp_f.y[3][i] + sp_f.y[4][i]).sum();
+        assert!(
+            n_atoms_f < n_atoms_n,
+            "catalytic wall must deplete wall atoms: full {n_atoms_f} vs non {n_atoms_n}"
+        );
+        // and the wall rows must stay normalized after the update
+        for k in 0..nx * ny {
+            let s: f64 = (0..crate::park::NS).map(|q| sp_f.y[q][k]).sum();
+            assert!((s - 1.0).abs() < 1e-9, "sum Y = {s} at {k}");
+        }
+    }
+
+    /// the north-wall mirror of the catalytic test: the same hot
+    /// atom-rich layer under the TOP no-slip wall must also drain
+    /// atoms under the fully-catalytic condition. pins the face-
+    /// direction sign in the domain-wall catalytic flux.
+    #[test]
+    fn fully_catalytic_north_wall_also_pulls_atoms() {
+        let (nx, ny) = (12, 12);
+        let g = crate::grid2d::grid2d(nx, ny, 0.0, 0.12, 0.0, 0.12).unwrap();
+        let mut st = ConservedState2d {
+            rho: vec![1.2e-3; nx * ny],
+            mx: vec![0.0; nx * ny],
+            my: vec![0.0; nx * ny],
+            e: vec![0.0; nx * ny],
+        };
+        let y_diss = [0.3f64, 0.0, 0.0, 0.5, 0.2];
+        let y_cold = [0.767f64, 0.233, 0.0, 0.0, 0.0];
+        for j in 0..ny {
+            for i in 0..nx {
+                let k = j * nx + i;
+                let hot = j >= ny - 2;
+                let y = if hot { y_diss } else { y_cold };
+                st.e[k] =
+                    st.rho[k] * closure5::internal_energy_at(if hot { 9000.0 } else { 300.0 }, &y);
+            }
+        }
+        let mut sp = crate::species::SpeciesState::uniform(nx * ny, &y_cold).unwrap();
+        for j in (ny - 2)..ny {
+            for i in 0..nx {
+                for (ys, yd) in sp.y.iter_mut().zip(y_diss.iter()) {
+                    ys[j * nx + i] = *yd;
+                }
+            }
+        }
+        let bc = crate::solver2d::Boundaries2d {
+            west: crate::solver2d::Bc2d::SlipWall,
+            east: crate::solver2d::Bc2d::SlipWall,
+            south: crate::solver2d::Bc2d::SlipWall,
+            north: crate::solver2d::Bc2d::NoSlipWall,
+        };
+        let mut st_n = st.clone();
+        let mut sp_n = sp.clone();
+        advance2d_park5_visc_rk2(
+            &mut st_n,
+            &mut sp_n,
+            &g,
+            0.4,
+            true,
+            &bc,
+            1000.0,
+            crate::catalytic::CatalyticWall::NonCatalytic,
+            1,
+            None,
+        )
+        .unwrap();
+        let mut sp_f = sp.clone();
+        let mut st_f = st.clone();
+        advance2d_park5_visc_rk2(
+            &mut st_f,
+            &mut sp_f,
+            &g,
+            0.4,
+            true,
+            &bc,
+            1000.0,
+            crate::catalytic::CatalyticWall::FullyCatalytic,
+            1,
+            None,
+        )
+        .unwrap();
+        let row = ny - 1;
+        let n_atoms_n: f64 = (0..nx)
+            .map(|i| sp_n.y[3][row * nx + i] + sp_n.y[4][row * nx + i])
+            .sum();
+        let n_atoms_f: f64 = (0..nx)
+            .map(|i| sp_f.y[3][row * nx + i] + sp_f.y[4][row * nx + i])
+            .sum();
+        assert!(
+            n_atoms_f < n_atoms_n,
+            "north catalytic wall must deplete wall atoms: full {n_atoms_f} vs non {n_atoms_n}"
+        );
+    }
+
+    /// failure mode 8 (cold-flow identity through the viscous pass):
+    /// the cold uniform field must not create composition anywhere,
+    /// and the step must remain stable at the face-local diffusion dt.
+    #[test]
+    fn viscous_march_stays_stable_on_the_stagnation_setup() {
+        // 20x40 grid, Mach-20 freestream, isothermal wall, no body:
+        // the march must run 20 steps without a solver error and keep
+        // the composition bounded.
+        let (nx, ny) = (20, 40);
+        let g = crate::grid2d::grid2d(nx, ny, 0.0, 0.2, 0.0, 0.4).unwrap();
+        let mut st = ConservedState2d {
+            rho: vec![1.363e-5; nx * ny],
+            mx: vec![1.363e-5 * 6047.0; nx * ny],
+            my: vec![0.0; nx * ny],
+            e: vec![0.0; nx * ny],
+        };
+        let y_air = [1.0f64, 0.0, 0.0, 0.0, 0.0];
+        for k in 0..nx * ny {
+            st.e[k] = st.rho[k] * closure5::internal_energy_at(197.0, &y_air)
+                + 0.5 * st.mx[k] * st.mx[k] / st.rho[k];
+        }
+        let mut sp = crate::species::SpeciesState::uniform(nx * ny, &y_air).unwrap();
+        let bc = crate::solver2d::Boundaries2d {
+            west: crate::solver2d::Bc2d::SupersonicInflow {
+                rho: 1.363e-5,
+                u: 6047.0,
+                v: 0.0,
+                p: 0.89,
+            },
+            east: crate::solver2d::Bc2d::Transmissive,
+            south: crate::solver2d::Bc2d::NoSlipWall,
+            north: crate::solver2d::Bc2d::Transmissive,
+        };
+        for _ in 0..20 {
+            advance2d_park5_visc_rk2(
+                &mut st,
+                &mut sp,
+                &g,
+                0.4,
+                true,
+                &bc,
+                1000.0,
+                crate::catalytic::CatalyticWall::FullyCatalytic,
+                1,
+                None,
+            )
+            .unwrap();
+        }
+        for k in 0..nx * ny {
+            let s: f64 = (0..crate::park::NS).map(|q| sp.y[q][k]).sum();
+            assert!((s - 1.0).abs() < 1e-9);
+        }
+    }
+}

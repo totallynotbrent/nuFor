@@ -721,14 +721,26 @@ fn load_inflow_table(path: &str) -> Result<nufor_core::InflowProfile, String> {
     Ok(nufor_core::InflowProfile::Table { ys, us, vs })
 }
 
-/// build a 2d grid from a case's mesh section: uniform, or imported from a file.
-fn build_2d_mesh(mesh: &Mesh) -> Result<Grid2d, String> {
+/// build_2d_mesh with a case-file directory: a relative mesh path
+/// resolves against the case's own directory first (so `nufor run
+/// cases/x/case.toml` works from anywhere), falling back to the raw
+/// path for absolute paths and repo-root-invoked runs.
+fn build_2d_mesh_in(mesh: &Mesh, case_dir: Option<&std::path::Path>) -> Result<Grid2d, String> {
     if mesh.source == "file" {
         let path = mesh
             .path
             .as_deref()
             .ok_or_else(|| "mesh source = file needs a `path`".to_string())?;
-        let m = mesh_io::load_rectilinear(path)?;
+        let m = match case_dir {
+            Some(dir) => {
+                let joined = dir.join(path);
+                match mesh_io::load_rectilinear(joined.to_str().unwrap_or(path)) {
+                    Ok(m) => m,
+                    Err(_) => mesh_io::load_rectilinear(path)?,
+                }
+            }
+            None => mesh_io::load_rectilinear(path)?,
+        };
         mesh_io::rect_to_grid2d(&m)
     } else if mesh.source == "clustered" {
         let ny = mesh.ny.unwrap_or(mesh.nx) as usize;
@@ -1034,7 +1046,7 @@ pub fn case_boundaries(cfg: &CaseConfig) -> Boundaries2d {
 /// optional immersed body via the solid mask, slip-wall south boundary
 /// as the symmetry axis.
 fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
-    let g = match build_2d_mesh(&cfg.mesh) {
+    let g = match build_2d_mesh_in(&cfg.mesh, Some(&case_dir(path))) {
         Ok(g) => g,
         Err(e) => {
             eprintln!("mesh error: {e}");
@@ -1164,6 +1176,7 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
                 &g,
                 &st,
                 model,
+                None,
                 steps,
                 t,
                 t0.elapsed().as_secs_f64(),
@@ -1416,7 +1429,7 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     ) {
         return run_case_2d_msh(cfg, path, mp);
     }
-    let g = match build_2d_mesh(mesh) {
+    let g = match build_2d_mesh_in(mesh, Some(&case_dir(path))) {
         Ok(g) => g,
         Err(e) => {
             eprintln!("mesh error: {e}");
@@ -1664,7 +1677,17 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
         );
         let rc = write_case_vtk2d_model(path, &cfg.metadata.name, &g, &st, model, None);
         if rc == 0 {
-            write_run_log_2d(cfg, path, &g, &st, model, steps, t, wall);
+            write_run_log_2d(
+                cfg,
+                path,
+                &g,
+                &st,
+                model,
+                park5_species.as_ref(),
+                steps,
+                t,
+                wall,
+            );
         }
         if let Some(rpath) = &cfg.time.restart_out {
             if let Err(e) = write_restart2d(
@@ -1721,7 +1744,51 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     let mut steps = 0usize;
     let mut ok = true;
     while t < t_end && steps < max_steps {
-        let stepped = if let Some(mu0) = cfg.physics.mu {
+        let stepped = if let Some(sp) = park5_species.as_mut() {
+            // the park5 lane first: a park5 case with mu > 0 routes to
+            // the species viscous march, and the generic mu branch below
+            // must never see a park5 model (it rejects it).
+            let mu_case = cfg.physics.mu.unwrap_or(0.0);
+            if mu_case > 0.0 {
+                let tw = cfg.physics.wall_temperature.unwrap_or(0.0);
+                let cat = match cfg.physics.catalytic_wall.as_deref() {
+                    Some("full") | Some("fully") | Some("fully_catalytic") => {
+                        nufor_core::catalytic::CatalyticWall::FullyCatalytic
+                    }
+                    Some("none") | None => nufor_core::catalytic::CatalyticWall::NonCatalytic,
+                    Some(other) => {
+                        eprintln!("unknown catalytic_wall '{other}' (use none or full)");
+                        ok = false;
+                        break;
+                    }
+                };
+                nufor_core::species_march::advance2d_park5_visc_rk2(
+                    &mut st,
+                    sp,
+                    &g,
+                    cfl,
+                    true,
+                    &bc,
+                    tw,
+                    cat,
+                    cfg.numerics.threads,
+                    body.as_ref()
+                        .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
+                )
+            } else {
+                nufor_core::species_march::advance2d_park5_rk2(
+                    &mut st,
+                    sp,
+                    &g,
+                    cfl,
+                    true,
+                    &bc,
+                    cfg.numerics.threads,
+                    body.as_ref()
+                        .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
+                )
+            }
+        } else if let Some(mu0) = cfg.physics.mu {
             if mu0 > 0.0 {
                 let tw = cfg.physics.wall_temperature.unwrap_or(0.0);
                 if let Some(tb) = turb.as_mut() {
@@ -1795,21 +1862,6 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
                         .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
                 )
             }
-        } else if let Some(sp) = park5_species.as_mut() {
-            // the park5 lane: the species march carries the composition
-            // through the flow step, the transport pass and the chemistry
-            // substep in one rk2 update.
-            nufor_core::species_march::advance2d_park5_rk2(
-                &mut st,
-                sp,
-                &g,
-                cfl,
-                true,
-                &bc,
-                cfg.numerics.threads,
-                body.as_ref()
-                    .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
-            )
         } else {
             advance2d_model_rk2(
                 &mut st,
@@ -1856,6 +1908,42 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
                 .ok();
         }
         steps += 1;
+        if steps % 200 == 0 {
+            eprintln!(
+                "step {steps} t={t:.4} wall={:.1}s",
+                t0.elapsed().as_secs_f64()
+            );
+        }
+        // interval snapshots: a long march should not lose everything
+        // when a late step goes bad; the interval vtk keeps the last
+        // checkpoint on disk (same name as the final write).
+        let iv = cfg.output.interval_steps as usize;
+        if iv > 0 && steps % iv == 0 {
+            let rc = write_case_vtk2d_model(
+                path,
+                &cfg.metadata.name,
+                &g,
+                &st,
+                model,
+                park5_species.as_ref(),
+            );
+            if rc != 0 {
+                eprintln!("interval output failed at step {steps}");
+            }
+            write_run_log_2d(
+                cfg,
+                path,
+                &g,
+                &st,
+                model,
+                park5_species.as_ref(),
+                steps,
+                t,
+                t0.elapsed().as_secs_f64(),
+            );
+            let dst = case_dir(path).join("run-log-last.txt");
+            let _ = std::fs::rename(case_dir(path).join("run-log.txt"), dst);
+        }
     }
     if ok {
         let wall = t0.elapsed().as_secs_f64();
@@ -1887,7 +1975,17 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
             }
         }
         if rc == 0 {
-            write_run_log_2d(cfg, path, &g, &st, model, steps, t, wall);
+            write_run_log_2d(
+                cfg,
+                path,
+                &g,
+                &st,
+                model,
+                park5_species.as_ref(),
+                steps,
+                t,
+                wall,
+            );
         }
         if let Some(rpath) = &cfg.time.restart_out {
             if let Err(e) = write_restart2d(
@@ -1918,6 +2016,7 @@ fn write_run_log_2d(
     g: &nufor_core::Grid2d,
     st: &ConservedState2d,
     model: nufor_core::ThermoModel,
+    species: Option<&nufor_core::species::SpeciesState>,
     steps: usize,
     t: f64,
     wall: f64,
@@ -1932,11 +2031,28 @@ fn write_run_log_2d(
     for k in 0..n {
         e_int[k] = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
     }
-    let p = match nufor_core::thermo_pressure(model, rho, &e_int, &u, &v) {
-        Ok(x) => x,
-        Err(_) => return,
+    // park5 computes p and T through the species closure per cell;
+    // the other models keep the shared table paths.
+    let (p, temp) = if let Some(sp) = species {
+        let mut pp = vec![0.0f64; n];
+        let mut tt = vec![0.0f64; n];
+        for k in 0..n {
+            let mut y = [0.0f64; 5];
+            for (ys, ysrc) in y.iter_mut().zip(sp.y.iter()) {
+                *ys = ysrc[k];
+            }
+            pp[k] = nufor_core::species_closure::pressure_at(rho[k], e_int[k], &y);
+            tt[k] = nufor_core::species_closure::temperature_at(e_int[k], &y);
+        }
+        (pp, tt)
+    } else {
+        let p = match nufor_core::thermo_pressure(model, rho, &e_int, &u, &v) {
+            Ok(x) => x,
+            Err(_) => return,
+        };
+        let temp = nufor_core::thermo_temperature(model, rho, &p).unwrap_or_default();
+        (p, temp)
     };
-    let temp = nufor_core::thermo_temperature(model, rho, &p).unwrap_or_default();
     // flow cells exclude the staircase-locked body band (rho pinned at 1).
     let flow: Vec<usize> = (0..n).filter(|&k| (rho[k] - 1.0).abs() > 1e-9).collect();
     if flow.is_empty() {
@@ -1972,6 +2088,12 @@ fn write_run_log_2d(
     let csv_path = dir.join("run-log.csv");
     let visc = cfg.physics.mu.map(|m| m > 0.0).unwrap_or(false);
     let tw = cfg.physics.wall_temperature.unwrap_or(0.0);
+    let cat_wall = match cfg.physics.catalytic_wall.as_deref() {
+        Some("full") | Some("fully") | Some("fully_catalytic") => {
+            nufor_core::catalytic::CatalyticWall::FullyCatalytic
+        }
+        _ => nufor_core::catalytic::CatalyticWall::NonCatalytic,
+    };
     // wall heat flux report along body-mask faces: q_w from a one-sided
     // temperature gradient on the fluid side of the mask, scaled by the
     // sutherland conductivity at the wall temperature. only emitted for
@@ -1992,12 +2114,25 @@ fn write_run_log_2d(
                 .collect();
             let mut q_rows: Vec<(f64, f64, f64)> = Vec::new();
             // fourier conductivity from prandtl: k = mu * cp / pr with
-            // cp = R*gamma/(gamma-1) and the case gas constant.
-            let kf = |t: f64| {
+            // cp = R*gamma/(gamma-1) and the case gas constant. park5
+            // cases use the wilke mixture conductivity at the near-wall
+            // composition instead, so the log matches the march.
+            let kf_suth = |t: f64| {
                 nufor_core::sutherland_mu(1.716e-5, t, 273.15, 110.4)
                     * cfg.physics.gamma
                     * cfg.physics.gas_constant
                     / ((cfg.physics.gamma - 1.0) * cfg.physics.pr)
+            };
+            let kf = |t: f64, k: usize| {
+                if let Some(sp) = species {
+                    let mut y = [0.0f64; 5];
+                    for (ys, ysrc) in y.iter_mut().zip(sp.y.iter()) {
+                        *ys = ysrc[k];
+                    }
+                    nufor_core::species_props::mixture_conductivity(&y, t)
+                } else {
+                    kf_suth(t)
+                }
             };
             // the solid mask the march itself used: a wall face is a fluid
             // cell with a solid neighbor. the flux is the same one-sided
@@ -2040,9 +2175,64 @@ fn write_run_log_2d(
                     let w1 = (2.0 * y0 - y0 - y2) / ((y1 - y0) * (y1 - y2));
                     let w2 = (2.0 * y0 - y0 - y1) / ((y2 - y0) * (y2 - y1));
                     let dtdn = tw * w0 + temp_at(ka) * w1 + temp_at(km) * w2;
-                    // magnitude only: the sign carries which side of the
-                    // wall the cell sits on, not the direction of heating.
-                    let q = (kf(tw) * dtdn).abs();
+                    let mut q = (kf(tw, ka) * dtdn).abs();
+                    // park5 fully-catalytic: add the formation-enthalpy
+                    // flux the atoms carry into the wall. the same
+                    // one-sided composition stencil the march applies;
+                    // non-catalytic adds exactly zero.
+                    if let Some(sp) = species {
+                        if cat_wall == nufor_core::catalytic::CatalyticWall::FullyCatalytic {
+                            let mut y0 = [0.0f64; 5];
+                            let mut y1v = [0.0f64; 5];
+                            for s in 0..5 {
+                                y0[s] = sp.y[s][ka];
+                                y1v[s] = sp.y[s][km];
+                            }
+                            let y_wall = nufor_core::catalytic::equilibrium_wall_composition(
+                                tw.max(200.0),
+                                rho[ka],
+                                &y0,
+                            )
+                            .unwrap_or(y0);
+                            // positions along x: wall face, then the two
+                            // fluid-cell centers (the same ascending triple
+                            // the march's wall stencil evaluates)
+                            let d_eff = {
+                                let mut y = [0.0f64; 5];
+                                for (ys, ysrc) in y.iter_mut().zip(sp.y.iter()) {
+                                    *ys = ysrc[ka];
+                                }
+                                let t_a = temp_at(ka);
+                                let p_a = nufor_core::species_closure::pressure_at(
+                                    rho[ka], e_int[ka], &y,
+                                );
+                                nufor_core::species_props::effective_diffusivity(
+                                    &y,
+                                    t_a,
+                                    p_a.max(1.0),
+                                )
+                            };
+                            // wallward = toward the solid: the derivative
+                            // the surface flux evaluates is along +x, so an
+                            // east-wall face (solid at i+1, wallward = -x)
+                            // negates it; west-wall faces keep it.
+                            let wallward_sign = if m == a - 1 { -1.0 } else { 1.0 };
+                            q += wallward_sign
+                                * nufor_core::catalytic::catalytic_surface_flux(
+                                    &y_wall,
+                                    &y0,
+                                    &y1v,
+                                    rho[ka],
+                                    d_eff,
+                                    [
+                                        face_x,
+                                        0.5 * (g.faces_x[a] + g.faces_x[a + 1]),
+                                        0.5 * (g.faces_x[m] + g.faces_x[m + 1]),
+                                    ],
+                                )
+                                .max(0.0);
+                        }
+                    }
                     if q.is_finite() && q > 0.0 {
                         let c = cs[k];
                         q_rows.push((c.0, c.1, q));
@@ -2309,7 +2499,7 @@ fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
     if mpi_launched() && matches!(model, ThermoModel::EqAir { .. }) && cfg.body.is_none() {
         return run_case_2d(cfg, path);
     }
-    let g = match build_2d_mesh(&cfg.mesh) {
+    let g = match build_2d_mesh_in(&cfg.mesh, Some(&case_dir(path))) {
         Ok(g) => g,
         Err(e) => {
             eprintln!("mesh error: {e}");

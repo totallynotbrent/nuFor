@@ -2,9 +2,11 @@
 
 ## Supported versions
 
-nuFor is in active development and has not published a tagged stable release,
-so only the current `main` branch receives security fixes. This will be
-revised once tagged releases exist.
+nuFor is in active development. Tags exist (`1.1.0`, `1.2.0`, `1.3.0`,
+one per plan year) but no binary release artifacts are published, so the
+current `main` branch is the practical line of support; the latest tag
+receives security fixes by backport when one is reported. This will be
+revised once release artifacts exist.
 
 ## Reporting a vulnerability
 
