@@ -11,6 +11,8 @@ mod blasius;
 mod body;
 pub mod catalytic;
 mod cfl;
+pub mod combustion;
+pub mod combustion_thermo;
 pub mod continuum_probe;
 pub mod curvilinear;
 mod cutcell;
