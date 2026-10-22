@@ -18,12 +18,27 @@ use nufor_core::{rectilinear_grid2d, rectilinear_grid3d, Grid2d, Grid3d, Ugrid};
 pub struct MshMesh {
     pub nodes: Vec<(f64, f64)>,
     pub cells: Vec<Vec<usize>>,
+    /// boundary line elements: (node a, node b, physical tag). ids are
+    /// the raw 1-based gmsh node numbers, densified the same way cells
+    /// are, so they key against `Ugrid::face_nodes`.
+    pub boundary_edges: Vec<(usize, usize, u32)>,
 }
 
 impl MshMesh {
-    /// build the cell-centered `Ugrid` the unstructured solver consumes.
+    /// build the cell-centered `Ugrid` the unstructured solver consumes,
+    /// with boundary faces tagged from the file's line elements.
     pub fn ugrid(&self) -> Result<Ugrid, String> {
-        Ugrid::from_cells(&self.nodes, &self.cells)
+        let mut ug = Ugrid::from_cells(&self.nodes, &self.cells)?;
+        // boundary_edges are already densified 0-based by the parser;
+        // key each pair to its physical tag.
+        let mut segs: std::collections::HashMap<(usize, usize), u32> =
+            std::collections::HashMap::new();
+        for &(a, b, tag) in &self.boundary_edges {
+            let key = if a < b { (a, b) } else { (b, a) };
+            segs.insert(key, tag);
+        }
+        ug.tag_boundary_faces(&segs);
+        Ok(ug)
     }
 }
 
@@ -41,6 +56,7 @@ fn parse_gmsh(text: &str) -> Result<MshMesh, String> {
     // v2.2 is the ascii 2.x format; v4 is also ascii but lays elements differently.
     let mut nodes: Vec<(usize, (f64, f64))> = Vec::new();
     let mut cells: Vec<Vec<usize>> = Vec::new();
+    let mut boundary_edges: Vec<(usize, usize, u32)> = Vec::new();
 
     let lines: Vec<&str> = text.lines().collect();
     // find $Nodes ... $EndNodes
@@ -105,6 +121,25 @@ fn parse_gmsh(text: &str) -> Result<MshMesh, String> {
                 // integer after the id that is in {1..=6} (line, tri=2, quad=3...).
                 if let Some(etype) = t.get(1).and_then(|s| s.parse::<i64>().ok()) {
                     match etype {
+                        // a 2-node line: id 1 ntags tag1..k a b. the first
+                        // tag is the physical group; the trailing two
+                        // tokens are the endpoints.
+                        1 => {
+                            let ntags: usize = t.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
+                            let tag: u32 = if ntags >= 1 {
+                                t.get(3).and_then(|s| s.parse().ok()).unwrap_or(0)
+                            } else {
+                                0
+                            };
+                            let last = t.last().and_then(|s| s.parse::<usize>().ok());
+                            let prev = t
+                                .get(t.len().checked_sub(2).unwrap_or(usize::MAX))
+                                .and_then(|s| s.parse::<usize>().ok());
+                            if let (Some(a), Some(b)) = (last, prev) {
+                                boundary_edges.push((a, b, tag));
+                                read += 1;
+                            }
+                        }
                         2 | 3 | 10 | 12 | 15 | 16 | 17 => {
                             // find node indices: for tri/quad, the last 3/4 tokens
                             // are node ids (2.2: after 2 tag-count + tags). just take
@@ -184,9 +219,20 @@ fn parse_gmsh(text: &str) -> Result<MshMesh, String> {
         return Err("could not map gmsh elements onto nodes".into());
     }
 
+    // boundary edges map through the same id table; a line element
+    // referencing an unknown node is skipped rather than failing the
+    // mesh (the face it would tag stays transmissive).
+    let mut edges_mapped = Vec::with_capacity(boundary_edges.len());
+    for (a, b, tag) in boundary_edges {
+        if let (Some(&ia), Some(&ib)) = (id_to_idx.get(&a), id_to_idx.get(&b)) {
+            edges_mapped.push((ia, ib, tag));
+        }
+    }
+
     Ok(MshMesh {
         nodes: node_coords,
         cells: cells_mapped,
+        boundary_edges: edges_mapped,
     })
 }
 
@@ -439,7 +485,11 @@ mod tests {
                 cells.push(vec![a, a + 1, a + w + 1, a + w]);
             }
         }
-        let m = MshMesh { nodes, cells };
+        let m = MshMesh {
+            nodes,
+            cells,
+            boundary_edges: Vec::new(),
+        };
         let ug = m.ugrid().unwrap();
         assert_eq!(ug.cell_area.len(), 16);
         assert_eq!(ug.face_left.len(), 40); // 20 vertical + 20 horizontal

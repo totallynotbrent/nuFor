@@ -178,11 +178,14 @@ impl Progress {
         for i in 0..n {
             rho_min = rho_min.min(st.rho[i]);
             rho_max = rho_max.max(st.rho[i]);
-            // p from the internal energy alone (the thermal part
-            // dominates at a bow shock; kinetic energy would inflate it)
-            let e_int = st.e[i] - 0.5 * (st.mx[i] * st.mx[i] + st.my[i] * st.my[i]) / st.rho[i];
-            if e_int > 0.0 {
-                p_max = p_max.max(0.4 * st.rho[i] * e_int);
+            // p from the conserved state exactly as eos_pressure2d
+            // computes it: (gamma-1) * (e - rho*ke), with rho*ke =
+            // 0.5*(mx^2 + my^2)/rho. the previous form multiplied by
+            // rho a second time and understated p by that factor.
+            let p_i =
+                0.4 * (st.e[i] - 0.5 * (st.mx[i] * st.mx[i] + st.my[i] * st.my[i]) / st.rho[i]);
+            if p_i > 0.0 {
+                p_max = p_max.max(p_i);
             }
         }
         let wall = self.t0.elapsed().as_secs_f64();

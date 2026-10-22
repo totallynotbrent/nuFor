@@ -7,7 +7,7 @@ const GAMMA: f64 = 1.4;
 #[test]
 fn sod_tube_reproduced_on_the_unstructured_path() {
     // a 100 x 4 cartesian quad "unstructured" mesh; the strip is uniform in y.
-    let ug: Ugrid = Ugrid::cartesian_quads(100, 4);
+    let mut ug: Ugrid = Ugrid::cartesian_quads(100, 4);
     let cell = ug.cell_area.len();
     let mut rho = vec![0.0; cell];
     let mut pr = vec![1.0; cell];
@@ -24,6 +24,9 @@ fn sod_tube_reproduced_on_the_unstructured_path() {
         .collect();
     let (mx, my, e) = prim_to_cons2d(&rho, &u, &v, &et).unwrap();
     let mut st = ConservedState2d { rho, mx, my, e };
+    // scale the positivity floors to the tube: freestream = the left
+    // state, the highest energy scale in the problem.
+    ug.freestream = [1.0, 0.0, 0.0, 1.0];
     let mut t = 0.0;
     while t < 0.2 {
         let (dt, _) = advance_ugrid(&mut st, &ug, GAMMA, 0.3).unwrap();

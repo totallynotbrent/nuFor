@@ -191,11 +191,16 @@ pub struct ReferenceConditions {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Mesh {
-    /// number of cells in the 1D domain.
+    /// number of cells in the 1D domain. optional only when the mesh is
+    /// an imported unstructured file via `path` (its cell count is the
+    /// file's), required for all generated grids.
+    #[serde(default)]
     pub nx: u32,
     /// domain left edge.
+    #[serde(default)]
     pub x0: f64,
     /// domain right edge.
+    #[serde(default)]
     pub x1: f64,
     /// cells in y (required for euler_2d/3d).
     #[serde(default, skip_serializing_if = "Option::is_none")]

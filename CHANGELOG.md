@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### Added
+
+- unstructured meshes: gmsh physical groups tag boundary faces (wall,
+  inflow, outflow); slip walls take the exact pressure flux, uniform-IC
+  cases run on imported meshes, and the heartbeat's peak-pressure read
+  now matches the EOS closure (it previously carried a spurious density
+  factor).
 - Live case console for every run: `nufor run` boots a viewer on a
   background thread and prints the link, `nufor watch <case.toml> [port]`
   reopens one later. The console reads the run heartbeat (state, step,

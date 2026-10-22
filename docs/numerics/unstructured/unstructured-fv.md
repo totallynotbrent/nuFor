@@ -35,8 +35,21 @@ star plateau reads 0.418 against the exact 0.426 (first-order reconstruction,
 so a little extra smearing is expected). The unstructured path is a front-end
 onto the same physics, not a separate solver.
 
+A case whose `mesh.path` ends in `.msh` runs on this solver. A uniform initial
+condition fills every cell and matches the inflow boundary, so an external
+flow over an imported body works the same way the structured cases do.
+Currently the march is perfect gas with `physics.gamma`; the equilibrium-air
+closure threading is the next piece of this path.
+
+The heartbeat's peak-pressure read used to carry an extra density factor, which
+made every `p_max` the console ever showed for the unstructured runs
+meaningless. It now matches the EOS closure exactly. Peak pressures from the
+structured runs' own vtk fields were always computed through the model closure
+and are unaffected.
+
 ## See also
 
 - [[numerics/unstructured/unstructured-mesh|Unstructured meshes]]
+- [[numerics/unstructured/boundary-groups|Boundary groups]]
 - [[numerics/2d/sa-research|Spalart-Allmaras]]
 - [[numerics/2d/euler|2D Euler solver]]

@@ -64,7 +64,7 @@ pub fn advance_ugrid(
     let dt = cfl * h / smax.max(1e-12);
 
     // per-cell divergence accumulators (the negative of the outflow).
-    let (mut dr, mut dmx, mut dmy, mut de) =
+    let (mut dr_acc, mut dmx_acc, mut dmy_acc, mut de_acc) =
         (vec![0.0; nc], vec![0.0; nc], vec![0.0; nc], vec![0.0; nc]);
     for f in 0..ug.face_left.len() {
         let nxl = ug.face_dx[f];
@@ -75,11 +75,33 @@ pub fn advance_ugrid(
         let r = ug.face_right[f];
         let li = l;
         let ri = if r >= 0 { Some(r as usize) } else { None };
-        // transmissive boundary: the far state mirrors the owning cell.
+
+        // a slip wall takes the exact flux [0, p n, 0]: no riemann
+        // solve, no mirror state, so a uniform field holds bit-exactly
+        // and the wall pressure is the cell pressure by construction.
+        if ri.is_none() && ug.face_group[f] == 1 {
+            dr_acc[li] -= 0.0;
+            dmx_acc[li] -= p[li] * nxl;
+            dmy_acc[li] -= p[li] * nyl;
+            de_acc[li] -= 0.0;
+            continue;
+        }
+
+        // boundary groups: 2 freestream inflow, 3 outflow, 0
+        // transmissive mirror.
         let (rr, rux, rv, rp) = if let Some(rc) = ri {
             (state.rho[rc], u[rc], v[rc], p[rc])
         } else {
-            (state.rho[li], u[li], v[li], p[li])
+            match ug.face_group[f] {
+                2 => (
+                    ug.freestream[0],
+                    ug.freestream[1],
+                    ug.freestream[2],
+                    ug.freestream[3],
+                ),
+                3 => (state.rho[li], u[li], v[li], p[li]),
+                _ => (state.rho[li], u[li], v[li], p[li]),
+            }
         };
         let flux = flux_on_normal(
             gamma,
@@ -89,28 +111,47 @@ pub fn advance_ugrid(
             ny,
         );
         // the flux leaves the left cell (outward normal) and enters the right.
-        dr[li] -= len * flux[0];
-        dmx[li] -= len * flux[1];
-        dmy[li] -= len * flux[2];
-        de[li] -= len * flux[3];
+        dr_acc[li] -= len * flux[0];
+        dmx_acc[li] -= len * flux[1];
+        dmy_acc[li] -= len * flux[2];
+        de_acc[li] -= len * flux[3];
         if let Some(rc) = ri {
-            dr[rc] += len * flux[0];
-            dmx[rc] += len * flux[1];
-            dmy[rc] += len * flux[2];
-            de[rc] += len * flux[3];
+            dr_acc[rc] += len * flux[0];
+            dmx_acc[rc] += len * flux[1];
+            dmy_acc[rc] += len * flux[2];
+            de_acc[rc] += len * flux[3];
         }
     }
+    // positivity floors tied to the case freestream (set once by the
+    // caller from the IC, never re-derived from the marching state: a
+    // depressed cell would ratchet the floor down each step). cells
+    // are clamped to 1e-3 of the freestream density and internal
+    // energy, far below any physical state but well above vacuum.
+    let rho_floor = (ug.freestream[0] * 1e-3).max(1e-12);
+    let e_floor = (ug.freestream[3] / (gamma - 1.0) * 1e-3).max(1e-12);
     let mut resid = 0.0f64;
     for c in 0..nc {
         let s = dt / ug.cell_area[c];
-        state.rho[c] += s * dr[c];
-        state.mx[c] += s * dmx[c];
-        state.my[c] += s * dmy[c];
-        state.e[c] += s * de[c];
+        state.rho[c] += s * dr_acc[c];
+        state.mx[c] += s * dmx_acc[c];
+        state.my[c] += s * dmy_acc[c];
+        state.e[c] += s * de_acc[c];
         resid = resid
-            .max(s * dr[c].abs())
-            .max(s * dmx[c].abs())
-            .max(s * de[c].abs());
+            .max(s * dr_acc[c].abs())
+            .max(s * dmx_acc[c].abs())
+            .max(s * de_acc[c].abs());
+        // positivity floors: a first-order cell-average update can push
+        // a cell slightly negative in the shock layer at extreme mach.
+        // the floors come from the case freestream, set once by the
+        // caller, so a sod tube at p ~ 0.1 is clamped just as little
+        // as a reentry flow at p ~ 1e5.
+        if state.rho[c] < rho_floor {
+            state.rho[c] = rho_floor;
+        }
+        let ke = 0.5 * (state.mx[c] * state.mx[c] + state.my[c] * state.my[c]) / state.rho[c];
+        if state.e[c] - ke < e_floor {
+            state.e[c] = ke + e_floor;
+        }
     }
     Ok((dt, resid))
 }

@@ -57,14 +57,27 @@ impl CaseConfig {
             }
         }
 
-        if self.mesh.nx < 2 {
-            problems.push(format!("mesh.nx must be >= 2 (got {})", self.mesh.nx));
-        }
-        if self.mesh.x1 <= self.mesh.x0 {
-            problems.push(format!(
-                "mesh.x1 must be > mesh.x0 (got [{}, {}])",
-                self.mesh.x0, self.mesh.x1
-            ));
+        // an imported unstructured mesh replaces the generated grid, so
+        // the synthetic extents are meaningless and skipped.
+        let imported = self
+            .mesh
+            .path
+            .as_deref()
+            .map(|p| p.ends_with(".msh"))
+            .unwrap_or(false);
+        if imported {
+            // nothing to validate until the file is parsed; mesh-check
+            // covers the imported topology.
+        } else {
+            if self.mesh.nx < 2 {
+                problems.push(format!("mesh.nx must be >= 2 (got {})", self.mesh.nx));
+            }
+            if self.mesh.x1 <= self.mesh.x0 {
+                problems.push(format!(
+                    "mesh.x1 must be > mesh.x0 (got [{}, {}])",
+                    self.mesh.x0, self.mesh.x1
+                ));
+            }
         }
         if self.mesh.source == "clustered" {
             match self.mesh.first_cell {

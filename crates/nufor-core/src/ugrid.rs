@@ -14,6 +14,8 @@ pub struct Ugrid {
     pub cell_center: Vec<(f64, f64)>,
     /// the faces belonging to each cell (indices into the face arrays).
     pub cell_faces: Vec<Vec<usize>>,
+    /// the node indices of each cell, in polygon order.
+    pub cell_nodes: Vec<Vec<usize>>,
     /// the cell on the +normal side of each face.
     pub face_left: Vec<usize>,
     /// the cell on the -normal side, or -1 for a boundary face.
@@ -22,6 +24,14 @@ pub struct Ugrid {
     pub face_dx: Vec<f64>,
     /// y component of the signed area vector.
     pub face_dy: Vec<f64>,
+    /// the unordered node pair of each face (min first), so boundary
+    /// segments can be identified against mesh-file line elements.
+    pub face_nodes: Vec<(usize, usize)>,
+    /// the boundary group of each face: 0 for interior or untagged,
+    /// otherwise the physical-group id from the mesh file.
+    pub face_group: Vec<u32>,
+    /// freestream state used by group-2 inflow faces: (rho, u, v, p).
+    pub freestream: [f64; 4],
 }
 
 impl Ugrid {
@@ -34,11 +44,14 @@ impl Ugrid {
         let mut cell_faces = vec![Vec::new(); nx * ny];
         let (mut face_left, mut face_right, mut face_dx, mut face_dy) =
             (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let mut face_nodes: Vec<(usize, usize)> = Vec::new();
         // vertical faces, one per column boundary. normal +x from cell (i-1,j)
         // to cell (i,j); the west and east walls point outward from the owner.
         for j in 0..ny {
             for i in 0..=nx {
                 let idx = face_left.len();
+                let (v0, v1) = (i + j * (nx + 1), i + (j + 1) * (nx + 1));
+                face_nodes.push((v0.min(v1), v0.max(v1)));
                 let west_cell = i.checked_sub(1).map(|p| p + j * nx);
                 let east_cell = if i < nx { Some(i + j * nx) } else { None };
                 match (west_cell, east_cell) {
@@ -70,6 +83,8 @@ impl Ugrid {
         for j in 0..=ny {
             for i in 0..nx {
                 let idx = face_left.len();
+                let (h0, h1) = (i + j * (nx + 1), (i + 1) + j * (nx + 1));
+                face_nodes.push((h0.min(h1), h0.max(h1)));
                 let south_cell = j.checked_sub(1).map(|p| i + p * nx);
                 let north_cell = if j < ny { Some(i + j * nx) } else { None };
                 match (south_cell, north_cell) {
@@ -97,6 +112,17 @@ impl Ugrid {
         }
         Ugrid {
             cell_area,
+            cell_nodes: {
+                let mut cn = Vec::with_capacity(nx * ny);
+                for j in 0..ny {
+                    for i in 0..nx {
+                        let (sw, se) = (i + j * (nx + 1), (i + 1) + j * (nx + 1));
+                        let (nw, ne) = (i + (j + 1) * (nx + 1), (i + 1) + (j + 1) * (nx + 1));
+                        cn.push(vec![sw, se, ne, nw]);
+                    }
+                }
+                cn
+            },
             cell_center: {
                 let mut c = Vec::with_capacity(nx * ny);
                 for j in 0..ny {
@@ -107,10 +133,13 @@ impl Ugrid {
                 c
             },
             cell_faces,
+            face_group: vec![0; face_left.len()],
+            freestream: [1.225, 0.0, 0.0, 101325.0],
             face_left,
             face_right,
             face_dx,
             face_dy,
+            face_nodes,
         }
     }
 
@@ -207,6 +236,7 @@ impl Ugrid {
 
         let (mut face_left, mut face_right) = (Vec::new(), Vec::new());
         let (mut face_dx, mut face_dy) = (Vec::new(), Vec::new());
+        let mut face_nodes: Vec<(usize, usize)> = Vec::new();
         let mut cell_faces = vec![Vec::new(); nc];
         let mut seen = vec![false; edges.len()];
 
@@ -222,11 +252,11 @@ impl Ugrid {
                 face_right.push(e1.cell as isize);
                 face_dx.push(e0.nx * e0.len);
                 face_dy.push(e0.ny * e0.len);
+                face_nodes.push(k);
                 cell_faces[e0.cell].push(fidx);
                 cell_faces[e1.cell].push(fidx);
                 seen[idxs[0]] = true;
                 seen[idxs[1]] = true;
-                let _ = k;
             }
         }
         // boundary faces: any directed edge not yet paired
@@ -239,6 +269,7 @@ impl Ugrid {
             face_right.push(-1);
             face_dx.push(e.nx * e.len);
             face_dy.push(e.ny * e.len);
+            face_nodes.push(key(e.a, e.b));
             cell_faces[e.cell].push(fidx);
         }
 
@@ -246,11 +277,36 @@ impl Ugrid {
             cell_area,
             cell_center: centers,
             cell_faces,
-            face_left,
+            cell_nodes: cells.to_vec(),
+            face_left: face_left.clone(),
             face_right,
             face_dx,
             face_dy,
+            face_nodes,
+            face_group: vec![0; face_left.len()],
+            freestream: [1.225, 0.0, 0.0, 101325.0],
         })
+    }
+
+    /// tag boundary faces by their mesh-file segment identity: `segments`
+    /// maps an unordered node pair to a physical-group id. interior and
+    /// unmatched boundary faces stay group 0. returns how many boundary
+    /// faces got tagged.
+    pub fn tag_boundary_faces(
+        &mut self,
+        segments: &std::collections::HashMap<(usize, usize), u32>,
+    ) -> usize {
+        let mut tagged = 0usize;
+        for f in 0..self.face_left.len() {
+            if self.face_right[f] >= 0 {
+                continue;
+            }
+            if let Some(&g) = segments.get(&self.face_nodes[f]) {
+                self.face_group[f] = g;
+                tagged += 1;
+            }
+        }
+        tagged
     }
 
     /// run the pre-solve quality pass and return the diagnostic summary.

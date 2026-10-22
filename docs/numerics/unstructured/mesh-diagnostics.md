@@ -37,6 +37,10 @@ The quality pass runs at import time. From the command line:
 
 ```
 nufor mesh-check case.msh
+
+The same pass reports the boundary-group census: how many boundary faces each
+gmsh physical group claimed and how many were left untagged. A wall loop with a
+gap shows up as untagged faces before it shows up as a leak in a run.
 ```
 
 prints the table and a verdict, and exits non-zero for a mesh that has
@@ -45,6 +49,7 @@ problems:
 ```
 cells: 4
 faces: 12 (4 interior, 8 boundary)
+boundary faces: 0 untagged, group 1: 4, group 2: 2, group 3: 2
 area min/mean/max: 0.2500 / 0.2500 / 0.2500
 area stretch (max/min): 1.00
 negative cells: 0

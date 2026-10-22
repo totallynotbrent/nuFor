@@ -317,6 +317,27 @@ fn mesh_check(args: &[String]) -> i32 {
     };
     let d = ug.diagnostics();
     print_mesh_stats(&d);
+    // boundary group census: how many faces each physical group claimed.
+    let mut groups = std::collections::BTreeMap::new();
+    let mut untagged = 0usize;
+    for f in 0..ug.face_left.len() {
+        if ug.face_right[f] >= 0 {
+            continue;
+        }
+        if ug.face_group[f] == 0 {
+            untagged += 1;
+        } else {
+            *groups.entry(ug.face_group[f]).or_insert(0usize) += 1;
+        }
+    }
+    if !groups.is_empty() || untagged > 0 {
+        let gstr = groups
+            .iter()
+            .map(|(g, n)| format!("group {g}: {n}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        println!("boundary faces: {untagged} untagged, {gstr}");
+    }
     if d.valid {
         println!("verdict: valid mesh");
         0
@@ -1218,6 +1239,88 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
             }
         }
         rc
+    } else {
+        if let Some(p) = prog.as_mut() {
+            p.finish(false, steps as u64, t);
+        }
+        1
+    }
+}
+
+/// march a uniform-IC unstructured case to its final time and report.
+fn march_msh_uniform(
+    cfg: &CaseConfig,
+    path: &str,
+    ug: Ugrid,
+    st: &mut ConservedState2d,
+    gamma: f64,
+) -> i32 {
+    let cfl = cfg.numerics.cfl;
+    let t_end = cfg.time.final_time;
+    let max_steps = if cfg.time.max_steps > 0 {
+        cfg.time.max_steps as usize
+    } else {
+        1_000_000
+    };
+    let nc = ug.cell_area.len();
+    let t0 = Instant::now();
+    let (mut t, mut steps) = (0.0, 0usize);
+    let mut ok = true;
+    let mut prog = progress::Progress::new(path, "2d-msh");
+    while t < t_end && steps < max_steps {
+        let stepped = advance_ugrid(st, &ug, gamma, cfl);
+        let dt_last = match stepped {
+            Ok((dt, _)) => dt,
+            Err(e) => {
+                eprintln!("solver error at step {steps}: {e}");
+                ok = false;
+                break;
+            }
+        };
+        t += dt_last;
+        steps += 1;
+        if let Some(p) = prog.as_mut() {
+            p.tick(
+                steps as u64,
+                t,
+                dt_last,
+                st,
+                progress::SampleExtra::default(),
+            );
+        }
+    }
+    if ok {
+        if let Some(p) = prog.as_mut() {
+            p.finish(true, steps as u64, t);
+        }
+        if let Some(rpath) = &cfg.time.restart_out {
+            // the structured restart format requires nx*ny dims, which
+            // an unstructured cell count cannot honor; dump the raw
+            // state (n, then rho/mx/my/e) for offline inspection.
+            let mut out = Vec::with_capacity(8 + 4 * nc * 8);
+            out.extend_from_slice(&(nc as u64).to_le_bytes());
+            for a in [&st.rho, &st.mx, &st.my, &st.e] {
+                for v in a {
+                    out.extend_from_slice(&v.to_le_bytes());
+                }
+            }
+            if let Err(e) = std::fs::write(rpath, &out) {
+                eprintln!("state dump failed: {e}");
+            } else {
+                println!("state dump: {rpath}");
+            }
+        }
+        println!(
+            "case {} ({})\nmesh: {} cells ({} faces)\nsteps: {}\ntime: {:.5}\nwall: {:.3}s",
+            cfg.metadata.name,
+            path,
+            nc,
+            ug.face_left.len(),
+            steps,
+            t,
+            t0.elapsed().as_secs_f64()
+        );
+        0
     } else {
         if let Some(p) = prog.as_mut() {
             p.finish(false, steps as u64, t);
@@ -3022,7 +3125,7 @@ fn run_case_2d_msh(cfg: &CaseConfig, path: &str, msh_path: &str) -> i32 {
             return 2;
         }
     };
-    let ug: Ugrid = match m.ugrid() {
+    let mut ug: Ugrid = match m.ugrid() {
         Ok(g) => g,
         Err(e) => {
             eprintln!("mesh error: {e}");
@@ -3031,6 +3134,26 @@ fn run_case_2d_msh(cfg: &CaseConfig, path: &str, msh_path: &str) -> i32 {
     };
     let nc = ug.cell_area.len();
     let gamma = cfg.physics.gamma;
+    // a uniform IC seeds every cell with the freestream state and
+    // matches the inflow boundary to it; the blast IC keeps its demo
+    // path below.
+    if let nufor_config::InitialCondition::Uniform { rho, u, p } = &cfg.initial_condition {
+        ug.freestream = [*rho, *u, 0.0, *p];
+        // total specific energy = internal + kinetic; prim_to_cons2d
+        // stores e = rho * et verbatim.
+        let et_i = p / (rho * (gamma - 1.0));
+        let et = vec![et_i + 0.5 * u * u; nc];
+        let (mx, my, e) = prim_to_cons2d(&vec![*rho; nc], &vec![*u; nc], &vec![0.0; nc], &et)
+            .map_err(|e| e.to_string())
+            .unwrap();
+        let mut st = ConservedState2d {
+            rho: vec![*rho; nc],
+            mx,
+            my,
+            e,
+        };
+        return march_msh_uniform(cfg, path, ug, &mut st, gamma);
+    }
     // blast IC: over-pressured disc in ambient air, centered on the node bbox.
     let (mut rho, mut p) = (vec![1.0; nc], vec![1.0; nc]);
     let (cx, cy, r0) = match &cfg.initial_condition {
