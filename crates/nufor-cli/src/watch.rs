@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 /// finished-field renders keyed by (field name, vtk mtime); a small
 /// cache since each vtk parse is the expensive part. the tuple is the
 /// png plus the color window the colorbar reads.
-type FieldCache = std::collections::HashMap<(String, u64), (Vec<u8>, f64, f64)>;
+type FieldCache = std::collections::HashMap<(String, u128), (Vec<u8>, f64, f64)>;
 static FIELD_CACHE: std::sync::OnceLock<std::sync::Mutex<FieldCache>> = std::sync::OnceLock::new();
 
 fn field_cache() -> &'static std::sync::Mutex<FieldCache> {
@@ -30,10 +30,10 @@ struct CellValues {
     mach: Vec<f64>,
 }
 
-static CELL_CACHE: std::sync::OnceLock<std::sync::Mutex<Option<(u64, CellValues)>>> =
+static CELL_CACHE: std::sync::OnceLock<std::sync::Mutex<Option<(u128, CellValues)>>> =
     std::sync::OnceLock::new();
 
-fn cell_cache() -> &'static std::sync::Mutex<Option<(u64, CellValues)>> {
+fn cell_cache() -> &'static std::sync::Mutex<Option<(u128, CellValues)>> {
     CELL_CACHE.get_or_init(|| std::sync::Mutex::new(None))
 }
 
@@ -302,7 +302,7 @@ impl Watch {
             .ok()?
             .duration_since(std::time::UNIX_EPOCH)
             .ok()?
-            .as_secs();
+            .as_nanos();
         let key = (name.to_string(), mtime);
         if let Some(cache) = field_cache().lock().unwrap().get(&key) {
             return Some(cache.clone());
@@ -335,7 +335,7 @@ impl Watch {
             .ok()?
             .duration_since(std::time::UNIX_EPOCH)
             .ok()?
-            .as_secs();
+            .as_nanos();
         if let Some((mt, vals)) = cell_cache().lock().unwrap().as_ref() {
             if *mt == mtime {
                 return Some(vals.clone());

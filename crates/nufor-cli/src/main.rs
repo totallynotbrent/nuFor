@@ -2136,8 +2136,10 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
             // branch and nothing else. the cadence emits at step 1
             // then every 50th (1, 51, 101, ...), so the same gate
             // keeps the readout aligned with a kept sample.
-            let extra = if steps % 50 == 1 {
-                progress_readout(
+            if steps % 50 == 1 {
+                // the cadence sample: full extrema scan plus the cae
+                // readout, then the heavy tick.
+                let extra = progress_readout(
                     cfg,
                     &g,
                     &st,
@@ -2145,11 +2147,13 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
                     model,
                     park5_species.as_ref(),
                     visc_no_slip,
-                )
+                );
+                p.tick(steps as u64, t, dt_last, &st, extra);
             } else {
-                progress::SampleExtra::default()
-            };
-            p.tick(steps as u64, t, dt_last, &st, extra);
+                // every other step: refresh the header the progress
+                // box reads, without walking the field.
+                p.step_tick(steps as u64, t, dt_last);
+            }
         }
         if steps % 200 == 0 {
             eprintln!(
@@ -2173,19 +2177,24 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
             if rc != 0 {
                 eprintln!("interval output failed at step {steps}");
             }
-            write_run_log_2d(
-                cfg,
-                path,
-                &g,
-                &st,
-                model,
-                park5_species.as_ref(),
-                steps,
-                t,
-                t0.elapsed().as_secs_f64(),
-            );
-            let dst = case_dir(path).join("run-log-last.txt");
-            let _ = std::fs::rename(case_dir(path).join("run-log.txt"), dst);
+            // the run-log ride-along is the expensive half of the
+            // interval write (it walks the field again); keep it on
+            // the 200-step cadence even when the vtk writes faster.
+            if steps % 200 == 0 {
+                write_run_log_2d(
+                    cfg,
+                    path,
+                    &g,
+                    &st,
+                    model,
+                    park5_species.as_ref(),
+                    steps,
+                    t,
+                    t0.elapsed().as_secs_f64(),
+                );
+                let dst = case_dir(path).join("run-log-last.txt");
+                let _ = std::fs::rename(case_dir(path).join("run-log.txt"), dst);
+            }
         }
     }
     if ok {

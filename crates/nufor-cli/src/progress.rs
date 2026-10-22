@@ -92,6 +92,14 @@ impl Progress {
         self.push_sample(step, t, dt, st, extra);
     }
 
+    /// the per-step heartbeat: the extrema scan stays on the emit
+    /// cadence (it walks the whole field), but the header fields the
+    /// console's progress box reads (step, t, dt) refresh every step
+    /// so the percent and eta move continuously.
+    pub fn step_tick(&mut self, step: u64, t: f64, dt: f64) {
+        self.write_state("running", step, t, dt);
+    }
+
     /// the 3d march ticks with the same sample shape (rho, p extrema).
     pub fn tick_3d(
         &mut self,

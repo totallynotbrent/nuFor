@@ -30,7 +30,9 @@ display).
 - **Header**  -  case name, the equations line (1D Euler, 2D axisymmetric,
   RANS-SA, ...), the state pill (running / finished / failed), and a live
   progress box while a run is marching: a fill bar with the percentage of
-  final_time covered and an ETA from the recent pace.
+  final_time covered and an ETA from the recent pace. The readout under
+  it refreshes every step and the field image re-fetches on the poll
+  cadence while the run is live, so the picture moves with the march.
 - **Left rail**  -  the live run readout (state, step, physical time, dt,
   wall clock, sample count, march residual) plus the case card: grid,
   domain extents, body presence.

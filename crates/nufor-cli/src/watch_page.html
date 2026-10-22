@@ -350,6 +350,11 @@ async function poll() {
     const r = await fetch("/api/watch");
     cur = await r.json();
     render();
+    // a live march: refresh the field image along with the readout so
+    // the picture moves with the run, not only on a manual click.
+    if (cur.state === "running" && tab === "field" && document.hasFocus()) {
+      drawField();
+    }
   } catch (e) { statePill("offline"); }
 }
 
@@ -394,8 +399,8 @@ function updateProgBox() {
     pct = 0;
   }
   box.style.display = "flex";
-  $("progfill").style.width = pct.toFixed(1) + "%";
-  $("progtext").textContent = pct.toFixed(1) + "%  " + etaTxt;
+  $("progfill").style.width = pct.toFixed(2) + "%";
+  $("progtext").textContent = pct.toFixed(4) + "%  " + etaTxt;
 }
 
 function fmtDur(sec) {
@@ -494,6 +499,12 @@ function setFigLabels(m, note) {
 }
 
 async function drawField() {
+  if (window.__fieldFetching) return;
+  window.__fieldFetching = true;
+  try { await drawFieldInner(); } finally { window.__fieldFetching = false; }
+}
+
+async function drawFieldInner() {
   const cv = $("fieldcv");
   const r = cv.parentElement.getBoundingClientRect();
   const w = Math.max(r.width, 200), h = Math.max(r.height, 120);
