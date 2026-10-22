@@ -944,15 +944,6 @@ pub fn add_viscous_cells_mu(
                     fxm[k] = txx;
                     fym[k] = txy;
                     fe[k] = q_wall;
-                    if std::env::var("NF_VW").is_ok() && f == 44 && j == 191 {
-                        eprintln!(
-                            "VW f=44 j=191 txx={:.4e} q={:.4e} lsolid={} k={}",
-                            txx,
-                            q_wall,
-                            is_solid(f - 1, j),
-                            k
-                        );
-                    }
                     continue;
                 }
                 let gf = face_grad_interp(
@@ -1223,13 +1214,7 @@ pub fn add_viscous_cells_mu(
             state.mx[c] += (dr * fxm[b] - dl * fxm[a]) / dxw;
             state.my[c] += (dr * fym[b] - dl * fym[a]) / dxw;
             state.e[c] += (dr * fe[b] - dl * fe[a]) / dxw;
-            if std::env::var("NF_VW").is_ok() && i == 43 && j == 191 {
-                eprintln!(
-                    "VWupd i=43 j=191 mx={:.6e} dm=({:.3e}*{:.4e} - {:.3e}*{:.4e})/{:.3e} = {:.4e} fxm_a={:.3e} fxm_b={:.3e}",
-                    state.mx[c], dr, fxm[b], dl, fxm[a], dxw,
-                    (dr * fxm[b] - dl * fxm[a]) / dxw, fxm[a], fxm[b]
-                );
-            }
+
             // y-face divergence: faces j and j+1 bound cell j.
             let (d, e) = (i * (ny + 1) + j, i * (ny + 1) + j + 1);
             state.mx[c] += (dt_ * gym_x[e] - db * gym_x[d]) / dyw;

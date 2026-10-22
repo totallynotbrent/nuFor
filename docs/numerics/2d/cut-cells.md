@@ -6,7 +6,25 @@ The staircase mask is the cheap way to put a solid body on a Cartesian
 grid: freeze every cell whose center falls inside the body, and the wall
 the solver sees is the boundary of the frozen block, up to a full cell
 off the true surface wherever the surface runs oblique to the grid
-lines. Cut cells replace the staircase in the cut band with fractional
+lines.
+
+Two safety rules extend the mask to concave bodies at high Mach. A
+cell center can sit just outside the surface while the body covers
+most of the cell (a horn notch or a leg gap narrower than the mesh):
+the wall pass seals its covered faces, but its open face carries the
+freestream flux, so the sliver drains or pumps and detonates within a
+few stages. Such cells classify solid instead, growing the body by at
+most 0.45 cells of the stair wall it already shows. And a fluid cell
+sealed on all four faces is a closed pocket the mesh cannot resolve:
+the mirror-wall stagnation pressure builds in it with no outflow to
+absorb it, so the march holds it at the inert reference like a solid
+cell. The positivity path keeps the same spirit: a drained cell resets
+to a vacuum seed rather than rescaling, because the rescale factor
+overflows to infinity once the density underflows. Without these rules
+a concave polygon at Mach 35 fails on step 0; the capsule survives on
+its smooth convex hull alone.
+
+Cut cells replace the staircase in the cut band with fractional
 geometry. A cell straddling the wall carries a fluid volume fraction and
 an open aperture on each of its four faces, the update sees how much of
 the cell and of each face is fluid, and surface quantities sample the

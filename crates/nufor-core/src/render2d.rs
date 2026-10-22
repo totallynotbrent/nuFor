@@ -71,6 +71,42 @@ pub fn render_png_rect(
     Ok(bytes)
 }
 
+/// render an nx-by-ny field as a grayscale schlieren png: black at the
+/// window floor, white at the ceiling, so shock bands read as bright
+/// lines over a dark freestream like the classic experimental image.
+pub fn render_png_gray(
+    field: &[f64],
+    nx: usize,
+    ny: usize,
+    lo: f64,
+    hi: f64,
+) -> Result<Vec<u8>, String> {
+    let range = (hi - lo).max(1e-30);
+    let mut px = vec![0u8; nx * ny * 3];
+    for j in 0..ny {
+        let dst = ny - 1 - j;
+        for i in 0..nx {
+            let t = ((field[j * nx + i] - lo) / range).clamp(0.0, 1.0);
+            let v = (t * 255.0).round() as u8;
+            let base = (dst * nx + i) * 3;
+            px[base] = v;
+            px[base + 1] = v;
+            px[base + 2] = v;
+        }
+    }
+    let mut bytes = Vec::new();
+    {
+        let mut enc = png::Encoder::new(&mut bytes, nx as u32, ny as u32);
+        enc.set_color(ColorType::Rgb);
+        enc.set_depth(png::BitDepth::Eight);
+        let mut writer = enc.write_header().map_err(|e| format!("png header: {e}"))?;
+        writer
+            .write_image_data(&px)
+            .map_err(|e| format!("png data: {e}"))?;
+    }
+    Ok(bytes)
+}
+
 /// a 1d field as a line plot png (x horizontal, value vertical).
 pub fn render_line1d(centers: &[f64], st: &ConservedState, gamma: f64, field: &str) -> Vec<u8> {
     let n = st.rho.len();

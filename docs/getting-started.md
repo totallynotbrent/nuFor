@@ -63,29 +63,30 @@ mpirun -np 4 nufor run case.toml
 np=1 takes the same code path, so results are identical either way; the
 measured scaling and the parity gates are on [[numerics/parallel/mpi|the MPI page]].
 
-## See it in the browser
+## Watch it run
+
+The console boots with every run. Launch a case and the viewer link prints
+before the first step:
 
 ```bash
-cargo run --release --bin nufor -- serve 8060
+nufor run case.toml
+# viewer: http://127.0.0.1:8062/  (live case console)
 ```
 
-Then open `http://localhost:8060`. The page is a solver workbench:
-**Load case** in the header opens the case directory, the setup tree
-edits the selected case, and the graphics window has two modes:
-**Mesh** (the grid with cell edges, the body filled, boundaries
-colored by condition, wheel zoom and drag pan) and **Results** (the
-field at true aspect with time playback, which fills in live while
-the run is still marching).
+Open the link and the case console fills in live: the run readout (step,
+time, dt, residual), the force coefficients as they converge, and, once
+the march finishes, the field figures (density, mach, pressure,
+temperature, schlieren) and the mesh. To open the console on an
+already-finished case without rerunning:
 
-The **Setup** tree is the case editor: pick a case and its sections
-appear as nodes (mesh, body, physics, boundary conditions, numerics,
-run control), each with property inputs. Change the mach number, the
-grid, the body dimensions, hit Run, and the march streams frames into
-the viewport. Save writes the edits back to the case file; New saves
-the current setup under a fresh name. "Edit raw TOML" flips to the
-full file text for anything the tree does not expose yet. The table
-above applies here too: the same keys you would edit in a file, edited
-in the browser.
+```bash
+nufor watch case.toml 8061
+```
+
+The layout and the data API behind it are on [[numerics/tools/web-ui|the
+case console page]]. When the run finishes, a standalone HTML report lands
+next to the case, one file with everything inlined that opens in any
+browser with no server.
 
 ## Bring your own mesh
 
@@ -101,9 +102,8 @@ source = "file"
 path = "grid.vtk"     # or "coords.txt"
 ```
 
-The solver runs on this grid, and the web UI's "mesh file" field (Display →
-mesh file → load mesh) renders the imported faces - non-uniform spacing
-visible - over the field.
+The solver runs on this grid; the console's mesh tab renders imported
+faces with the non-uniform spacing visible, over the field.
 
 A clustered mesh can also be declared inline instead of imported: set
 `mesh.source = "clustered"` with `first_cell` (the height of the first cell

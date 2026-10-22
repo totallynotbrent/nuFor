@@ -3,6 +3,16 @@
 ## [Unreleased]
 
 ### Added
+- Live case console for every run: `nufor run` boots a viewer on a
+  background thread and prints the link, `nufor watch <case.toml> [port]`
+  reopens one later. The console reads the run heartbeat (state, step,
+  dt, wall time), renders the finished fields (density, mach, pressure,
+  temperature, grayscale schlieren) plus the mesh, and carries a hover
+  probe (cell indices, coordinates, local values), force and peak
+  blocks, history plots, the log as selectable text, and a case card
+  with the freestream and numerics. A standalone HTML report with the
+  fields inlined lands beside the outputs when the run finishes. Docs
+  in `docs/numerics/tools/web-ui.md`.
 - `nufor-core::fay_riddell`: the stagnation-point cold-wall heating
   closed form (perfect-gas Lewis-one, Sutherland transport) with the
   post-shock edge chain, pinned by Rankine-Hugoniot table gates and

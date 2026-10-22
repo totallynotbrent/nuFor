@@ -337,6 +337,15 @@ pub fn apply_solid_ref(
         state.my[*k] = 0.0;
         state.e[*k] = e_ref;
     }
+    // enclosed pockets (four wall faces) hold the same inert reference:
+    // their fluid cannot exchange with anything, and the mirror-wall
+    // stagnation pushback would otherwise detonate them within stages.
+    for k in &cache.pocket_cells {
+        state.rho[*k] = rho_ref;
+        state.mx[*k] = 0.0;
+        state.my[*k] = 0.0;
+        state.e[*k] = e_ref;
+    }
     // a no-slip viscous wall owns its band: the slip projection would
     // convert the normal kinetic energy into internal energy at t=0 and
     // pre-heat the first fluid row before any wall flux ever runs.
@@ -368,6 +377,21 @@ pub struct BodyCache {
     pub solid_cells: Vec<usize>,
     pub band_cells: Vec<usize>,
     pub mask: Vec<bool>,
+    /// x faces the polygon boundary crosses: face f of row j is entry
+    /// j*(nx+1)+f. a face can be crossed while both adjacent cell
+    /// centers sit outside the body (a thin concave wedge such as the
+    /// gap between legs); without these the wall pass leaks freestream
+    /// straight through the surface.
+    pub wall_faces_x: Vec<bool>,
+    /// y faces the polygon boundary crosses: face f of column i is
+    /// entry i*(ny+1)+f.
+    pub wall_faces_y: Vec<bool>,
+    /// fluid cells whose four faces are all walls: sub-resolution
+    /// closed pockets (a horn notch or tail gap narrower than the
+    /// mesh). the mirror-wall stagnation pressure builds in them with
+    /// no outflow to absorb it, so they detonate within a few stages.
+    /// the march holds them at the inert reference like solid cells.
+    pub pocket_cells: Vec<usize>,
 }
 
 static BODY_CACHE: std::sync::Mutex<Option<BodyCache>> = std::sync::Mutex::new(None);
@@ -410,21 +434,87 @@ pub fn body_cache(
                 solid_cells: c.solid_cells.clone(),
                 band_cells: c.band_cells.clone(),
                 mask: c.mask.clone(),
+                wall_faces_x: c.wall_faces_x.clone(),
+                wall_faces_y: c.wall_faces_y.clone(),
+                pocket_cells: c.pocket_cells.clone(),
             });
         }
     }
     let mut solid = Vec::new();
     let mut bandc = Vec::new();
     let mut mask = vec![false; g.nx * g.ny];
+    // sliver shell: a fluid cell whose center sits within 0.45 min(dx,dy)
+    // of the surface can be over half covered by the body while still
+    // classifying fluid (its center is outside). marching it as a full
+    // fluid cell lets the wall faces starve it of mass and the freestream
+    // interior faces pump it to NaN at high mach. treat it solid: the
+    // body fattens by up to half a cell (an immersed-boundary staircase
+    // quantization) and every sliver cavity closes.
+    let h = g.dx.min(g.dy);
     for j in 0..g.ny {
         for i in 0..g.nx {
             let k = j * g.nx + i;
             let d = dist(g.centers_x[k], g.centers_y[k]);
-            if d <= 0.0 {
+            if d <= 0.45 * h {
                 solid.push(k);
                 mask[k] = true;
             } else if d < band {
                 bandc.push(k);
+            }
+        }
+    }
+    // faces the boundary crosses between two outside centers: sample the
+    // signed distance along each interior face at a few stations and mark
+    // any sign change as a crossed face. the distance function is exact to
+    // the piecewise-linear surface, so one midpoint plus the two quarter
+    // points catch every crossing at practical resolutions (a crossing
+    // that hides from all three probes would need a sub-quarter-cell
+    // sliver, which the band projection below absorbs).
+    let mut wall_x = vec![false; (g.nx + 1) * g.ny];
+    let mut wall_y = vec![false; g.nx * (g.ny + 1)];
+    let sign_change =
+        |d0: f64, d1: f64, d2: f64| (d0 > 0.0) != (d2 > 0.0) || (d1 > 0.0) != (d2 > 0.0);
+    for j in 0..g.ny {
+        let y = g.centers_y[j * g.nx];
+        for f in 1..g.nx {
+            let xf = g.xmin + f as f64 * g.dx;
+            let d0 = dist(xf - 0.25 * g.dx, y);
+            let d1 = dist(xf, y);
+            let d2 = dist(xf + 0.25 * g.dx, y);
+            if sign_change(d0, d1, d2) {
+                wall_x[j * (g.nx + 1) + f] = true;
+            }
+        }
+    }
+    for i in 0..g.nx {
+        let x = g.centers_x[i];
+        for f in 1..g.ny {
+            let yf = g.ymin + f as f64 * g.dy;
+            let d0 = dist(x, yf - 0.25 * g.dy);
+            let d1 = dist(x, yf);
+            let d2 = dist(x, yf + 0.25 * g.dy);
+            if sign_change(d0, d1, d2) {
+                wall_y[i * (g.ny + 1) + f] = true;
+            }
+        }
+    }
+    // enclosed pockets: a fluid cell whose four faces are all walls (a
+    // solid neighbor or a crossed face on every side). the mirror-wall
+    // pass seals them completely, so their fluid is a numerical artifact
+    // of the staircase quantization, not a resolvable cavity.
+    let mut pocket = Vec::new();
+    for j in 0..g.ny {
+        for i in 0..g.nx {
+            let k = j * g.nx + i;
+            if mask[k] {
+                continue;
+            }
+            let w = i == 0 || mask[j * g.nx + i - 1] || wall_x[j * (g.nx + 1) + i];
+            let e = i + 1 == g.nx || mask[j * g.nx + i + 1] || wall_x[j * (g.nx + 1) + i + 1];
+            let s = j == 0 || mask[(j - 1) * g.nx + i] || wall_y[i * (g.ny + 1) + j];
+            let n = j + 1 == g.ny || mask[(j + 1) * g.nx + i] || wall_y[i * (g.ny + 1) + j + 1];
+            if w && e && s && n {
+                pocket.push(k);
             }
         }
     }
@@ -433,12 +523,18 @@ pub fn body_cache(
         solid_cells: solid,
         band_cells: bandc,
         mask,
+        wall_faces_x: wall_x,
+        wall_faces_y: wall_y,
+        pocket_cells: pocket,
     };
     *guard = Some(BodyCache {
         signature: cache.signature,
         solid_cells: cache.solid_cells.clone(),
         band_cells: cache.band_cells.clone(),
         mask: cache.mask.clone(),
+        wall_faces_x: cache.wall_faces_x.clone(),
+        wall_faces_y: cache.wall_faces_y.clone(),
+        pocket_cells: cache.pocket_cells.clone(),
     });
     std::sync::Arc::new(cache)
 }

@@ -1,131 +1,108 @@
 ---
-title: Web UI skeleton
+title: Case console
 ---
 
-A dependency-free HTTP server in the `nufor` CLI (`nufor serve`) exposes the
-whole solvable surface as a small data API plus an app shell page. The front
-end is intentionally plain and functional: an external design tool restyles it
-against the same endpoints, so the API is the contract that stays stable.
+The `nufor watch` command opens the live case console: one page that follows
+a case from launch to finish and leaves a report behind. There is no editor
+and no upload path, cases are written as TOML and run from the CLI, and the
+console is a read-only window onto the march.
 
 ## Running
 
-    nufor serve [port]        # default port 8060, bound to 0.0.0.0
+    nufor watch <case.toml> [port]   # standalone viewer, default port 8061
+    nufor run <case.toml>            # boots the console automatically
 
-The server listens on all interfaces so the dashboard is reachable over the
-LAN or Tailscale, not just from localhost.
+Every `nufor run` spawns the console on a background thread before the
+first step and prints the link up front:
 
-## Pages
+    viewer: http://127.0.0.1:8062/  (live case console)
 
-The `/` shell is one solver workspace laid out like a desktop CFD code:
-a header with the case file actions, a left setup sidebar, and
-one large graphics window that serves both the mesh and the result.
+so the page is already open while the march populates it. The port scanner
+takes the first free port in 8062..8070, several concurrent runs each get
+their own console.
 
-- **Header** - **Load case** opens a picker over the `cases/` directory
-  (the list is the directory; nothing is baked into the page), **Save**
-  writes the editor's changes back to the file, **New** saves the
-  current setup under a fresh name, and **Run** marches the loaded case.
-  The current case name and run status sit beside them, with a progress
-  bar that fills as the march runs.
-- **Setup** - the loaded case as a tree: Mesh, Body, Physics, Initial
-  condition, Boundaries, Numerics, Time control, Output, Metadata, each
-  node a set of property inputs (enum fields render as selects). Edits
-  write into the case file on Save; "Edit raw TOML" flips to the full
-  text editor.
-- **Graphics window** - two modes on the window itself, Mesh and
-  Results. **Mesh** renders the loaded case's grid like a mesher: cell
-  edges, the body filled with its outline, each domain boundary
-  colored by its condition with a legend naming them, a cell count,
-  and wheel zoom / drag pan. **Results** shows the field (density /
-  mach / pressure) at true aspect with coordinate axes, a scrub bar
-  over the run's frames, and a mesh overlay toggle. Frames arrive
-  while the run is still marching, so the scrub bar and the field can
-  be watched live; a case with no frames yet shows a placeholder
-  message instead of a broken image. For dimensionally small runs the
-  displayed times round to 0.000 at three decimals.
-- **Results panel** (sidebar) - after a run with a body: the surface Cp
-  stations and the integrated axial-force coefficient, normalized by
-  the case's own freestream and reference area.
-- **Import mesh** (collapsed section) - upload or server-path load of
-  a mesh (rectilinear VTK / coordinates, gmsh 2d); the uploaded grid
-  renders in the same mesh viewer, and rectilinear grids can run a
-  blast march on it.
+## Layout
 
-The layout at a glance:
+The page is a three-column CAE console, full height, in the house design
+(dark canvas, amber accent, Inter body, JetBrains Mono data, Newsreader
+display).
 
-```mermaid
-flowchart LR
-    H["header: load / save / new / run<br/>case name + progress"] --- G
-    S["setup sidebar:<br/>case tree + raw TOML"] --- G
-    G["graphics window:<br/>mesh mode | results mode"]
-    R["results panel:<br/>Cp stations + C_A"] --- G
-```
+- **Header**  -  case name, the equations line (1D Euler, 2D axisymmetric,
+  RANS-SA, ...), and the state pill (running / finished / failed).
+- **Left rail**  -  the live run readout (state, step, physical time, dt,
+  wall clock, sample count, march residual) plus the case card: grid,
+  domain extents, body presence.
+- **Center viewport**  -  tabbed figures, all sharing one physical fit so
+  the mesh and every field sit in the same box at the same scale:
+  - **field**  -  density, mach, pressure, temperature, and schlieren,
+    each a button on the field bar. The first four render through the
+    same renderer the results pipeline uses, body silhouette included;
+    the color window comes from the data itself (2nd/98th percentile
+    over live cells) and the colorbar shows it. Schlieren is the
+    classic |grad rho| magnitude, log-scaled and grayscale: dark
+    freestream, bright shock bands, the way experimental schlieren
+    reads.
+  - **mesh**  -  cell edges and the body outline at true aspect.
+  - **forces**  -  C_D and C_L (or the density residual for cases without
+    a body) as a history over the march.
+  - **log**  -  the run log as real text, selectable and copyable,
+    scrolled like any text pane instead of painted into the canvas.
+- **Right rail**  -  the forces block (C_D, C_L, L/D, peak wall heat flux),
+  the peaks block (p_max, T_max, rho_max, rho_min), the hover probe (cell
+  indices, physical coordinates, and the local density, pressure,
+  temperature, and mach under the cursor), the rho/p/dt history plot,
+  and the force history (C_D, C_L, q_max over the march).
+- **Left rail**  -  the run readout plus the full case card, from grid
+  and domain through the closure, freestream Mach and state, wall
+  temperature, flux and reconstruction order, cfl, and the stop
+  conditions.
+
+## Where the numbers come from
+
+The march writes a heartbeat (`progress.json`, next to the case) every 50
+steps, step 1 included. On those emit steps it also integrates the surface
+force coefficients over the body band, the peak wall heat flux when the
+case is viscous with a wall temperature, and the density residual. The
+console polls that heartbeat once a second, so the readout, plots, and
+force panels fill while the run is still marching.
+
+The finished run's fields come from the written vtk: the console recovers
+the state through the same reader the results pipeline uses and renders on
+request, so the figures always match the case's own eos and model.
+
+## The report
+
+When a run finishes, `nufor run` also writes a standalone report next to
+the case:
+
+    report: /tmp/mycase/aeroshell-capsule-trim-report.html
+
+One self-contained file: the console page with the progress history, run
+log, mesh geometry, and every field render (density, mach, pressure,
+temperature, schlieren) inlined as data urls. It opens in any browser with
+no server, no network, and no nufor install, which makes it the artifact
+to attach to a submission or print to pdf.
 
 ## Data API
 
-All routes answer on `0.0.0.0:<port>`:
+`nufor watch` answers a small read-only API alongside the page:
 
-- `GET /api/cases` - the case directory as a JSON list.
-- `GET /api/cases/load?name=..` - one case's `case.toml` as text.
-- `POST /api/cases/save?name=..` - write the editor's text back to the
-  case file (validated before anything is written).
-- `POST /api/cases/create?name=..` - save the editor's text as a new case.
-- `POST /api/cases/delete?name=..` - remove a case directory.
-- `GET /api/cases/run?name=..` - start the background march for that
-  case (1D, 2D, or axisymmetric, dispatched by the case's equations);
-  answers `202` immediately. Poll `GET /api/cases/run-status` for
-  percent, steps, and time.
-- `GET /api/cases/mesh?name=..` - the loaded case's grid faces and
-  extents plus the body outline sampled from its own sdf, so the mesh
-  pane shows the exact grid the march will run on.
-- `GET /api/cases/probe?field=..&x0=..&y0=..&x1=..&y1=..&samples=..` -
-  a line sample through the finished run's final field.
-- `GET /api/cases/surface` - after a run with a body: the surface Cp
-  stations, the body silhouette, and the integrated C_A (normalized by
-  the case's own freestream and reference area).
-- `GET /api/frames?t=..&field=rho|mach|p` - one playback frame (PNG)
-  from the animation, per field; frames are served as they are
-  rendered, during the run as well as after it.
-  `GET /api/frames/times` lists the frame times, growing live.
-- `GET /api/result` (alias `/api/snapshot`) - the current result envelope:
-  steps, residual, termination reason, the snapshot (centers, rho, m, e, u, p,
-  mach), and the exact solution with its L1 density error.
-- `GET /api/config` - the current case configuration as JSON.
-- `GET /api/run?kind=sod|lax&n=..&t=..&gamma=..&cfl=..&bc=transmissive|reflective`
-  - reconfigure and run, returning the same envelope; the run is recorded.
-- `GET /api/exact` - just the exact arrays (rho, u, p) plus the L1 error.
-- `GET /api/export?format=csv|vtk|h5` - the snapshot written to that format and
-  returned as the file bytes.
-- `GET /api/benchmark?steps=..` - a JSON throughput table across mesh sizes.
-- `GET /api/history` - every run since the server started as JSON.
-- `GET /api/image?n=..&field=rho|mach|p` - a 2D blast wave solved at `n` cells
-  and returned as a PNG of the chosen scalar field (`image/png`).
-- `GET /api/run-case?dim=2d|3d&n=..&t=..&cfl=..&name=..` - start a background
-  blast march; answers `202` immediately. Poll `GET /api/run-status` for
-  percent, steps, and time; the finished run writes `results/<name>.vtk`.
-- `GET /api/mesh-faces?kind=blast|laminar|turbulent` - the face coordinates of
-  the active gallery grid, so the mesh pane draws the real cell spacing.
-- `GET /api/plates/{laminar|turbulent}/image|validation|profile` - the plate
-  gallery: a rendered field, the cf(x) table with its reference correlation,
-  and the wall-normal u(y) profile. The turbulent variants answer `503`
-  with a plain-text status until the background solve finishes;
-  `GET /api/plates/progress` reports how far along it is.
-- `POST /api/upload?name=..` - upload a mesh file (64 MB cap, 8M cell cap
-  for the browser solve path); it lands in `uploads/` and gets parsed.
-- `GET /api/meshview/wire` - the wireframe of the uploaded mesh: 2D face
-  lines, a sampled 3D grid box for the spin view, or gmsh nodes + edges.
-- `GET /api/meshview/solve?t=..&cfl=..` - start the background march on the
-  uploaded rectilinear grid; poll `GET /api/meshview/status` for progress.
-- `GET /api/meshview/slice?field=..&axis=..&u=..` - the solved field as a
-  PNG: the full 2D field, or the plane at `u` along `axis` for 3D.
-
-My rule for this server: when a feature lands (2D HLLC, wedge cases,
-viscous terms), it gets an API route and a panel in the same commit, so the
-UI stays a faithful mirror of the solver.
+- `GET /`  -  the console page.
+- `GET /api/watch`  -  the heartbeat: kind, state, step, t, dt, samples
+  (step, t, dt, rho/p extrema, wall, cd, cl, q_max, residual).
+- `GET /api/mesh`  -  grid edges and extents plus the body outline.
+- `GET /api/field?name=rho|mach|p|t|schlieren`  -  the finished field as a
+  PNG, ranges taken from the data (404 before the first finished run).
+- `GET /api/range?name=..`  -  the color window the colorbar reads.
+- `GET /api/cell?i=&j=`  -  the finished field's local values (density,
+  pressure, temperature, mach) at one cell, for the hover probe.
+- `GET /api/case_info`  -  the case card: closure, freestream state and
+  Mach, wall temperature, numerics, and stop conditions.
+- `GET /api/log`  -  the run log text.
 
 ## See also
 
 - [[architecture|Architecture]]
 - [[numerics/2d/state-grid|2D foundations]]
-- [[numerics/1d/euler|1D Euler]]
 - [[numerics/tools/line-probes|Line probes]]
 - [[numerics/tools/comparison-dashboard|Comparison dashboard]]

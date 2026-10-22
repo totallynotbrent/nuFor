@@ -30,8 +30,9 @@ which carries 3D axisymmetric reality at 2D cost).
   the CDV nozzle cold-flow case (reservoir inflow, subsonic
   back-pressure outflow, restart chaining on the axisymmetric
   runner, three pressure-ratio regimes against the 1D solution);
-  restart chaining, VTK/CSV output, and a web UI with live runs.
-- Web UI: case gallery, mesh view, live runs, validation dock.
+  restart chaining, VTK/CSV output, and the live case console.
+- Case console: live runs, field figures (schlieren included), forces,
+  the standalone report.
 - 3D inviscid Euler: validated, committed.
 - 3D viscous Navier-Stokes: validated, committed.
 - Masked bodies: done, validated on the cylinder bow shock and

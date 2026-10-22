@@ -101,3 +101,4 @@ results/
 
 # web-ui uploaded meshes (runtime data, not source)
 uploads/
+cases/*/run-log-last.txt

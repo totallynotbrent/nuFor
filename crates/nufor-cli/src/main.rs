@@ -29,12 +29,9 @@ use nufor_core::{model_from_config, park2t, ThermoModel};
 
 mod casework;
 mod mesh_io;
-mod meshview;
-mod plates;
-mod runstate;
-mod serve;
+mod progress;
 mod stlcut;
-mod webviews;
+mod watch;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const GAMMA: f64 = 1.4;
@@ -56,7 +53,7 @@ fn main() {
         "export" => export(&args),
         "history" => history(&args),
         "benchmark" => benchmark(&args),
-        "serve" => serve(&args),
+        "watch" => watch::watch(&args),
         "stl-cut" => stl_cut(&args),
         "help" | "-h" | "--help" => {
             usage(prog);
@@ -85,7 +82,7 @@ fn usage(prog: &str) {
          \x20 export    in.rst out.vtk|h5  write a vtk or hdf5 snapshot\n\
          \x20 history   N [file.csv]       run sod to t=0.2 and write a csv snapshot\n\
          \x20 benchmark N steps            time a fixed run\n\
-         \x20 serve    [port]              serve the web ui skeleton (default 8060)\n\
+         \x20 watch    <case.toml> [port]  live case viewer (default 8061)\n\
          \x20 version                     print the version"
     );
 }
@@ -459,20 +456,6 @@ fn benchmark(args: &[String]) -> i32 {
         dt.as_secs_f64() * 1e6 / (steps as f64 * n as f64)
     );
     0
-}
-
-fn serve(args: &[String]) -> i32 {
-    let port = args
-        .get(2)
-        .and_then(|s| s.parse::<u16>().ok())
-        .unwrap_or(serve::DEFAULT_PORT);
-    match serve::run(port) {
-        Ok(_) => 0,
-        Err(e) => {
-            eprintln!("serve error: {e}");
-            1
-        }
-    }
 }
 
 /// stl-cut: slice an stl body at a plane and print the case file's
@@ -883,7 +866,12 @@ fn run_case(path: &str) -> i32 {
             return 2;
         }
     };
-    match cfg.physics.equations {
+    // the live viewer boots with the run: a background thread serves
+    // the case console and the march prints its link up front.
+    if let Some(port) = watch::spawn_for_run(path) {
+        println!("viewer: http://127.0.0.1:{port}/  (live case console)");
+    }
+    let rc = match cfg.physics.equations {
         Equations::Euler1d => run_case_1d(&cfg, path),
         Equations::Euler2d => run_case_2d(&cfg, path),
         Equations::Euler3d => run_case_3d(&cfg, path),
@@ -895,7 +883,23 @@ fn run_case(path: &str) -> i32 {
             }
         }
         Equations::Rans2dSa => run_case_2d_sa(&cfg, path),
+    };
+    // a finished run leaves a standalone report next to the case: one
+    // html file with everything inlined, openable offline or printable
+    // to pdf for submission.
+    if rc == 0 {
+        if let Some(w) = watch::Watch::new(path) {
+            let report = w.dir.join(format!("{}-report.html", cfg.metadata.name));
+            match watch::write_report(&w, &report) {
+                Ok(()) => {
+                    println!("report: {}", report.display());
+                    println!("viewer closed with the run; reopen: nufor watch {}", path);
+                }
+                Err(e) => eprintln!("report write error: {e}"),
+            }
+        }
     }
+    rc
 }
 
 /// a body's signed distance and surface normal as shared closures.
@@ -1113,8 +1117,9 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
     let mut t = restart_time;
     let mut steps = 0usize;
     let mut ok = true;
+    let mut prog = progress::Progress::new(path, "2d-axi");
     while t < t_end && steps < max_steps {
-        match if cfg.numerics.local_time_stepping {
+        let stepped_axi = if cfg.numerics.local_time_stepping {
             advance2d_axi_lts(
                 &mut st,
                 &g,
@@ -1138,18 +1143,32 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
                 body.as_ref()
                     .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
             )
-        } {
+        };
+        match stepped_axi {
             Ok((dt, _)) => t += dt,
             Err(e) => {
                 eprintln!("solver error at step {steps}: {e}");
                 ok = false;
                 break;
             }
-        }
+        };
         if let Some((dist, normal)) = &body {
             apply_solid_fn(&mut st, &g, dist.as_ref(), normal.as_ref(), gamma);
         }
         steps += 1;
+        if let Some(p) = prog.as_mut() {
+            let dt_last = match stepped_axi {
+                Ok((dt, _)) => dt,
+                Err(_) => 0.0,
+            };
+            p.tick(
+                steps as u64,
+                t,
+                dt_last,
+                &st,
+                progress::SampleExtra::default(),
+            );
+        }
         if steps % 200 == 0 {
             println!(
                 "step {steps} t={t:.4} wall={:.1}s",
@@ -1158,6 +1177,9 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
         }
     }
     if ok {
+        if let Some(p) = prog.as_mut() {
+            p.finish(true, steps as u64, t);
+        }
         println!(
             "case {} ({})\nthink: axisymmetric, {}x{}\nsteps: {}\ntime: {:.4}\nwall: {:.3}s",
             cfg.metadata.name,
@@ -1197,6 +1219,9 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
         }
         rc
     } else {
+        if let Some(p) = prog.as_mut() {
+            p.finish(false, steps as u64, t);
+        }
         1
     }
 }
@@ -1271,8 +1296,10 @@ fn run_case_axi_curv(cfg: &CaseConfig, path: &str) -> i32 {
     let mut t = 0.0;
     let mut steps = 0usize;
     let mut ok = true;
+    let mut prog = progress::Progress::new(path, "2d-ogrid");
     while t < t_end && steps < max_steps {
-        match advance2d_axi_curv(&mut st, &g, model, cfl, fs) {
+        let stepped_curv = advance2d_axi_curv(&mut st, &g, model, cfl, fs);
+        match stepped_curv {
             Ok((dt, _)) => t += dt,
             Err(e) => {
                 eprintln!("solver error at step {steps}: {e}");
@@ -1281,6 +1308,19 @@ fn run_case_axi_curv(cfg: &CaseConfig, path: &str) -> i32 {
             }
         }
         steps += 1;
+        if let Some(p) = prog.as_mut() {
+            let dt_last = match stepped_curv {
+                Ok((dt, _)) => dt,
+                Err(_) => 0.0,
+            };
+            p.tick(
+                steps as u64,
+                t,
+                dt_last,
+                &st,
+                progress::SampleExtra::default(),
+            );
+        }
         if steps % 200 == 0 {
             println!(
                 "step {steps} t={t:.4} wall={:.1}s",
@@ -1289,6 +1329,9 @@ fn run_case_axi_curv(cfg: &CaseConfig, path: &str) -> i32 {
         }
     }
     if ok {
+        if let Some(p) = prog.as_mut() {
+            p.finish(true, steps as u64, t);
+        }
         println!(
             "case {} ({})\nthink: axisymmetric o-grid, {}x{}\nsteps: {}\ntime: {:.4}\nwall: {:.3}s",
             cfg.metadata.name,
@@ -1312,6 +1355,9 @@ fn run_case_axi_curv(cfg: &CaseConfig, path: &str) -> i32 {
             }
         }
     } else {
+        if let Some(p) = prog.as_mut() {
+            p.finish(false, steps as u64, t);
+        }
         1
     }
 }
@@ -1347,8 +1393,12 @@ fn run_case_1d(cfg: &CaseConfig, path: &str) -> i32 {
         tol: cfg.time.residual_target.unwrap_or(0.0),
     };
     let t0 = Instant::now();
+    let mut prog = progress::Progress::new(path, "1d");
     match euler_solve(&mut state, &ecfg) {
         Ok(r) => {
+            if let Some(p) = prog.as_mut() {
+                p.finish_1d(true, &r.log, r.converged, r.residual);
+            }
             println!(
                 "case {} ({})\nsteps: {}\ntime: {:.4}\nfinal residual: {:.3e}\nconverged: {}\nwall: {:.3}s",
                 cfg.metadata.name,
@@ -1368,7 +1418,12 @@ fn run_case_1d(cfg: &CaseConfig, path: &str) -> i32 {
                 cfg.physics.gamma,
             )
         }
-        Err(e) => euler_error(e),
+        Err(e) => {
+            if let Some(p) = prog.as_mut() {
+                p.finish_1d(false, &[], false, 0.0);
+            }
+            euler_error(e)
+        }
     }
 }
 
@@ -1420,6 +1475,143 @@ fn write_case_outputs(
 }
 
 /// solve a 2d case: blast or uniform IC on a uniform or imported rectilinear mesh.
+/// the cae readout the heartbeat samples on its emit cadence: surface
+/// force coefficients integrated over the body band, the peak wall
+/// heat flux when the case is viscous, and a density-change residual
+/// as the march's convergence measure. everything optional so a plain
+/// shock tube case pays nothing.
+fn progress_readout(
+    cfg: &CaseConfig,
+    g: &Grid2d,
+    st: &nufor_core::ConservedState2d,
+    body: &Option<CaseBodyFns>,
+    model: ThermoModel,
+    species: Option<&nufor_core::species::SpeciesState>,
+    viscous: bool,
+) -> progress::SampleExtra {
+    let n = st.rho.len();
+    // cell pressure through the run's own closure
+    let u: Vec<f64> = (0..n).map(|k| st.mx[k] / st.rho[k].max(1e-12)).collect();
+    let v: Vec<f64> = (0..n).map(|k| st.my[k] / st.rho[k].max(1e-12)).collect();
+    let e_int: Vec<f64> = (0..n)
+        .map(|k| st.e[k] / st.rho[k].max(1e-12) - 0.5 * (u[k] * u[k] + v[k] * v[k]))
+        .collect();
+    let p: Vec<f64> = match species {
+        Some(sp) => (0..n)
+            .map(|k| {
+                let mut y = [0.0f64; 5];
+                for (ys, ysrc) in y.iter_mut().zip(sp.y.iter()) {
+                    *ys = ysrc[k];
+                }
+                nufor_core::species_closure::pressure_at(st.rho[k], e_int[k], &y)
+            })
+            .collect(),
+        None => nufor_core::thermo_pressure(model, &st.rho, &e_int, &u, &v)
+            .unwrap_or_else(|_| vec![0.0; n]),
+    };
+    // residual proxy: the max density change this step would imply at
+    // the last dt. the true per-step delta needs the previous field,
+    // so this uses the freestream deviation, a coarse but honest
+    // convergence signal: it decays as the field settles.
+    let rho_ref = match &cfg.initial_condition {
+        nufor_config::InitialCondition::Uniform { rho, .. } => *rho,
+        nufor_config::InitialCondition::TwoState { left, .. } => left.rho,
+        nufor_config::InitialCondition::Blast { ambient, .. } => ambient.rho,
+    };
+    let mut residual = 0.0f64;
+    for k in 0..n {
+        residual = residual.max((st.rho[k] - rho_ref).abs());
+    }
+    // peak temperature through the same closure the field render uses
+    let t_max: Option<f64> = match species {
+        Some(sp) => (0..n)
+            .map(|k| {
+                let mut y = [0.0f64; 5];
+                for (ys, ysrc) in y.iter_mut().zip(sp.y.iter()) {
+                    *ys = ysrc[k];
+                }
+                nufor_core::species_closure::temperature_at(e_int[k], &y)
+            })
+            .fold(None::<f64>, |a, t| {
+                Some(match a {
+                    Some(m) if m >= t => m,
+                    _ => t,
+                })
+            }),
+        None => nufor_core::thermo_temperature(model, &st.rho, &p)
+            .ok()
+            .and_then(|ts| {
+                ts.iter().cloned().fold(None::<f64>, |a, t| {
+                    Some(match a {
+                        Some(m) if m >= t => m,
+                        _ => t,
+                    })
+                })
+            }),
+    };
+    let mut extra = progress::SampleExtra {
+        residual,
+        t_max,
+        ..Default::default()
+    };
+    let Some((dist, normal)) = body else {
+        return extra;
+    };
+    // freestream dynamic pressure for the coefficients
+    let (rho_fs, u_fs) = match &cfg.initial_condition {
+        nufor_config::InitialCondition::Uniform { rho, u, .. } => (*rho, *u),
+        nufor_config::InitialCondition::TwoState { left, .. } => (left.rho, left.u),
+        nufor_config::InitialCondition::Blast { ambient, .. } => (ambient.rho, ambient.u),
+    };
+    let q_inf = 0.5 * rho_fs * u_fs * u_fs;
+    if q_inf <= 0.0 {
+        return extra;
+    }
+    let band = 1.5 * g.dx.min(g.dy);
+    let ds = g.dx.max(g.dy) * 0.5;
+    let (mut fx, mut fy) = (0.0f64, 0.0f64);
+    let mut q_max = 0.0f64;
+    let mut hits = 0usize;
+    for j in 0..g.ny {
+        for i in 0..g.nx {
+            let k = j * g.nx + i;
+            let d = dist(g.centers_x[k], g.centers_y[k]);
+            if d > 0.0 && d < band {
+                let (nx, ny) = normal(g.centers_x[k], g.centers_y[k]);
+                fx -= p[k] * nx * ds;
+                fy -= p[k] * ny * ds;
+                hits += 1;
+                // wall heat flux when a wall temperature is set: the
+                // band cell's radial gradient toward the surface gives
+                // q = k * dT/dn with k from the sutherland law at the
+                // near-wall state.
+                if viscous {
+                    let tw = cfg.physics.wall_temperature.unwrap_or(0.0);
+                    if tw > 0.0 {
+                        let mu = cfg.physics.mu.unwrap_or(0.0);
+                        let pr = 0.71;
+                        let k_th = mu * 1005.0 / pr;
+                        let dtdn =
+                            ((e_int[k] + p[k] / st.rho[k].max(1e-12)) / 718.0 - tw) / d.max(1e-9);
+                        q_max = q_max.max(k_th * dtdn.abs());
+                    }
+                }
+            }
+        }
+    }
+    if hits > 0 {
+        // 2d section force -> coefficient per unit depth; A_ref from
+        // metadata when present, else the body's own frontal height.
+        // reference area: the body's frontal height times unit depth;
+        // the band cell count over ny approximates the wetted height.
+        let a_ref = g.dy * hits as f64 / g.ny as f64;
+        extra.cd = Some(fx / (q_inf * a_ref));
+        extra.cl = Some(fy / (q_inf * a_ref));
+        extra.q_max = if q_max > 0.0 { Some(q_max) } else { None };
+    }
+    extra
+}
+
 fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     let mesh = &cfg.mesh;
     // a gmsh .msh file drives the unstructured 2d solver instead.
@@ -1575,6 +1767,12 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
         let mut t = restart_time;
         let mut steps = 0usize;
         let mut ok = true;
+        // rank 0 owns the progress heartbeat for the chunked march.
+        let mut prog = if is_root {
+            progress::Progress::new(path, "2d-mpi")
+        } else {
+            None
+        };
         // the viscous lane: same chunked loop, the fortran viscous heun
         // step per call. the mu/pr/wall params mirror the serial
         // advance2d_model_visc_rk2 call site.
@@ -1624,18 +1822,21 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
                     tb.nu_tilde = nt;
                 }
             }
+            #[allow(unused_assignments)]
+            let mut dt_chunk = 0.0f64;
             match r {
-                Ok((r, _)) => {
-                    if let Some(gathered) = r.state {
+                Ok((mr, _)) => {
+                    if let Some(gathered) = mr.state {
                         st = gathered;
                     }
                     // one step per call: the march's internal clock starts
                     // at zero each call, so accumulate the step's dt here.
-                    t += r.dt_last;
+                    t += mr.dt_last;
+                    dt_chunk = mr.dt_last;
                     if is_root {
                         eprintln!(
                             "chunk {steps}: t={t:.6e} dt_last={:.6e} rho_min={:.6} rho_max={:.6}",
-                            r.dt_last,
+                            mr.dt_last,
                             st.rho.iter().cloned().fold(f64::INFINITY, f64::min),
                             st.rho.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
                         );
@@ -1654,8 +1855,20 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
             // carves identical slabs (and band projection lands everywhere)
             let _ = mpi_bcast_state(&mut st);
             steps += 1;
+            if let Some(p) = prog.as_mut() {
+                p.tick(
+                    steps as u64,
+                    t,
+                    dt_chunk,
+                    &st,
+                    progress::SampleExtra::default(),
+                );
+            }
         }
         if !ok {
+            if let Some(p) = prog.as_mut() {
+                p.finish(false, steps as u64, t);
+            }
             mpi_shutdown();
             return 1;
         }
@@ -1663,6 +1876,9 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
         if !is_root {
             mpi_shutdown();
             return 0;
+        }
+        if let Some(p) = prog.as_mut() {
+            p.finish(true, steps as u64, t);
         }
         println!(
             "case {} ({}) [mpi]\nthink: 2d, {}x{}\nsteps: {}\ntime: {:.4}\nwall: {:.3}s",
@@ -1743,6 +1959,7 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     let mut t = restart_time;
     let mut steps = 0usize;
     let mut ok = true;
+    let mut prog = progress::Progress::new(path, "2d");
     while t < t_end && steps < max_steps {
         let stepped = if let Some(sp) = park5_species.as_mut() {
             // the park5 lane first: a park5 case with mu > 0 routes to
@@ -1908,6 +2125,32 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
                 .ok();
         }
         steps += 1;
+        if let Some(p) = prog.as_mut() {
+            let dt_last = match stepped {
+                Ok((dt, _)) => dt,
+                Err(_) => 0.0,
+            };
+            // the cae readout rides the emit cadence only: on the steps
+            // the heartbeat actually samples, integrate the surface
+            // forces and the peak wall heat flux. off steps pay a
+            // branch and nothing else. the cadence emits at step 1
+            // then every 50th (1, 51, 101, ...), so the same gate
+            // keeps the readout aligned with a kept sample.
+            let extra = if steps % 50 == 1 {
+                progress_readout(
+                    cfg,
+                    &g,
+                    &st,
+                    &body,
+                    model,
+                    park5_species.as_ref(),
+                    visc_no_slip,
+                )
+            } else {
+                progress::SampleExtra::default()
+            };
+            p.tick(steps as u64, t, dt_last, &st, extra);
+        }
         if steps % 200 == 0 {
             eprintln!(
                 "step {steps} t={t:.4} wall={:.1}s",
@@ -1946,6 +2189,9 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
         }
     }
     if ok {
+        if let Some(p) = prog.as_mut() {
+            p.finish(true, steps as u64, t);
+        }
         let wall = t0.elapsed().as_secs_f64();
         println!(
             "case {} ({})\nthink: 2d, {}x{}\nsteps: {}\ntime: {:.4}\nwall: {:.3}s",
@@ -2002,6 +2248,9 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
         }
         rc
     } else {
+        if let Some(p) = prog.as_mut() {
+            p.finish(false, steps as u64, t);
+        }
         1
     }
 }
@@ -2634,6 +2883,7 @@ fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
     let mut t = 0.0;
     let mut steps = 0usize;
     let mut ok = true;
+    let mut prog = progress::Progress::new(path, "2d-sa");
     // local time stepping trades time accuracy for convergence speed: the
     // wall-clock budget goes to sweeps toward the steady state.
     let lts = cfg.numerics.local_time_stepping;
@@ -2684,8 +2934,14 @@ fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
             break;
         }
         steps += 1;
+        if let Some(p) = prog.as_mut() {
+            p.tick(steps as u64, t, 0.0, &st, progress::SampleExtra::default());
+        }
     }
     if ok {
+        if let Some(p) = prog.as_mut() {
+            p.finish(true, steps as u64, t);
+        }
         println!(
             "case {} ({})\nthink: rans 2d sa, {}x{}\nsteps: {}\ntime: {:.4}\nwall: {:.3}s",
             cfg.metadata.name,
@@ -2846,8 +3102,10 @@ fn run_case_2d_msh(cfg: &CaseConfig, path: &str, msh_path: &str) -> i32 {
     let t0 = Instant::now();
     let (mut t, mut steps) = (0.0, 0usize);
     let mut ok = true;
+    let mut prog = progress::Progress::new(path, "2d-msh");
     while t < t_end && steps < max_steps {
-        match advance_ugrid(&mut st, &ug, gamma, cfl) {
+        let stepped_msh = advance_ugrid(&mut st, &ug, gamma, cfl);
+        match stepped_msh {
             Ok((dt, _)) => t += dt,
             Err(e) => {
                 eprintln!("solver error at step {steps}: {e}");
@@ -2856,8 +3114,24 @@ fn run_case_2d_msh(cfg: &CaseConfig, path: &str, msh_path: &str) -> i32 {
             }
         }
         steps += 1;
+        if let Some(p) = prog.as_mut() {
+            let dt_last = match stepped_msh {
+                Ok((dt, _)) => dt,
+                Err(_) => 0.0,
+            };
+            p.tick(
+                steps as u64,
+                t,
+                dt_last,
+                &st,
+                progress::SampleExtra::default(),
+            );
+        }
     }
     if ok {
+        if let Some(p) = prog.as_mut() {
+            p.finish(true, steps as u64, t);
+        }
         println!(
             "case {} ({})\nmesh: {} cells ({} faces)\nsteps: {}\ntime: {:.4}\nwall: {:.3}s",
             cfg.metadata.name,
@@ -2870,6 +3144,9 @@ fn run_case_2d_msh(cfg: &CaseConfig, path: &str, msh_path: &str) -> i32 {
         );
         0
     } else {
+        if let Some(p) = prog.as_mut() {
+            p.finish(false, steps as u64, t);
+        }
         1
     }
 }
@@ -2903,8 +3180,10 @@ fn run_case_3d(cfg: &CaseConfig, path: &str) -> i32 {
     let mut t = 0.0;
     let mut steps = 0usize;
     let mut ok = true;
+    let mut prog = progress::Progress::new(path, "3d");
     while t < t_end && steps < max_steps {
-        match advance3d_rk2(&mut st, &g, gamma, cfl, true) {
+        let stepped_3d = advance3d_rk2(&mut st, &g, gamma, cfl, true);
+        match stepped_3d {
             Ok((dt, _)) => t += dt,
             Err(e) => {
                 eprintln!("solver error at step {steps}: {e}");
@@ -2913,8 +3192,24 @@ fn run_case_3d(cfg: &CaseConfig, path: &str) -> i32 {
             }
         }
         steps += 1;
+        if let Some(p) = prog.as_mut() {
+            let dt_last = match stepped_3d {
+                Ok((dt, _)) => dt,
+                Err(_) => 0.0,
+            };
+            p.tick_3d(
+                steps as u64,
+                t,
+                dt_last,
+                &st,
+                progress::SampleExtra::default(),
+            );
+        }
     }
     if ok {
+        if let Some(p) = prog.as_mut() {
+            p.finish(true, steps as u64, t);
+        }
         println!(
             "case {} ({})\nthink: 3d blast, {}x{}x{}\nsteps: {}\ntime: {:.4}\nwall: {:.3}s",
             cfg.metadata.name,
@@ -2928,6 +3223,9 @@ fn run_case_3d(cfg: &CaseConfig, path: &str) -> i32 {
         );
         write_case_vtk3d(path, &cfg.metadata.name, &g, &st, gamma)
     } else {
+        if let Some(p) = prog.as_mut() {
+            p.finish(false, steps as u64, t);
+        }
         1
     }
 }

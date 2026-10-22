@@ -1,0 +1,744 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>nuFor case console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #141414;
+  --card: #191919;
+  --nest: #111111;
+  --border: #2b2b2b;
+  --text: #d8d8d8;
+  --muted: #8b8b8b;
+  --amber: #e0a458;
+  --amber-h: #f0b468;
+  --ok: #7fbf7f;
+  --err: #e06c5a;
+  --link: #82aadd;
+  --pine: #6fc9b4;
+  --purple: #b8a8d8;
+  --font-d: 'Newsreader', Georgia, serif;
+  --font-b: 'Inter', system-ui, sans-serif;
+  --font-m: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.45 var(--font-b);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.mono { font-family: var(--font-m); }
+.muted { color: var(--muted); }
+
+/* header */
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+header h1 {
+  font: 500 21px/1.1 var(--font-d);
+  letter-spacing: 0.01em;
+}
+header .case-name { font-family: var(--font-m); font-size: 13px; color: var(--amber); }
+header .grow { flex: 1; }
+.pill {
+  font: 500 10px/1 var(--font-m);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+}
+.pill.running, .pill.starting { color: var(--amber); border-color: var(--amber); }
+.pill.finished { color: var(--ok); border-color: var(--ok); }
+.pill.failed, .pill.offline { color: var(--err); border-color: var(--err); }
+.pill.no-run, .pill.standalone { color: var(--muted); }
+
+/* the main grid: left sidebar, center viewport, right readout */
+main {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: 240px 1fr 300px;
+  gap: 1px;
+  background: var(--border);
+  min-height: 0;
+}
+.panel {
+  background: var(--card);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.panel h2 {
+  font: 500 10px/1 var(--font-m);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  padding: 10px 14px 8px;
+  flex: 0 0 auto;
+}
+.side-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 14px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--nest);
+}
+.side-item .k { color: var(--muted); }
+.side-item .v { font-family: var(--font-m); text-align: right; font-size: 11.5px; }
+
+/* tabs */
+.tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+  background: var(--card);
+}
+.tab {
+  font-size: 12px;
+  padding: 8px 16px;
+  color: var(--muted);
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-bottom: none;
+}
+.tab.on { color: var(--amber); border-color: var(--border); background: var(--card); }
+
+/* viewport */
+.viewport {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--nest);
+ position: relative; }
+.fieldbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+  background: var(--card);
+  flex-wrap: wrap;
+}
+.fbtn {
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font: 12px var(--font-b);
+  padding: 3px 12px;
+  cursor: pointer;
+}
+.fbtn.on { color: var(--amber); border-color: var(--amber); }
+.fbtn:hover { color: var(--amber); }
+.colorbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  font: 10px var(--font-m);
+  color: var(--muted);
+}
+.colorbar .ramp {
+  width: 120px; height: 10px;
+  border: 1px solid var(--border);
+}
+.logwrap {
+  position: absolute; inset: 0; overflow: auto;
+  background: var(--nest);
+}
+.logwrap pre {
+  margin: 0; padding: 10px 14px;
+  font: 11px/1.5 var(--font-m);
+  color: var(--text);
+  white-space: pre; overflow: auto; text-align: left;
+}
+.fig-wrap { flex: 1 1 auto; min-height: 0; position: relative; }
+.fig-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; background: var(--nest); image-rendering: pixelated; }
+.figlabels {
+  display: flex;
+  justify-content: space-between;
+  font: 10px var(--font-m);
+  color: var(--muted);
+  padding: 4px 8px;
+  flex: 0 0 auto;
+  border-top: 1px solid var(--border);
+}
+
+/* right column */
+.forces {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1px;
+  background: var(--border);
+  flex: 0 0 auto;
+}
+.forces .cell { background: var(--card); padding: 8px 12px; }
+.forces .k { font: 500 9px var(--font-m); text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+.forces .v { font: 500 15px var(--font-m); margin-top: 2px; }
+.probeinfo {
+  font: 10.5px var(--font-m);
+  padding: 5px 12px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.probevals {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.probevals .cell {
+  background: var(--card);
+  padding: 6px 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
+}
+.probevals .k {
+  font: 10.5px var(--font-m);
+  color: var(--muted);
+}
+.probevals .v {
+  font: 11px var(--font-m);
+  color: var(--text);
+}
+#probecv { width: 100%; height: 72px; flex: 0 0 auto; background: var(--nest); }
+#progcv { width: 100%; flex: 1 1 auto; min-height: 80px; max-height: 150px; background: var(--nest); }
+#forcescv { width: 100%; flex: 1 1 auto; min-height: 80px; background: var(--nest); }
+</style>
+</head>
+<body>
+<header>
+  <h1>nuFor</h1>
+  <span class="case-name" id="casename"></span>
+  <span class="grow"></span>
+  <span class="muted mono" id="kind" style="font-size:11px"></span>
+  <span class="pill offline" id="state">connecting</span>
+</header>
+
+<main>
+  <div class="panel" id="side">
+    <h2>run</h2>
+    <div id="sideitems"></div>
+    <h2 style="margin-top:auto">case</h2>
+    <div class="side-item"><span class="k">grid</span><span class="v" id="grid">-</span></div>
+    <div class="side-item"><span class="k">domain</span><span class="v" id="domain">-</span></div>
+    <div class="side-item"><span class="k">body</span><span class="v" id="bodyk">-</span></div>
+    <div class="side-item"><span class="k">eos</span><span class="v" id="ci-eos">-</span></div>
+    <div class="side-item"><span class="k">mach</span><span class="v" id="ci-mach">-</span></div>
+    <div class="side-item"><span class="k">fs rho</span><span class="v" id="ci-frho">-</span></div>
+    <div class="side-item"><span class="k">fs u</span><span class="v" id="ci-fu">-</span></div>
+    <div class="side-item"><span class="k">fs p</span><span class="v" id="ci-fp">-</span></div>
+    <div class="side-item"><span class="k">wall T</span><span class="v" id="ci-wallt">-</span></div>
+    <div class="side-item"><span class="k">flux</span><span class="v" id="ci-flux">-</span></div>
+    <div class="side-item"><span class="k">recon</span><span class="v" id="ci-recon">-</span></div>
+    <div class="side-item"><span class="k">cfl</span><span class="v" id="ci-cfl">-</span></div>
+    <div class="side-item"><span class="k">stop t</span><span class="v" id="ci-ft">-</span></div>
+    <div class="side-item"><span class="k">max steps</span><span class="v" id="ci-ms">-</span></div>
+  </div>
+
+  <div class="panel">
+    <div class="tabs" id="tabs">
+      <div class="tab on" data-tab="field">field</div>
+      <div class="tab" data-tab="mesh">mesh</div>
+      <div class="tab" data-tab="residual">forces</div>
+      <div class="tab" data-tab="log">log</div>
+    </div>
+    <div class="viewport">
+      <div class="logwrap" id="logwrap" style="display:none">
+        <pre id="logtext"></pre>
+      </div>
+      <div class="fieldbar" id="fieldbar">
+        <button class="fbtn on" data-f="rho">rho</button>
+        <button class="fbtn" data-f="mach">mach</button>
+        <button class="fbtn" data-f="p">p</button>
+        <button class="fbtn" data-f="t">T</button>
+        <button class="fbtn" data-f="schlieren">schlieren</button>
+        <div class="colorbar">
+          <span id="cbar-lo">-</span>
+          <div class="ramp" id="ramp"></div>
+          <span id="cbar-hi">-</span>
+        </div>
+      </div>
+      <div class="fig-wrap"><canvas id="fieldcv"></canvas></div>
+      <div class="figlabels"><span id="fig-l"></span><span id="fig-c"></span><span id="fig-r"></span></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>forces</h2>
+    <div class="forces">
+      <div class="cell"><div class="k">C_D</div><div class="v" id="cd">-</div></div>
+      <div class="cell"><div class="k">C_L</div><div class="v" id="cl">-</div></div>
+      <div class="cell"><div class="k">L/D</div><div class="v" id="ld">-</div></div>
+      <div class="cell"><div class="k">q_max</div><div class="v" id="qmax">-</div></div>
+    </div>
+    <h2>peaks</h2>
+    <div class="forces">
+      <div class="cell"><div class="k">p_max</div><div class="v" id="pmax">-</div></div>
+      <div class="cell"><div class="k">T_max</div><div class="v" id="tmax">-</div></div>
+      <div class="cell"><div class="k">rho_max</div><div class="v" id="rhomax">-</div></div>
+      <div class="cell"><div class="k">rho_min</div><div class="v" id="rhomin">-</div></div>
+    </div>
+    <h2>probe</h2>
+    <canvas id="probecv"></canvas>
+    <div class="probeinfo" id="probeinfo">hover the field to probe cells</div>
+    <div class="probevals" id="probevals">
+      <div class="cell"><div class="k">rho</div><div class="v" id="pv-rho">-</div></div>
+      <div class="cell"><div class="k">p</div><div class="v" id="pv-p">-</div></div>
+      <div class="cell"><div class="k">T</div><div class="v" id="pv-t">-</div></div>
+      <div class="cell"><div class="k">mach</div><div class="v" id="pv-mach">-</div></div>
+    </div>
+    <h2>history</h2>
+    <canvas id="progcv"></canvas>
+    <h2>forces history</h2>
+    <canvas id="forcescv"></canvas>
+  </div>
+</main>
+
+<script>
+// the case console: a three-column cae layout. STANDALONE (a saved
+// report) renders from the embedded payload instead of fetching.
+let cur = null;
+let meshBox = null;
+let tab = "field";
+let field = "rho";
+let probeRow = null;
+
+const $ = id => document.getElementById(id);
+const sci = (v, d = 3) => v == null ? "-" : Math.abs(v) >= 1e4 || (Math.abs(v) < 1e-2 && v !== 0) ? v.toExponential(d) : v.toFixed(Math.min(d, 4));
+const fix = (v, d = 4) => v == null ? "-" : (+v).toFixed(d);
+
+function statePill(s) {
+  const el = $("state");
+  el.textContent = s;
+  el.className = "pill " + s;
+}
+
+async function poll() {
+  if (window.STANDALONE) { cur = window.STANDALONE.watch; render(); return; }
+  try {
+    const r = await fetch("/api/watch");
+    cur = await r.json();
+    render();
+  } catch (e) { statePill("offline"); }
+}
+
+async function fetchMesh() {
+  if (window.STANDALONE) { meshBox = window.STANDALONE.mesh; return; }
+  if (meshBox) return;
+  try {
+    const m = await (await fetch("/api/mesh")).json();
+    meshBox = m.error ? null : m;
+    if (meshBox) {
+      $("grid").textContent = meshBox.nx + " x " + meshBox.ny;
+      $("domain").textContent = meshBox.xmax.toFixed(1) + " x " + meshBox.ymax.toFixed(1) + " m";
+      $("bodyk").textContent = meshBox.verts && meshBox.verts.length ? "polygon" : "none";
+    }
+  } catch (e) { meshBox = null; }
+}
+
+function render() {
+  $("casename").textContent = cur.case || "";
+  $("kind").textContent = kindName(cur.kind);
+  statePill(window.STANDALONE ? "standalone" : (cur.state || "offline"));
+  const last = cur.samples && cur.samples.length ? cur.samples[cur.samples.length - 1] : null;
+  const items = [
+    ["state", cur.state],
+    ["step", cur.step ?? "-"],
+    ["t (s)", sci(cur.t, 4)],
+    ["dt (s)", last && last.dt ? sci(last.dt, 2) : "-"],
+    ["wall (s)", last ? last.wall.toFixed(1) : "-"],
+    ["samples", cur.samples ? cur.samples.length : 0],
+  ];
+  if (last && last.residual > 0) items.push(["residual", last.residual.toExponential(2)]);
+  $("sideitems").innerHTML = items.map(([k, v]) =>
+    `<div class="side-item"><span class="k">${k}</span><span class="v">${v}</span></div>`).join("");
+
+  let f = null;
+  for (let i = cur.samples.length - 1; i >= 0; i--) {
+    if (cur.samples[i].cd != null) { f = cur.samples[i]; break; }
+  }
+  if (f) {
+    $("cd").textContent = f.cd.toFixed(4);
+    $("cl").textContent = fix(f.cl);
+    $("ld").textContent = Math.abs(f.cd) > 1e-9 ? (f.cl / f.cd).toFixed(3) : "-";
+    if (f.q_max != null) $("qmax").textContent = sci(f.q_max, 2);
+  }
+  if (last) {
+    $("pmax").textContent = sci(last.p_max, 3);
+    $("rhomax").textContent = sci(last.rho_max, 3);
+    $("rhomin").textContent = sci(last.rho_min, 3);
+    if (last.t_max != null) $("tmax").textContent = sci(last.t_max, 3);
+  }
+  drawProgress();
+  drawForcesRail();
+  if (tab === "residual") drawResiduals();
+}
+
+function kindName(k) {
+  return { "1d": "1d euler", "2d": "2d euler/viscous", "2d-axi": "2d axisymmetric",
+    "2d-ogrid": "2d o-grid", "2d-sa": "2d rans (sa)", "2d-msh": "2d unstructured",
+    "2d-mpi": "2d mpi", "3d": "3d blast" }[k] || "";
+}
+
+$("tabs").addEventListener("click", e => {
+  const t = e.target.closest(".tab");
+  if (!t) return;
+  tab = t.dataset.tab;
+  document.querySelectorAll(".tab").forEach(el => el.classList.toggle("on", el === t));
+  $("fieldbar").style.display = tab === "field" ? "flex" : "none";
+  redraw();
+});
+
+$("fieldbar").addEventListener("click", e => {
+  const b = e.target.closest(".fbtn");
+  if (!b) return;
+  field = b.dataset.f;
+  document.querySelectorAll(".fbtn").forEach(el => el.classList.toggle("on", el === b));
+  redraw();
+});
+
+async function redraw() {
+  await fetchMesh();
+  $("logwrap").style.display = tab === "log" ? "block" : "none";
+  if (tab === "field") await drawField();
+  else if (tab === "mesh") drawMesh();
+  else if (tab === "residual") drawResiduals();
+  else if (tab === "log") await drawLog();
+}
+
+// ---- figures share one physical fit ----
+function fitBox(cv, m, w, h) {
+  cv.width = w; cv.height = h;
+  const pad = 12;
+  const sx = (m.xmax - m.xmin) || 1, sy = (m.ymax - m.ymin) || 1;
+  const scale = Math.min((w - 2 * pad) / sx, (h - 2 * pad) / sy);
+  const ox = pad + ((w - 2 * pad) - sx * scale) / 2, oy = pad + ((h - 2 * pad) - sy * scale) / 2;
+  return { w, h, scale, ox, oy, m };
+}
+
+function setFigLabels(m, note) {
+  $("fig-l").textContent = m.nx + " x " + m.ny + " cells";
+  $("fig-c").textContent = note || ("x [" + m.xmin.toFixed(2) + ", " + m.xmax.toFixed(2) + "] m   y [" + m.ymin.toFixed(2) + ", " + m.ymax.toFixed(2) + "] m");
+  $("fig-r").textContent = "";
+}
+
+async function drawField() {
+  const cv = $("fieldcv");
+  const r = cv.parentElement.getBoundingClientRect();
+  const w = Math.max(r.width, 200), h = Math.max(r.height, 120);
+  if (!meshBox) { cv.width = w; cv.height = h; empty(cv, "no mesh geometry for this case"); return; }
+  const name = field;
+  let bmp, range;
+  try {
+    if (window.STANDALONE && window.STANDALONE.fields[name]) {
+      bmp = await createImageBitmap(await (await fetch(window.STANDALONE.fields[name])).blob());
+      range = window.STANDALONE.ranges[name];
+    } else {
+      const [fr, rr] = await Promise.all([
+        fetch("/api/field?name=" + name, { cache: "no-store" }),
+        fetch("/api/range?name=" + name, { cache: "no-store" }).then(x => x.ok ? x.json() : null),
+      ]);
+      if (!fr.ok) { empty(cv, "no finished field yet (run the case first)"); return; }
+      bmp = await createImageBitmap(await fr.blob());
+      range = rr;
+    }
+  } catch (e) { empty(cv, "field unavailable: " + e); return; }
+  const { scale, ox, oy } = fitBox(cv, meshBox, w, h);
+  const ctx = cv.getContext("2d");
+  ctx.fillStyle = "#111";
+  ctx.fillRect(0, 0, w, h);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(bmp, ox, oy, (meshBox.xmax - meshBox.xmin) * scale, (meshBox.ymax - meshBox.ymin) * scale);
+  setFigLabels(meshBox, name === "schlieren" ? "schlieren |grad rho| (log, grayscale)   x [" + meshBox.xmin.toFixed(2) + ", " + meshBox.xmax.toFixed(2) + "] m   y [" + meshBox.ymin.toFixed(2) + ", " + meshBox.ymax.toFixed(2) + "] m" : null);
+  if (range && !range.error) {
+    $("cbar-lo").textContent = sci(range.lo, 2);
+    $("cbar-hi").textContent = sci(range.hi, 2);
+  }
+  $("ramp").style.background = name === "schlieren"
+    ? "linear-gradient(90deg, #000, #fff)"
+    : "linear-gradient(90deg, #31148c, #3091d9, #22d6b5, #92eb40, #fda824, #d51c1c)";
+}
+
+function empty(cv, msg) {
+  cv.width = cv.clientWidth || 600; cv.height = cv.clientHeight || 300;
+  const ctx = cv.getContext("2d");
+  ctx.fillStyle = "#111";
+  ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.fillStyle = "#8b8b8b";
+  ctx.font = "12px 'JetBrains Mono', monospace";
+  ctx.fillText(msg, 16, 28);
+  $("fig-l").textContent = msg;
+  $("fig-c").textContent = "";
+  $("fig-r").textContent = "";
+}
+
+function drawMesh() {
+  const cv = $("fieldcv");
+  const r = cv.parentElement.getBoundingClientRect();
+  if (!meshBox) { empty(cv, "no mesh geometry for this case"); return; }
+  const m = meshBox;
+  const { w, h, scale, ox, oy } = fitBox(cv, m, Math.max(r.width, 200), Math.max(r.height, 120));
+  const ctx = cv.getContext("2d");
+  ctx.fillStyle = "#111";
+  ctx.fillRect(0, 0, w, h);
+  const X = v => ox + (v - m.xmin) * scale;
+  const Y = v => oy + (m.ymax - v) * scale;
+  ctx.strokeStyle = "#2b2b2b"; ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (const x of m.xs) { ctx.moveTo(X(x), Y(m.ymin)); ctx.lineTo(X(x), Y(m.ymax)); }
+  for (const y of m.ys) { ctx.moveTo(X(m.xmin), Y(y)); ctx.lineTo(X(m.xmax), Y(y)); }
+  ctx.stroke();
+  if (m.verts && m.verts.length) {
+    ctx.beginPath();
+    m.verts.forEach(([x, y], i) => i ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y)));
+    ctx.closePath();
+    ctx.fillStyle = "#0c0c0c"; ctx.fill();
+    ctx.strokeStyle = "#e0a458"; ctx.lineWidth = 1.5; ctx.stroke();
+  }
+  setFigLabels(m);
+}
+
+async function drawLog() {
+  const txt = window.STANDALONE ? window.STANDALONE.log : await (await fetch("/api/log")).text();
+  $("logtext").textContent = txt;
+  $("fig-l").textContent = txt.split("\n").length + " lines";
+  $("fig-c").textContent = "";
+  $("fig-r").textContent = "";
+}
+
+// ---- history plots ----
+function drawProgress() {
+  const cv = $("progcv");
+  const w = cv.width = cv.clientWidth || 280;
+  const h = cv.height = cv.clientHeight || 120;
+  const ctx = cv.getContext("2d");
+  ctx.fillStyle = "#111"; ctx.fillRect(0, 0, w, h);
+  if (!cur || !cur.samples || cur.samples.length < 2) return;
+  const s = cur.samples;
+  let lo = Infinity, hi = -Infinity;
+  for (const p of s) { for (const k of ["rho_max", "p_max", "dt"]) { const v = p[k]; if (v > 0) { lo = Math.min(lo, Math.log10(v)); hi = Math.max(hi, Math.log10(v)); } } }
+  if (hi <= lo) hi = lo + 1;
+  const pad = 20;
+  axes(ctx, w, h, pad, lo, hi);
+  const x = i => pad + (w - pad - 4) * i / (s.length - 1);
+  const y = v => h - pad - (h - 2 * pad) * (Math.log10(Math.max(v, 1e-300)) - lo) / (hi - lo);
+  for (const [k, c] of [["rho_max", "#e0a458"], ["p_max", "#b8a8d8"], ["dt", "#8b8b8b"]]) {
+    ctx.strokeStyle = c; ctx.lineWidth = 1.2; ctx.beginPath();
+    let started = false;
+    for (let i = 0; i < s.length; i++) {
+      const v = s[i][k];
+      if (v == null || v <= 0) { started = false; continue; }
+      if (!started) { ctx.moveTo(x(i), y(v)); started = true; } else ctx.lineTo(x(i), y(v));
+    }
+    ctx.stroke();
+  }
+}
+
+// the right-rail force history: same samples the forces tab uses, at
+// rail width. cd/cl on one log axis, q_max too when the run carries it.
+function drawForcesRail() {
+  const cv = $("forcescv");
+  if (!cv) return;
+  const w = cv.width = cv.clientWidth || 280;
+  const h = cv.height = cv.clientHeight || 110;
+  const ctx = cv.getContext("2d");
+  ctx.fillStyle = "#111"; ctx.fillRect(0, 0, w, h);
+  if (!cur || !cur.samples) return;
+  const s = cur.samples.filter(p => p.cd != null || p.q_max != null);
+  if (!s.length) {
+    ctx.fillStyle = "#8b8b8b"; ctx.font = "10px 'JetBrains Mono', monospace";
+    ctx.fillText("no force samples yet", 10, 16);
+    return;
+  }
+  const series = [{ k: "cd", c: "#e0a458", label: "C_D" }];
+  if (s.some(p => p.cl != null)) series.push({ k: "cl", c: "#6fc9b4", label: "C_L" });
+  if (s.some(p => p.q_max != null)) series.push({ k: "q_max", c: "#b8a8d8", label: "q_max" });
+  let lo = Infinity, hi = -Infinity;
+  for (const p of s) for (const sr of series) { const v = p[sr.k]; if (v > 0) { lo = Math.min(lo, Math.log10(v)); hi = Math.max(hi, Math.log10(v)); } }
+  if (hi <= lo) hi = lo + 1;
+  const pad = 26;
+  axes(ctx, w, h, pad, lo, hi);
+  const x = i => pad + (w - pad - 4) * i / Math.max(s.length - 1, 1);
+  const y = v => h - pad - (h - 2 * pad) * (Math.log10(Math.max(v, 1e-300)) - lo) / (hi - lo);
+  for (const sr of series) {
+    ctx.strokeStyle = sr.c; ctx.lineWidth = 1.2; ctx.beginPath();
+    let started = false;
+    for (let i = 0; i < s.length; i++) {
+      const v = s[i][sr.k];
+      if (v == null || v <= 0) { started = false; continue; }
+      if (!started) { ctx.moveTo(x(i), y(v)); started = true; } else ctx.lineTo(x(i), y(v));
+    }
+    ctx.stroke();
+  }
+  let lx = pad + 4;
+  for (const sr of series) {
+    ctx.fillStyle = sr.c; ctx.fillRect(lx, 8, 12, 2);
+    ctx.fillStyle = "#8b8b8b"; ctx.font = "9px 'JetBrains Mono', monospace";
+    ctx.fillText(sr.label, lx + 15, 12);
+    lx += 15 + ctx.measureText(sr.label).width + 10;
+  }
+}
+
+function axes(ctx, w, h, pad, lo, hi) {
+  ctx.strokeStyle = "#2b2b2b"; ctx.fillStyle = "#8b8b8b";
+  ctx.font = "9px 'JetBrains Mono', monospace";
+  for (let d = Math.ceil(lo); d <= Math.floor(hi); d++) {
+    const y = h - pad - (h - 2 * pad) * (d - lo) / (hi - lo);
+    ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(w - 4, y); ctx.stroke();
+    ctx.fillText("1e" + d, 2, y + 3);
+  }
+}
+
+function drawResiduals() {
+  const cv = $("fieldcv");
+  const r = cv.parentElement.getBoundingClientRect();
+  const w = Math.max(r.width, 200), h = Math.max(r.height, 120);
+  cv.width = w; cv.height = h;
+  const ctx = cv.getContext("2d");
+  ctx.fillStyle = "#111"; ctx.fillRect(0, 0, w, h);
+  const s = cur && cur.samples ? cur.samples.filter(p => p.residual > 0 || p.cd != null) : [];
+  const useCd = s.length && s[0].cd != null;
+  const series = useCd
+    ? [{ k: "cd", c: "#e0a458", label: "C_D" }, { k: "cl", c: "#6fc9b4", label: "C_L" }]
+    : [{ k: "residual", c: "#e0a458", label: "residual" }];
+  let lo = Infinity, hi = -Infinity, any = false;
+  for (const p of s) for (const sr of series) { const v = p[sr.k]; if (v != null && v > 0) { lo = Math.min(lo, Math.log10(v)); hi = Math.max(hi, Math.log10(v)); any = true; } }
+  if (!any) { ctx.fillStyle = "#8b8b8b"; ctx.font = "12px 'JetBrains Mono', monospace"; ctx.fillText("no force or residual samples in this run", 16, 28); return; }
+  if (hi <= lo) hi = lo + 1;
+  const pad = 30;
+  axes(ctx, w, h, pad, lo, hi);
+  const x = i => pad + (w - pad - 8) * i / Math.max(s.length - 1, 1);
+  const y = v => h - pad - (h - 2 * pad) * (Math.log10(Math.max(v, 1e-300)) - lo) / (hi - lo);
+  for (const sr of series) {
+    ctx.strokeStyle = sr.c; ctx.lineWidth = 1.5; ctx.beginPath();
+    let started = false;
+    for (let i = 0; i < s.length; i++) {
+      const v = s[i][sr.k];
+      if (v == null || v <= 0) { started = false; continue; }
+      if (!started) { ctx.moveTo(x(i), y(v)); started = true; } else ctx.lineTo(x(i), y(v));
+    }
+    ctx.stroke();
+  }
+  let lx = pad + 8;
+  for (const sr of series) {
+    ctx.fillStyle = sr.c; ctx.fillRect(lx, 10, 14, 2);
+    ctx.fillStyle = "#8b8b8b"; ctx.fillText(sr.label, lx + 18, 14);
+    lx += 18 + ctx.measureText(sr.label).width + 14;
+  }
+  setFigLabels({ nx: s[0].step ?? 0, ny: s[s.length - 1].step ?? 0, xmin: 0, xmax: 1, ymin: 0, ymax: 1 },
+    "force coefficients vs step   " + (s[0].step ?? 0) + " to " + (s[s.length - 1].step ?? 0));
+}
+
+// ---- probe ----
+let probeReq = null;
+function probeCell(i, j) {
+  if (window.STANDALONE) return;
+  const tag = `${i},${j}`;
+  if (probeReq === tag) return;
+  probeReq = tag;
+  fetch("/api/cell?i=" + i + "&j=" + j, { cache: "no-store" })
+    .then(r => r.ok ? r.json() : null)
+    .then(c => {
+      if (!c || probeReq !== tag) return;
+      const sci = (v, d) => v == null ? "-" : sci2(v, d);
+      $("pv-rho").textContent = sci(c.rho, 3);
+      $("pv-p").textContent = sci(c.p, 3);
+      $("pv-t").textContent = sci(c.t, 2);
+      $("pv-mach").textContent = sci(c.mach, 2);
+    })
+    .catch(() => {});
+}
+function sci2(v, d) {
+  if (v === 0) return "0";
+  const a = Math.abs(v);
+  if (a >= 0.01 && a < 10000) return v.toPrecision(d + 1);
+  return v.toExponential(d);
+}
+$("fieldcv").addEventListener("mousemove", e => {
+  if (tab !== "field") return;
+  const cv = $("fieldcv");
+  const r = cv.getBoundingClientRect();
+  const px = (e.clientX - r.left) * (cv.width / r.width);
+  const py = (e.clientY - r.top) * (cv.height / r.height);
+  if (!meshBox) return;
+  const m = meshBox;
+  const pad = 12;
+  const sx = (m.xmax - m.xmin) || 1, sy = (m.ymax - m.ymin) || 1;
+  const scale = Math.min((cv.width - 2 * pad) / sx, (cv.height - 2 * pad) / sy);
+  const ox = pad + ((cv.width - 2 * pad) - sx * scale) / 2, oy = pad + ((cv.height - 2 * pad) - sy * scale) / 2;
+  const xv = m.xmin + (px - ox) / scale;
+  const yv = m.ymax - (py - oy) / scale;
+  const i = Math.min(m.nx - 1, Math.max(0, Math.floor((xv - m.xmin) / ((m.xmax - m.xmin) / m.nx))));
+  const j = Math.min(m.ny - 1, Math.max(0, Math.floor((yv - m.ymin) / ((m.ymax - m.ymin) / m.ny))));
+  $("probeinfo").textContent = `cell (${i}, ${j})   x ${xv.toFixed(3)} m   y ${yv.toFixed(3)} m`;
+  probeRow = [i, j];
+  drawProbe();
+  probeCell(i, j);
+});
+
+function drawProbe() {
+  const cv = $("probecv");
+  const w = cv.width = cv.clientWidth || 280;
+  const h = cv.height = 110;
+  const ctx = cv.getContext("2d");
+  ctx.fillStyle = "#111"; ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = "#8b8b8b"; ctx.font = "10px 'JetBrains Mono', monospace";
+  ctx.fillText(probeRow ? "row " + probeRow[1] + " cross-section marker" : "hover the field", 10, 16);
+  if (probeRow && meshBox) {
+    const yfrac = (probeRow[1] + 0.5) / meshBox.ny;
+    ctx.strokeStyle = "#e0a458"; ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(0, h * yfrac); ctx.lineTo(w, h * yfrac); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+// boot
+redraw();
+poll();
+fetchCaseInfo();
+async function fetchCaseInfo() {
+  if (window.STANDALONE) return;
+  try {
+    const d = await (await fetch("/api/case_info")).json();
+    if (d.error) return;
+    $("ci-eos").textContent = d.eos || "-";
+    $("ci-mach").textContent = d.mach != null ? sci(d.mach, 2) : "-";
+    $("ci-frho").textContent = d.frho ?? "-";
+    $("ci-fu").textContent = d.fu ?? "-";
+    $("ci-fp").textContent = d.fp ?? "-";
+    $("ci-wallt").textContent = d.wall_t > 0 ? sci(d.wall_t, 2) + " K" : "adiabatic";
+    $("ci-flux").textContent = d.flux || "-";
+    $("ci-recon").textContent = d.recon || "-";
+    $("ci-cfl").textContent = d.cfl != null ? String(d.cfl) : "-";
+    $("ci-ft").textContent = d.final_time != null ? sci(d.final_time, 3) : "-";
+    $("ci-ms").textContent = d.max_steps != null ? String(d.max_steps) : "-";
+  } catch (e) { /* case info stays blank on failure */ }
+}
+if (!window.STANDALONE) setInterval(poll, 1000);
+window.addEventListener("resize", () => redraw());
+</script>
+</body>
+</html>

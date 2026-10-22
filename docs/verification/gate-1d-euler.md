@@ -18,8 +18,8 @@ hand wave.
   bit-exact binary restart. ([[numerics/foundations/output|output]],
   [[numerics/foundations/hdf5|hdf5]], [[numerics/foundations/restart|restart]])
 - A command-line driver (`nufor run | mesh | inspect | export | history |
-  benchmark | serve`) and a minimal web skeleton exposing the snapshot as JSON.
-  ([[numerics/tools/web-ui|web-ui]])
+  benchmark | watch`) and the live case console it boots.
+  ([[numerics/tools/web-ui|case console]])
 - Diagnostics: explicit termination reasons and a physical-validity scan that
   catches NaN and negative pressure mid-run. ([[numerics/foundations/diagnostics|diagnostics]])
 

@@ -648,6 +648,15 @@ fn advance2d_model_capped(
         // rung 8 scope: the capped-dts/cutcell lanes do not serve park5.
         return Err(Error::InvalidArgs);
     }
+    // the solid interior restores to this stage-entry state after the
+    // update (see the restore block at the end of the step).
+    let entry_rho: Vec<f64> = state.rho.clone();
+    let entry_e: Vec<f64> = state.e.clone();
+    // the cached solid mask shares the smax exclusion and the restore.
+    let solid_mask: Option<Vec<bool>> = wall.map(|dist| {
+        let band = 1.5 * g.dx.min(g.dy);
+        crate::body::body_cache(g, dist, band).mask.clone()
+    });
     let (nx, ny) = (g.nx, g.ny);
     let n = nx * ny;
     let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
@@ -708,7 +717,18 @@ fn advance2d_model_capped(
             }
         });
     }
-    let smax = crate::solver2d::shard_rows_max(n, nthreads, |k| u[k].abs().max(v[k].abs()) + a[k]);
+    let smax = crate::solver2d::shard_rows_max(n, nthreads, |k| {
+        // solid cells step at the mirror-wall pushback, which ratchets
+        // their dummy velocity without any mass flux to absorb it; they
+        // are restored below and their value is a boundary artifact, so
+        // they cannot own the acoustic bound.
+        let solid = solid_mask.as_ref().is_some_and(|m| m[k]);
+        if solid {
+            0.0
+        } else {
+            u[k].abs().max(v[k].abs()) + a[k]
+        }
+    });
     let dt = (cfl * g.dx.min(g.dy) / smax.max(1e-12)).min(dt_cap);
 
     let (fx, fy) =
@@ -778,6 +798,46 @@ fn advance2d_model_capped(
             state.mx[k] += dm[k];
             state.my[k] += dn[k];
             state.e[k] += de[k];
+            // positivity floor: closed body cavities initialized with the
+            // freestream pump mass cell-to-cell through their interior
+            // faces (the wall faces return no mass), and an interior cell
+            // can drain to the hllc floor while its neighbors stay finite.
+            // an unbounded rho/u ratio then detonates the sound speed and
+            // the next stage NaNs. hold drained cells at a small positive
+            // density, scaling momentum/energy down with it so the
+            // primitive state stays finite and the cavity can settle.
+            if !(state.rho[k].is_finite() && state.rho[k] >= 1e-8) {
+                // a drained or non-finite cell keeps only a vacuum seed:
+                // scaling by 1e-8/rho overflows to inf (then NaN) once rho
+                // underflows, so anything past the floor starts fresh.
+                state.rho[k] = 1e-8;
+                state.mx[k] = 0.0;
+                state.my[k] = 0.0;
+                state.e[k] = 0.0;
+            }
+        }
+    }
+    // restore the solid interior after every sub-stage: the wall pass
+    // seals their faces but the solid-solid mirror pairs still ratchet
+    // their dummy velocity stage over stage, and left alone that
+    // unphysical momentum leaks into the band through the shared face
+    // pairing. their state is boundary scaffolding, not flow.
+    if let Some(dist) = wall {
+        let band = 1.5 * g.dx.min(g.dy);
+        let wall_cache = crate::body::body_cache(g, dist, band);
+        for k in &wall_cache.solid_cells {
+            state.rho[*k] = entry_rho[*k];
+            state.mx[*k] = 0.0;
+            state.my[*k] = 0.0;
+            state.e[*k] = entry_e[*k];
+        }
+        // enclosed pockets hold the same inert reference: sealed on all
+        // four faces, their fluid is a stair quantization artifact.
+        for k in &wall_cache.pocket_cells {
+            state.rho[*k] = entry_rho[*k];
+            state.mx[*k] = 0.0;
+            state.my[*k] = 0.0;
+            state.e[*k] = entry_e[*k];
         }
     }
     let resid = resids.iter().cloned().fold(0.0f64, f64::max);
@@ -1209,8 +1269,11 @@ pub(crate) fn compute_axi_fluxes(
         let (nxg, nyg) = (g.nx, g.ny);
         // the solid classification is cached per grid+body: this pass
         // reads the mask instead of re-querying the distance field, so
-        // wall faces cost O(1) after the first step.
-        let mask = crate::body::solid_mask(g, dist);
+        // wall faces cost O(1) after the first step. the same cache
+        // carries the chord-crossed faces below.
+        let band = 1.5 * g.dx.min(g.dy);
+        let wall_cache = crate::body::body_cache(g, dist, band);
+        let mask: &[bool] = &wall_cache.mask;
         let solid = |i: usize, j: usize| -> bool {
             if i >= nxg || j >= nyg {
                 return false;
@@ -1277,7 +1340,11 @@ pub(crate) fn compute_axi_fluxes(
                 // x-face f sits between cell (f-1, j) and (f, j).
                 let left_solid = f > 0 && solid(f - 1, j);
                 let right_solid = f < nxg && solid(f, j);
-                if left_solid || right_solid {
+                // a face the boundary crosses between two outside centers
+                // is a wall too: concave wedges (udder, tail notch) leak
+                // freestream straight through the surface otherwise.
+                let crossed = f > 0 && f < nxg && wall_cache.wall_faces_x[j * (nxg + 1) + f];
+                if left_solid || right_solid || crossed {
                     // the fluid cell with the mirror on the solid side.
                     // a solid cell flush with the domain edge leaves no
                     // fluid cell on that face: the domain-boundary flux
@@ -1304,7 +1371,8 @@ pub(crate) fn compute_axi_fluxes(
             for f in 0..=nyg {
                 let below_solid = f > 0 && solid(i, f - 1);
                 let above_solid = f < nyg && solid(i, f);
-                if below_solid || above_solid {
+                let crossed = f > 0 && f < nyg && wall_cache.wall_faces_y[i * (nyg + 1) + f];
+                if below_solid || above_solid || crossed {
                     let side = if below_solid {
                         Some(f)
                     } else if f > 0 {

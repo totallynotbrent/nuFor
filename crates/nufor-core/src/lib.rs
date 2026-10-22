@@ -103,7 +103,7 @@ pub use probe::probe_line;
 pub use rectilinear::{
     channel_grid2d, rectilinear_grid2d, rectilinear_grid3d, stretched_grid2d, Clustering,
 };
-pub use render2d::{colormap, render_line1d, render_png, render_png_rect};
+pub use render2d::{colormap, render_line1d, render_png, render_png_gray, render_png_rect};
 pub use restart::{
     read_restart, read_restart2d, write_restart, write_restart2d, RestartData, RestartData2d,
     RESTART_VERSION,

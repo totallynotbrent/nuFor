@@ -43,7 +43,7 @@ Fortran kernels into a static archive and link them in. The tree is
 
 ## See also
 
-- [[numerics/tools/web-ui|Web UI]]
+- [[numerics/tools/web-ui|Case console]]
 - [[formats/case-toml|case.toml format]]
 - [[numerics/3d/state-grid|3D foundations]]
 - [[performance/optimization-ledger|Optimization ledger]]
