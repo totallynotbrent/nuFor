@@ -61,6 +61,10 @@ header .grow { flex: 1; }
   border: 1px solid var(--border);
 }
 .pill.running, .pill.starting { color: var(--amber); border-color: var(--amber); }
+.prog { display: flex; align-items: center; gap: 8px; }
+.progbar { width: 120px; height: 6px; background: var(--nest); border: 1px solid var(--border); }
+.progfill { height: 100%; width: 0%; background: var(--amber); }
+#progtext { font-size: 11px; color: var(--muted); white-space: nowrap; }
 .pill.finished { color: var(--ok); border-color: var(--ok); }
 .pill.failed, .pill.offline { color: var(--err); border-color: var(--err); }
 .pill.no-run, .pill.standalone { color: var(--muted); }
@@ -234,6 +238,10 @@ main {
   <span class="case-name" id="casename"></span>
   <span class="grow"></span>
   <span class="muted mono" id="kind" style="font-size:11px"></span>
+  <div class="prog" id="progbox" style="display:none">
+    <div class="progbar"><div class="progfill" id="progfill"></div></div>
+    <span class="mono" id="progtext">0%</span>
+  </div>
   <span class="pill offline" id="state">connecting</span>
 </header>
 
@@ -359,10 +367,50 @@ async function fetchMesh() {
   } catch (e) { meshBox = null; }
 }
 
+
+// the live progress box: percentage of final_time and an eta from the
+// recent pace. hidden unless the march is actually running.
+function updateProgBox() {
+  const box = $("progbox");
+  if (!box) return;
+  const live = !window.STANDALONE && (cur.state === "running" || cur.state === "starting");
+  if (!live) { box.style.display = "none"; return; }
+  const ft = window.FT;
+  const s = cur.samples || [];
+  const last = s.length ? s[s.length - 1] : null;
+  let pct = 0, etaTxt = "eta -";
+  if (ft > 0 && cur.t != null) {
+    pct = Math.min(100 * cur.t / ft, 100);
+    if (s.length >= 2) {
+      const a = s[s.length - 2], b = s[s.length - 1];
+      const dtT = b.t - a.t, dtW = Math.max(b.wall - a.wall, 0.1);
+      if (dtT > 0) {
+        const remaining = Math.max(ft - cur.t, 0);
+        const eta = remaining / (dtT / dtW);
+        etaTxt = "eta " + fmtDur(eta);
+      }
+    }
+  } else {
+    pct = 0;
+  }
+  box.style.display = "flex";
+  $("progfill").style.width = pct.toFixed(1) + "%";
+  $("progtext").textContent = pct.toFixed(1) + "%  " + etaTxt;
+}
+
+function fmtDur(sec) {
+  sec = Math.max(sec, 0);
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
+  if (h > 0) return h + "h" + String(m).padStart(2, "0") + "m";
+  if (m > 0) return m + "m" + String(Math.floor(sec % 60)).padStart(2, "0") + "s";
+  return Math.floor(sec) + "s";
+}
+
 function render() {
   $("casename").textContent = cur.case || "";
   $("kind").textContent = kindName(cur.kind);
   statePill(window.STANDALONE ? "standalone" : (cur.state || "offline"));
+  updateProgBox();
   const last = cur.samples && cur.samples.length ? cur.samples[cur.samples.length - 1] : null;
   const items = [
     ["state", cur.state],
@@ -733,6 +781,7 @@ async function fetchCaseInfo() {
     $("ci-flux").textContent = d.flux || "-";
     $("ci-recon").textContent = d.recon || "-";
     $("ci-cfl").textContent = d.cfl != null ? String(d.cfl) : "-";
+    window.FT = d.final_time;
     $("ci-ft").textContent = d.final_time != null ? sci(d.final_time, 3) : "-";
     $("ci-ms").textContent = d.max_steps != null ? String(d.max_steps) : "-";
   } catch (e) { /* case info stays blank on failure */ }

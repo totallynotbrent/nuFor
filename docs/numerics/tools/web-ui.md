@@ -28,7 +28,9 @@ The page is a three-column CAE console, full height, in the house design
 display).
 
 - **Header**  -  case name, the equations line (1D Euler, 2D axisymmetric,
-  RANS-SA, ...), and the state pill (running / finished / failed).
+  RANS-SA, ...), the state pill (running / finished / failed), and a live
+  progress box while a run is marching: a fill bar with the percentage of
+  final_time covered and an ETA from the recent pace.
 - **Left rail**  -  the live run readout (state, step, physical time, dt,
   wall clock, sample count, march residual) plus the case card: grid,
   domain extents, body presence.
