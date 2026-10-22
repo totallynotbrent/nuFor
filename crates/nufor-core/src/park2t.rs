@@ -1,16 +1,16 @@
-//! park two-temperature rung: a live vibrational energy field e_v (J/kg)
+//! park two-temperature model: a live vibrational energy field e_v (J/kg)
 //! advected with the euler mass fluxes and relaxed toward the local
 //! translational temperature via landau-teller (millikan-white with the
 //! park high-temperature cutoff). the translational pool sees the
 //! vibrational draw, so total energy is conserved cell-for-cell.
 //!
-//! the rung is operator-split: the euler march (serial rust or fortran
+//! the model is operator-split: the euler march (serial rust or fortran
 //! mpi, unchanged) advances the conserved field; this module then
 //! advects e_v with the same face mass fluxes and integrates the
 //! relaxation ode backward-euler, which is unconditionally stable and
 //! exact for the frozen-t limit. the vibrational pool feeds back
 //! through the energy split only; the reaction-temperature coupling
-//! (t_rxn = sqrt(t * t_v)) activates with the species rung.
+//! (t_rxn = sqrt(t * t_v)) activates with the species march.
 
 use crate::error::Error;
 use crate::state2d::ConservedState2d;

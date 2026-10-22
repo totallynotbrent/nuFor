@@ -1,4 +1,4 @@
-//! species transport pass (rung 8): advect the mass fractions with
+//! species transport pass: advect the mass fractions with
 //! the same hllc sweeps the flow state uses.
 //!
 //! the species equation is a continuity equation per species:

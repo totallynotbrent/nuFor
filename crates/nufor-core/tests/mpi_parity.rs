@@ -1,7 +1,7 @@
 //! mpi parity gate: the fortran march at np=1 must match the rust march to
 //! rel-diff < 1e-12 on the sod 2d case (bit-identity across languages is not
 //! possible; the within-fortran np=1-vs-np=8 bit-identity gate runs under
-//! mpirun, see scratch/hermes-mpi-gates.sh).
+//! mpirun, see scratch/mpi-gates.sh).
 use nufor_core::ffi_mpi::{march_euler2d_mpi, march_viscous2d_mpi};
 use nufor_core::{
     advance2d_model, advance2d_model_rk2, advance2d_model_visc_rk2, grid2d, prim_to_cons2d, Bc2d,

@@ -1,4 +1,4 @@
-//! park two-temperature rung gates.
+//! park two-temperature gates.
 //!
 //! 1. landau-teller box, frozen translational temperature: the relaxed
 //!    e_v must track the analytic curve e_eq(T)[1-exp(-t/tau)] to

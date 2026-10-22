@@ -1,4 +1,4 @@
-//! park 5-species finite-rate chemistry (rung 8): forward and
+//! park 5-species finite-rate chemistry: forward and
 //! backward reaction rates and the per-species production terms.
 //!
 //! forward rates are the park 1990 arrhenius set already tabulated in
@@ -19,7 +19,7 @@
 //! both k_f and K_c evaluate at the translational temperature, never
 //! the geometric-mean reaction temperature, so the recombination rate
 //! depends only on the heavy-particle temperature. one-temperature
-//! flow (this rung) has T = T_tr everywhere, so the distinction is
+//! flow (this model) has T = T_tr everywhere, so the distinction is
 //! inert here and matters when the park2t machinery drives this
 //! module.
 //!

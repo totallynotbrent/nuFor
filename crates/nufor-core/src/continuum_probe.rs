@@ -10,7 +10,7 @@
 //!
 //! with q the density (bird's original form) or the temperature. the
 //! velocity-gradient variant needs the shear scale and stays with the
-//! dsmc rung. continuum holds where kn_gll < 0.05; boyd et al. (phys.
+//! dsmc. continuum holds where kn_gll < 0.05; boyd et al. (phys.
 //! fluids 7, 1995) and lofthouse & boyd (aiaa 2007-3905) use that
 //! threshold to switch hybrid cfd/dsmc domains, and the same number is
 //! reported here so a run states where its continuum assumption holds

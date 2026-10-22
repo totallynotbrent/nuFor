@@ -416,7 +416,7 @@ pub fn march_euler2d_mpi(
             NoSlipWall => (4, [0.0; 5]),
             ProfileInflow { .. } => (1, [0.0; 5]),
             // the reservoir inflow and the subsonic back-pressure outflow
-            // are rust-lane bcs (the nozzle rung marches the axi lane in
+            // are rust-lane bcs (the nozzle case marches the axi lane in
             // rust); a fortran-marched case that carries them falls back
             // to the transmissive ghost until the mpi lane learns them.
             ReservoirInflow { .. } | SubsonicOutflow { .. } => (0, [0.0; 5]),
@@ -602,7 +602,7 @@ pub fn march_viscous2d_mpi(
             NoSlipWall => (4, [0.0; 5]),
             ProfileInflow { .. } => (1, [0.0; 5]),
             // the reservoir inflow and the subsonic back-pressure outflow
-            // are rust-lane bcs (the nozzle rung marches the axi lane in
+            // are rust-lane bcs (the nozzle case marches the axi lane in
             // rust); a fortran-marched case that carries them falls back
             // to the transmissive ghost until the mpi lane learns them.
             ReservoirInflow { .. } | SubsonicOutflow { .. } => (0, [0.0; 5]),
@@ -796,7 +796,7 @@ pub fn march_rans2d_mpi(
             NoSlipWall => (4, [0.0; 5]),
             ProfileInflow { .. } => (1, [0.0; 5]),
             // the reservoir inflow and the subsonic back-pressure outflow
-            // are rust-lane bcs (the nozzle rung marches the axi lane in
+            // are rust-lane bcs (the nozzle case marches the axi lane in
             // rust); a fortran-marched case that carries them falls back
             // to the transmissive ghost until the mpi lane learns them.
             ReservoirInflow { .. } | SubsonicOutflow { .. } => (0, [0.0; 5]),

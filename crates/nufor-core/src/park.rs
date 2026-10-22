@@ -4,11 +4,11 @@
 //! e_v per cell with landau-teller relaxation and lets the gas kinetics
 //! back-couple through the mixing rule `t_rxn = sqrt(t * t_vib)`.
 //!
-//! this module is the conservative rung: the euler solution holds, the
+//! this module is the conservative stage: the euler solution holds, the
 //! reaction source writes only into the vibrational reservoir, and the
 //! dissociation routes its energy draw through the same closure the
 //! euler march is already using. the full park chemistry (coupled
-//! species continuity + torsional/thermal noneq) is a later rung.
+//! species continuity + torsional/thermal noneq) comes later.
 
 use crate::eqair::RHO0;
 use crate::eqair::{gamm_and_partials, E0};
@@ -216,7 +216,7 @@ pub fn relax_vibrational_energy(
         // approximate species split for the relaxation partner: pure
         // n2 at the cold limit is the baseline approximation here; the
         // full mass-fraction coupling belongs to the species-equation
-        // rung.
+        // march.
         let rho_s = state.rho[k];
         let n_tot = rho_s / M[0] * 6.022e23; // 1/m^3
         let sv = d_e_vib_dt(THETA_V[0], rho_s, M[0], t, park.t_v[k], p[k], n_tot);

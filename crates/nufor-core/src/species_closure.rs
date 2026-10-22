@@ -1,9 +1,9 @@
-//! park 5-species mixture closure (rung 8): pressure, temperature,
+//! park 5-species mixture closure: pressure, temperature,
 //! and sound speed from (rho, e_internal, Y) with species-dependent
 //! gas constants and formation energies.
 //!
 //! one-temperature thermal model, vibrational energy frozen this
-//! rung (it rides with the park2t machinery when two-temperature
+//! stage (it rides with the park2t machinery when two-temperature
 //! lands). per-species thermal internal energy per mass:
 //!
 //! - atoms (N, O): e_th = (3/2) R_i T

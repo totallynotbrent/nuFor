@@ -1,7 +1,7 @@
 //! fay-riddell stagnation-point heating: the closed form used as the
-//! rung-6 validation anchor. perfect-gas implementation with sutherland
+//! stagnation-heating validation anchor. perfect-gas implementation with sutherland
 //! transport and lewis number one (no dissociation enthalpy term);
-//! the equilibrium-air extension rides the species rung when it lands.
+//! the equilibrium-air extension rides the species march when it lands.
 
 /// sutherland viscosity for n2 (s = 111 k, mu_ref 1.7168e-5 pa s at 273.15 k).
 pub fn mu_n2(t: f64) -> f64 {

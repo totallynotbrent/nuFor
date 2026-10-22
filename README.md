@@ -35,7 +35,6 @@ Linux.
 nuFor/
 ├── crates/       Rust workspace (nufor-core, nufor-config, nufor-cli)
 ├── fortran/      Fortran numerical kernels, built via CMake from build.rs
-├── python/       reference solutions, plotting, verification
 ├── cases/        runnable case files (case.toml + meshes)
 ├── docs/         this documentation site, built with Quartz
 ├── docs-site/    Quartz tooling and config

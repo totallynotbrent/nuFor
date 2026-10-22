@@ -747,7 +747,7 @@ pub fn add_viscous_cells_mu(
             }
             crate::thermo::ThermoModel::Park5 { .. } => {
                 // the temperature closure needs the per-cell composition;
-                // the viscous lane does not serve park5 in rung 8.
+                // the viscous lane does not serve park5.
                 return Err(Error::InvalidArgs);
             }
         }

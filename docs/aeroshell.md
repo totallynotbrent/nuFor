@@ -2,8 +2,8 @@
 title: Aeroshell cross-check
 ---
 
-The sphere-cone capsule cross-check: my entry-vehicle aerodynamics from a
-modified-Newtonian panel method over the 10080-facet STL against a
+The sphere-cone capsule cross-check: modified-Newtonian panel
+aerodynamics over the 10080-facet STL against a
 perfect-gas axisymmetric CFD run at the peak-q trajectory point. It
 exercises the masked-body and axisymmetric capabilities end to end.
 

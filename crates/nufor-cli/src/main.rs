@@ -2719,7 +2719,7 @@ fn write_run_log_2d(
             )
         }
     };
-    // continuum-validity probe (rung 7): bird's gradient-length local
+    // continuum-validity probe: bird's gradient-length local
     // knudsen over the flow cells, with the 0.05 breakdown threshold.
     // the molecular viscosity is sutherland at the local temperature
     // when the case gives a reference mu, else the perfect-gas N2 law.

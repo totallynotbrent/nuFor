@@ -147,7 +147,7 @@ pub enum Eos {
     /// park 5-species finite-rate chemistry: mass-fraction fields
     /// with advective transport and the park-1990 reaction set
     /// (forward rates plus equilibrium constants for the backward
-    /// direction). inviscid cartesian only in this rung.
+    /// direction). inviscid cartesian only for now.
     #[serde(rename = "park5")]
     Park5,
 }
@@ -375,7 +375,7 @@ pub enum BoundaryKind {
     /// with the stagnation state in `inflow_state` interpreted as
     /// (rho, u, v, p) of a reservoir where u is ignored; the face state
     /// relaxes to the local pressure so pressure information leaves the
-    /// domain (the chamber-inflow treatment the nozzle rung uses).
+    /// domain (the chamber-inflow treatment the nozzle case uses).
     ReservoirInflow,
     /// a subsonic outflow at a fixed back pressure: the ghost copies
     /// the interior except the pressure, which is pinned to

@@ -1,4 +1,4 @@
-//! park5 species march (rung 8): the planar hllc step with the
+//! park5 species march: the planar hllc step with the
 //! 5-species mixture closure and the species transport pass.
 //!
 //! the closure fields (pressure, sound speed) come from

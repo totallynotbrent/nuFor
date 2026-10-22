@@ -19,7 +19,7 @@ pub enum ThermoModel {
     /// case gas constant: the state is dimensional, so it sets the
     /// conduction cp (kappa = cp/pr) in the viscous pass.
     EqAir { r_gas: f64 },
-    /// park 5-species mixture (rung 8): pressure and sound speed come
+    /// park 5-species mixture: pressure and sound speed come
     /// from the species closure (species_closure module) reading the
     /// per-cell mass fractions carried in the march's SpeciesState.
     /// the scalar members are unused by the closure itself; `gamma_shaping`

@@ -10,8 +10,9 @@ with the code instead of drifting from it.
 
 Four trajectory stations at 22.5 degrees angle of attack, equilibrium air,
 viscous with a 300 K wall, 320x176 grid, marched to t = 15 ms. This is the
-sweep that anchors the hypersonic 2D path; the 34.6 km station is the peak-q
-point of my re-entry trajectory. March steps and wall time per station are
+sweep that anchors the hypersonic 2D path, from the 30 km high-q regime
+up to the 42.5 km edge of the corridor. March steps and wall time per
+station are
 plotted on [[numerics/foundations/equilibrium-air|the equilibrium-air page]].
 
 | station | steps | wall (s) | max density ratio | peak p (Pa) | max T (K) |

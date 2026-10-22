@@ -109,7 +109,7 @@ pub fn advance2d_model_visc_rk2(
             crate::viscous2d::sutherland_mu(mu0, t.max(1.0), t0_ref, s_param)
         }),
         ThermoModel::Park5 { .. } => {
-            // rung 8 scope: the species march is inviscid euler only;
+            // species scope: the march is inviscid euler only;
             // the viscous, rans and cutcell lanes do not serve park5.
             return Err(Error::InvalidArgs);
         }
@@ -218,7 +218,7 @@ fn model_cell_mu(
             }))
         }
         ThermoModel::Park5 { .. } => {
-            // rung 8 scope: the species march is inviscid euler only;
+            // species scope: the march is inviscid euler only;
             // the viscous, rans and cutcell lanes do not serve park5.
             Err(Error::InvalidArgs)
         }
@@ -462,7 +462,7 @@ pub fn model_local_dts(
             .map(|(&r, &e)| (gamma * (gamma - 1.0) * e * r / r.max(1e-12)).sqrt())
             .collect::<Vec<f64>>(),
         ThermoModel::Park5 { .. } => {
-            // rung 8 scope: the cutcell lanes do not serve park5.
+            // the cutcell lanes do not serve park5.
             return Err(Error::InvalidArgs);
         }
     };
@@ -533,7 +533,7 @@ fn advance2d_model_capped_dts(
             .map(|(&r, &e)| (gamma - 1.0) * r * e)
             .collect::<Vec<f64>>(),
         ThermoModel::Park5 { .. } => {
-            // rung 8 scope: the cutcell lanes do not serve park5.
+            // the cutcell lanes do not serve park5.
             return Err(Error::InvalidArgs);
         }
     };
@@ -645,7 +645,7 @@ fn advance2d_model_capped(
     wall: Option<&dyn Fn(f64, f64) -> f64>,
 ) -> Result<(f64, f64), Error> {
     if matches!(model, ThermoModel::Park5 { .. }) {
-        // rung 8 scope: the capped-dts/cutcell lanes do not serve park5.
+        // the capped-dts/cutcell lanes do not serve park5.
         return Err(Error::InvalidArgs);
     }
     // the solid interior restores to this stage-entry state after the
@@ -1297,7 +1297,7 @@ pub(crate) fn compute_axi_fluxes(
                 }
                 ThermoModel::Park5 { gamma_shaping } => {
                     // the mirror-wall path only runs when the march carries a
-                    // wall; park5 bodies arrive with a later rung, so this arm
+                    // wall; park5 bodies arrive with the species march, so this arm
                     // shapes from the cell pressure like the perfect lane and
                     // the march entry rejects park5+wall before reaching here.
                     (gamma_shaping * p[k].max(1e-12) / state.rho[k].max(1e-12)).sqrt()

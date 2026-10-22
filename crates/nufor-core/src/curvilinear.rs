@@ -380,7 +380,7 @@ pub fn advance2d_axi_curv(
     let gamma = match model {
         ThermoModel::Perfect { gamma } => gamma,
         ThermoModel::EqAir { .. } => 1.4,
-        // the curvilinear march does not serve park5 (rung 8 scope: the
+        // the curvilinear march does not serve park5 (the
         // cartesian species march); a park5 case on this lane is rejected
         // by the config dispatch before the march runs.
         ThermoModel::Park5 { gamma_shaping } => gamma_shaping,
@@ -395,7 +395,7 @@ pub fn advance2d_axi_curv(
         match model {
             ThermoModel::Perfect { gamma } => FacePrim::perfect(rho, un, ut, x, gamma),
             ThermoModel::Park5 { .. } => {
-                // rung 8 scope: the curvilinear lane does not serve park5.
+                // the curvilinear lane does not serve park5.
                 unreachable!("park5 rejected before the curvilinear march")
             }
             ThermoModel::EqAir { .. } => {
@@ -649,7 +649,7 @@ fn freestream_e(model: crate::thermo::ThermoModel, fs: &Freestream) -> f64 {
     match model {
         crate::thermo::ThermoModel::Perfect { .. } => fs.p,
         crate::thermo::ThermoModel::Park5 { .. } => {
-            // rung 8 scope: the curvilinear lane does not serve park5.
+            // the curvilinear lane does not serve park5.
             unreachable!("park5 rejected before the curvilinear march")
         }
         crate::thermo::ThermoModel::EqAir { .. } => {

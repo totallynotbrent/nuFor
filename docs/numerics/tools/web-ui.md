@@ -79,7 +79,7 @@ request, so the figures always match the case's own eos and model.
 When a run finishes, `nufor run` also writes a standalone report next to
 the case:
 
-    report: /tmp/mycase/aeroshell-capsule-trim-report.html
+    report: /tmp/mycase/case-report.html
 
 One self-contained file: the console page with the progress history, run
 log, mesh geometry, and every field render (density, mach, pressure,

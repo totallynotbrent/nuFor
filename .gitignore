@@ -56,7 +56,6 @@ cases/**/mesh_faces.txt
 
 # Local scratch and working notes
 .local/
-local-handoff.md
 worklog.md
 WORK.md
 *_plan.md

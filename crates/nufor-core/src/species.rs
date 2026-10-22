@@ -1,4 +1,4 @@
-//! 5-species air state and mixture thermodynamics (rung 8).
+//! 5-species air state and mixture thermodynamics.
 //!
 //! species ride beside the conserved state as mass fractions `y`,
 //! one array per species. the perfect-gas and eqair lanes never

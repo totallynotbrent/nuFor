@@ -2,7 +2,7 @@
 //! shock, and an isentropic expansion, each exercised through the solver.
 //!
 //! the ladder is the project's structured guarantee that the scheme is not
-//! just stable but physically faithful one rung at a time.
+//! just stable but physically faithful, one capability at a time.
 
 use nufor_core::{
     eos_pressure, euler_solve, riemann, Boundary, ConservedState, EulerConfig, PrimState,
@@ -167,7 +167,7 @@ fn isentropic_expansion_keeps_a_constant_p_rho_gamma() {
     );
 }
 
-// the constant-state rung: a reference against the exact flat solution.
+// the constant-state stage: a reference against the exact flat solution.
 #[test]
 fn constant_state_matches_exact_flat_solution() {
     let sol = riemann(
