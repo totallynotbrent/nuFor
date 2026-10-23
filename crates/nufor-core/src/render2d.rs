@@ -45,6 +45,9 @@ pub fn render_png_rect(
     hi: f64,
 ) -> Result<Vec<u8>, String> {
     let range = (hi - lo).max(1e-30);
+    if nx == 0 || ny == 0 || field.is_empty() {
+        return Err("empty field render".to_string());
+    }
     let mut px = vec![0u8; nx * ny * 3];
     for j in 0..ny {
         // png rows run top to bottom; the field stores j = 0 at the bottom.
@@ -82,6 +85,9 @@ pub fn render_png_gray(
     hi: f64,
 ) -> Result<Vec<u8>, String> {
     let range = (hi - lo).max(1e-30);
+    if nx == 0 || ny == 0 || field.is_empty() {
+        return Err("empty field render".to_string());
+    }
     let mut px = vec![0u8; nx * ny * 3];
     for j in 0..ny {
         let dst = ny - 1 - j;

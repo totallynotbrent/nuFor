@@ -12,7 +12,12 @@ mod body;
 pub mod catalytic;
 mod cfl;
 pub mod combustion;
+pub mod combustion_cea_gates;
+pub mod combustion_closure;
+pub mod combustion_march;
 pub mod combustion_thermo;
+pub mod combustion_transport;
+pub mod combustion_viscous;
 pub mod continuum_probe;
 pub mod curvilinear;
 mod cutcell;
@@ -96,7 +101,8 @@ pub use h5::{read_h5, write_h5};
 pub use hllc2d::{hllc_flux, FacePrim, Flux4};
 pub use hllc3d::{hllc_flux3, FacePrim3, Flux5};
 pub use output::{
-    write_csv, write_vtk, write_vtk2d, write_vtk2d_model, write_vtk2d_park5, write_vtk3d,
+    write_csv, write_vtk, write_vtk2d, write_vtk2d_combustion, write_vtk2d_model,
+    write_vtk2d_park5, write_vtk3d,
     write_vtk_curv, OutputState,
 };
 pub use probe::probe_line;
@@ -121,7 +127,7 @@ pub use solver2d::{
     InflowProfile, TimeControl,
 };
 pub use solver3d::{advance3d, advance3d_rk2};
-pub use solver_u::advance_ugrid;
+pub use solver_u::{advance_ugrid, advance_ugrid_recon};
 pub use spherecone::{SphereCone, SphereConeSdf};
 pub use state::{cons_to_prim, prim_to_cons};
 pub use state2d::{

@@ -63,6 +63,19 @@ impl SpeciesState {
     /// clip negatives, renormalize to sum 1. returns the largest
     /// pre-clip violation so the caller can log how hard the
     /// positivity floor was hit.
+    /// rescale the cell's mass fractions to sum to one without
+    /// clipping: the advection reconstruction can push a species
+    /// slightly negative or the sum off one, and clipping would
+    /// destroy the element pools the transport just conserved.
+    pub fn renorm(&mut self, k: usize) {
+        let sum: f64 = self.y.iter().map(|row| row[k]).sum();
+        if sum > 0.0 {
+            for i in 0..NS {
+                self.y[i][k] /= sum;
+            }
+        }
+    }
+
     pub fn sanitize(&mut self, k: usize) -> f64 {
         let mut sum = 0.0f64;
         let mut worst = 0.0f64;

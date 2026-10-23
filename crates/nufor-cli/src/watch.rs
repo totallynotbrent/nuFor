@@ -221,6 +221,7 @@ impl Watch {
             nufor_config::Eos::EqAir => "eqair",
             nufor_config::Eos::Park2t => "park2t",
             nufor_config::Eos::Park5 => "park5",
+            nufor_config::Eos::Combustion => "combustion",
         };
         let (frho, fu, fp) = match &cfg.initial_condition {
             nufor_config::InitialCondition::Uniform { rho, u, p } => {

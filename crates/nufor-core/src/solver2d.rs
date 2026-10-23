@@ -194,6 +194,7 @@ pub struct Boundaries2d {
 /// a slip wall knows which component to reflect. a profile inflow additionally
 /// needs `face_pos`, the coordinate along the inflow plane where the ghost
 /// center sits (pass 0.0 when the side cannot be a profile).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn ghost_value(
     bc: &Bc2d,
     interior: f64,
@@ -201,7 +202,21 @@ pub(crate) fn ghost_value(
     normal_var: usize,
     face_pos: f64,
     p_int: f64,
+    inflow_y: Option<&[f64]>,
+    species_index: usize,
 ) -> f64 {
+    // var 4 is a species mass fraction: an inflow face injects the
+    // case fill (a burned edge cell must not feed itself back in
+    // through the inflow); every other bc copies the near-face
+    // composition.
+    if var == 4 {
+        if let (Bc2d::SupersonicInflow { .. }, Some(fill)) = (bc, inflow_y) {
+            if let Some(v) = fill.get(species_index) {
+                return *v;
+            }
+        }
+        return interior;
+    }
     match bc {
         Bc2d::Transmissive | Bc2d::SupersonicOutflow => interior,
         Bc2d::SlipWall => {
@@ -433,8 +448,8 @@ pub(crate) fn advance2d_capped_dts(
         let y_row = g.centers_y[j * nx];
         let pad = |c: &[f64], var: usize| -> Vec<f64> {
             let mut out = vec![0.0; nx + 2];
-            out[0] = ghost_value(&bc.west, c[0], var, 1, y_row, pp[0]);
-            out[nx + 1] = ghost_value(&bc.east, c[nx - 1], var, 1, y_row, pp[nx - 1]);
+            out[0] = ghost_value(&bc.west, c[0], var, 1, y_row, pp[0], None, 0);
+            out[nx + 1] = ghost_value(&bc.east, c[nx - 1], var, 1, y_row, pp[nx - 1], None, 0);
             out[1..=nx].copy_from_slice(c);
             out
         };
@@ -497,8 +512,8 @@ pub(crate) fn advance2d_capped_dts(
         let x_ghost_n = 2.0 * g.faces_x[nx] - x_col;
         let pad = |c: &[f64], var: usize| -> Vec<f64> {
             let mut out = vec![0.0; ny + 2];
-            out[0] = ghost_value(&bc.south, c[0], var, 2, x_ghost_s, cp[0]);
-            out[ny + 1] = ghost_value(&bc.north, c[ny - 1], var, 2, x_ghost_n, cp[ny - 1]);
+            out[0] = ghost_value(&bc.south, c[0], var, 2, x_ghost_s, cp[0], None, 0);
+            out[ny + 1] = ghost_value(&bc.north, c[ny - 1], var, 2, x_ghost_n, cp[ny - 1], None, 0);
             out[1..=ny].copy_from_slice(c);
             out
         };
@@ -733,8 +748,8 @@ pub fn advance2d_capped_par(
         let y_row = g.centers_y[j * nx];
         let pad = |c: &[f64], var: usize| -> Vec<f64> {
             let mut out = vec![0.0; nx + 2];
-            out[0] = ghost_value(&bc.west, c[0], var, 1, y_row, pp[0]);
-            out[nx + 1] = ghost_value(&bc.east, c[nx - 1], var, 1, y_row, pp[nx - 1]);
+            out[0] = ghost_value(&bc.west, c[0], var, 1, y_row, pp[0], None, 0);
+            out[nx + 1] = ghost_value(&bc.east, c[nx - 1], var, 1, y_row, pp[nx - 1], None, 0);
             out[1..=nx].copy_from_slice(c);
             out
         };
@@ -784,8 +799,8 @@ pub fn advance2d_capped_par(
         let x_ghost_n = 2.0 * g.faces_x[nx] - x_col;
         let pad = |c: &[f64], var: usize| -> Vec<f64> {
             let mut out = vec![0.0; ny + 2];
-            out[0] = ghost_value(&bc.south, c[0], var, 2, x_ghost_s, cp[0]);
-            out[ny + 1] = ghost_value(&bc.north, c[ny - 1], var, 2, x_ghost_n, cp[ny - 1]);
+            out[0] = ghost_value(&bc.south, c[0], var, 2, x_ghost_s, cp[0], None, 0);
+            out[ny + 1] = ghost_value(&bc.north, c[ny - 1], var, 2, x_ghost_n, cp[ny - 1], None, 0);
             out[1..=ny].copy_from_slice(c);
             out
         };

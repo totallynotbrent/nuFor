@@ -61,6 +61,7 @@ Every milestone closes against an analytical or benchmark case, tracked on the
 - [[numerics/2d/blasius|Blasius flat plate]] - the laminar layer held steady, skin friction vs the exact correlation
 - [[numerics/2d/turbulent-plate|Turbulent flat plate]] - the SA layer at correlation Reynolds numbers
 - [[numerics/2d/supersonic-cylinder|Supersonic cylinder]] - the detached bow shock
+- [[numerics/2d/combustion|H2/O2 combustion]] - the nine-species reacting lane, gated against CEA
 - [[numerics/2d/axisymmetric|Axisymmetric Euler]] - bodies of revolution: the annular update and its geometric source
 - [[verification/axisymmetric-sphere|Axisymmetric sphere validation]] - the bow shock standoff vs Ambrosio-Wortman
 - [[aeroshell|Aeroshell cross-check]] - the capsule at peak q: CFD vs modified Newtonian

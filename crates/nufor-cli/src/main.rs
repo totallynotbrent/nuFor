@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use nufor_config::{
     load_case_config, BoundaryKind, CaseConfig, Equations, InflowProfileSpec, InitialCondition,
-    Mesh, OutputFormat,
+    Mesh, OutputFormat, Reconstruction,
 };
 use nufor_core::ffi_mpi::{
     march_euler2d_mpi, march_rans2d_mpi, march_viscous2d_mpi, mpi_bcast_state, mpi_launched,
@@ -16,11 +16,12 @@ use nufor_core::ffi_mpi::{
 };
 use nufor_core::{
     advance2d_axi_lts, advance2d_axi_rk2, advance2d_model_rk2, advance2d_model_visc_lts,
+    advance_ugrid_recon,
     advance2d_model_visc_rk2, advance2d_sa_lts, advance2d_sa_model_rk2, advance3d_rk2,
     advance_ugrid, apply_solid_fn, apply_solid_ref, body_cache, cons_to_prim2d, eos_pressure2d,
     euler_solve, grid1d, grid2d, grid3d, prim_to_cons, prim_to_cons2d, prim_to_cons3d,
     read_restart, read_restart2d, render_png, wall_distance2d, write_csv, write_h5, write_restart,
-    write_restart2d, write_vtk, write_vtk2d_model, write_vtk2d_park5, write_vtk3d, Bc2d,
+    write_restart2d, write_vtk, write_vtk2d_combustion, write_vtk2d_model, write_vtk2d_park5, write_vtk3d, Bc2d,
     Boundaries2d, Boundary, Bounds3d, ConservedState, ConservedState2d, ConservedState3d, Error,
     EulerConfig, Grid1d, Grid2d, Grid3d, OutputState, SaParams, SolidPolygon, SolidShape,
     SphereCone, SphereConeSdf, TurbState, Ugrid,
@@ -1211,7 +1212,15 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
             t,
             t0.elapsed().as_secs_f64()
         );
-        let rc = write_case_vtk2d_model(path, &cfg.metadata.name, &g, &st, model, None);
+        let rc = write_case_vtk2d_model(
+            path,
+            &cfg.metadata.name,
+            &g,
+            &st,
+            model,
+            None,
+            None,
+        );
         if rc == 0 {
             write_run_log_2d(
                 cfg,
@@ -1219,6 +1228,7 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
                 &g,
                 &st,
                 model,
+                None,
                 None,
                 steps,
                 t,
@@ -1254,6 +1264,7 @@ fn march_msh_uniform(
     ug: Ugrid,
     st: &mut ConservedState2d,
     gamma: f64,
+    model: ThermoModel,
 ) -> i32 {
     let cfl = cfg.numerics.cfl;
     let t_end = cfg.time.final_time;
@@ -1268,7 +1279,10 @@ fn march_msh_uniform(
     let mut ok = true;
     let mut prog = progress::Progress::new(path, "2d-msh");
     while t < t_end && steps < max_steps {
-        let stepped = advance_ugrid(st, &ug, gamma, cfl);
+        let stepped = match cfg.numerics.reconstruction {
+            Reconstruction::Muscl => advance_ugrid_recon(st, &ug, gamma, cfl, model, true),
+            Reconstruction::FirstOrder => advance_ugrid_recon(st, &ug, gamma, cfl, model, false),
+        };
         let dt_last = match stepped {
             Ok((dt, _)) => dt,
             Err(e) => {
@@ -1577,6 +1591,7 @@ fn write_case_outputs(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 /// solve a 2d case: blast or uniform IC on a uniform or imported rectilinear mesh.
 /// the cae readout the heartbeat samples on its emit cadence: surface
 /// force coefficients integrated over the body band, the peak wall
@@ -1590,6 +1605,7 @@ fn progress_readout(
     body: &Option<CaseBodyFns>,
     model: ThermoModel,
     species: Option<&nufor_core::species::SpeciesState>,
+    combustion: Option<&nufor_core::combustion_march::CombustionState>,
     viscous: bool,
 ) -> progress::SampleExtra {
     let n = st.rho.len();
@@ -1599,8 +1615,19 @@ fn progress_readout(
     let e_int: Vec<f64> = (0..n)
         .map(|k| st.e[k] / st.rho[k].max(1e-12) - 0.5 * (u[k] * u[k] + v[k] * v[k]))
         .collect();
-    let p: Vec<f64> = match species {
-        Some(sp) => (0..n)
+    let p: Vec<f64> = match (species, combustion) {
+        (_, Some(sp)) => (0..n)
+            .map(|k| {
+                let mut y = [0.0f64; nufor_core::combustion_thermo::NS];
+                #[allow(clippy::needless_range_loop)]
+                #[allow(clippy::needless_range_loop)]
+            for s in 0..nufor_core::combustion_thermo::NS {
+                    y[s] = sp.y[s][k];
+                }
+                nufor_core::combustion_closure::pressure_at(st.rho[k], e_int[k], &y)
+            })
+            .collect(),
+        (Some(sp), None) => (0..n)
             .map(|k| {
                 let mut y = [0.0f64; 5];
                 for (ys, ysrc) in y.iter_mut().zip(sp.y.iter()) {
@@ -1609,7 +1636,7 @@ fn progress_readout(
                 nufor_core::species_closure::pressure_at(st.rho[k], e_int[k], &y)
             })
             .collect(),
-        None => nufor_core::thermo_pressure(model, &st.rho, &e_int, &u, &v)
+        (None, None) => nufor_core::thermo_pressure(model, &st.rho, &e_int, &u, &v)
             .unwrap_or_else(|_| vec![0.0; n]),
     };
     // residual proxy: the max density change this step would imply at
@@ -1626,14 +1653,16 @@ fn progress_readout(
         residual = residual.max((st.rho[k] - rho_ref).abs());
     }
     // peak temperature through the same closure the field render uses
-    let t_max: Option<f64> = match species {
-        Some(sp) => (0..n)
+    let t_max: Option<f64> = match (species, combustion) {
+        (_, Some(sp)) => (0..n)
             .map(|k| {
-                let mut y = [0.0f64; 5];
-                for (ys, ysrc) in y.iter_mut().zip(sp.y.iter()) {
-                    *ys = ysrc[k];
+                let mut y = [0.0f64; nufor_core::combustion_thermo::NS];
+                #[allow(clippy::needless_range_loop)]
+                #[allow(clippy::needless_range_loop)]
+            for s in 0..nufor_core::combustion_thermo::NS {
+                    y[s] = sp.y[s][k];
                 }
-                nufor_core::species_closure::temperature_at(e_int[k], &y)
+                nufor_core::combustion_closure::temperature_at(e_int[k], &y)
             })
             .fold(None::<f64>, |a, t| {
                 Some(match a {
@@ -1641,7 +1670,7 @@ fn progress_readout(
                     _ => t,
                 })
             }),
-        None => nufor_core::thermo_temperature(model, &st.rho, &p)
+        (_, None) => nufor_core::thermo_temperature(model, &st.rho, &p)
             .ok()
             .and_then(|ts| {
                 ts.iter().cloned().fold(None::<f64>, |a, t| {
@@ -1812,6 +1841,22 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
         })
     } else {
         None
+    };
+    // the combustion lane carries its own 9-species state: the
+    // stoichiometric unburned fill (a chamber case reseeds through
+    // the inflow boundary). chemistry off freezes the composition.
+    let mut combustion_state = if matches!(model, ThermoModel::Combustion9 { .. }) {
+        Some(nufor_core::combustion_march::CombustionState::stoich_h2o2(g.nx * g.ny))
+    } else {
+        None
+    };
+    let combustion_react = match cfg.physics.chemistry.as_deref() {
+        Some("off") => false,
+        Some("on") | None => true,
+        Some(other) => {
+            eprintln!("unknown chemistry '{other}' (use on or off)");
+            return 2;
+        }
     };
     let cfl = cfg.numerics.cfl;
     let t_end = cfg.time.final_time;
@@ -1994,7 +2039,15 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
             st.e.iter().cloned().fold(f64::INFINITY, f64::min),
             st.e.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
         );
-        let rc = write_case_vtk2d_model(path, &cfg.metadata.name, &g, &st, model, None);
+        let rc = write_case_vtk2d_model(
+            path,
+            &cfg.metadata.name,
+            &g,
+            &st,
+            model,
+            None,
+            None,
+        );
         if rc == 0 {
             write_run_log_2d(
                 cfg,
@@ -2003,6 +2056,7 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
                 &st,
                 model,
                 park5_species.as_ref(),
+                combustion_state.as_ref(),
                 steps,
                 t,
                 wall,
@@ -2064,7 +2118,34 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     let mut ok = true;
     let mut prog = progress::Progress::new(path, "2d");
     while t < t_end && steps < max_steps {
-        let stepped = if let Some(sp) = park5_species.as_mut() {
+        let stepped = if let Some(sp) = combustion_state.as_mut() {
+            let mu_case = cfg.physics.mu.unwrap_or(0.0);
+            if mu_case > 0.0 {
+                let tw = cfg.physics.wall_temperature.unwrap_or(0.0);
+                nufor_core::combustion_viscous::advance2d_combustion_visc_rk2(
+                    &mut st,
+                    sp,
+                    &g,
+                    cfl,
+                    true,
+                    &bc,
+                    tw,
+                    cfg.numerics.threads,
+                    combustion_react,
+                )
+            } else {
+                nufor_core::combustion_march::advance2d_combustion_rk2(
+                    &mut st,
+                    sp,
+                    &g,
+                    cfl,
+                    true,
+                    &bc,
+                    cfg.numerics.threads,
+                    combustion_react,
+                )
+            }
+        } else if let Some(sp) = park5_species.as_mut() {
             // the park5 lane first: a park5 case with mu > 0 routes to
             // the species viscous march, and the generic mu branch below
             // must never see a park5 model (it rejects it).
@@ -2249,6 +2330,7 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
                     &body,
                     model,
                     park5_species.as_ref(),
+                    combustion_state.as_ref(),
                     visc_no_slip,
                 );
                 p.tick(steps as u64, t, dt_last, &st, extra);
@@ -2276,6 +2358,7 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
                 &st,
                 model,
                 park5_species.as_ref(),
+                combustion_state.as_ref(),
             );
             if rc != 0 {
                 eprintln!("interval output failed at step {steps}");
@@ -2291,6 +2374,7 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
                     &st,
                     model,
                     park5_species.as_ref(),
+                    combustion_state.as_ref(),
                     steps,
                     t,
                     t0.elapsed().as_secs_f64(),
@@ -2316,6 +2400,7 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
             &st,
             model,
             park5_species.as_ref(),
+            combustion_state.as_ref(),
         );
         if rc == 0 && park_lane {
             // the vibrational temperature field: the two-temperature
@@ -2340,6 +2425,7 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
                 &st,
                 model,
                 park5_species.as_ref(),
+                combustion_state.as_ref(),
                 steps,
                 t,
                 wall,
@@ -2378,6 +2464,7 @@ fn write_run_log_2d(
     st: &ConservedState2d,
     model: nufor_core::ThermoModel,
     species: Option<&nufor_core::species::SpeciesState>,
+    combustion: Option<&nufor_core::combustion_march::CombustionState>,
     steps: usize,
     t: f64,
     wall: f64,
@@ -2394,7 +2481,20 @@ fn write_run_log_2d(
     }
     // park5 computes p and T through the species closure per cell;
     // the other models keep the shared table paths.
-    let (p, temp) = if let Some(sp) = species {
+    let (p, temp) = if let Some(sp) = combustion {
+        let mut pp = vec![0.0f64; n];
+        let mut tt = vec![0.0f64; n];
+        for k in 0..n {
+            let mut y = [0.0f64; nufor_core::combustion_thermo::NS];
+            #[allow(clippy::needless_range_loop)]
+            for s in 0..nufor_core::combustion_thermo::NS {
+                y[s] = sp.y[s][k];
+            }
+            pp[k] = nufor_core::combustion_closure::pressure_at(rho[k], e_int[k], &y);
+            tt[k] = nufor_core::combustion_closure::temperature_at(e_int[k], &y);
+        }
+        (pp, tt)
+    } else if let Some(sp) = species {
         let mut pp = vec![0.0f64; n];
         let mut tt = vec![0.0f64; n];
         for k in 0..n {
@@ -3109,7 +3209,7 @@ fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
         if matches!(bc.north, Bc2d::NoSlipWall) {
             report_cf("top", false);
         }
-        write_case_vtk2d_model(path, &cfg.metadata.name, &g, &st, model, None)
+        write_case_vtk2d_model(path, &cfg.metadata.name, &g, &st, model, None, None)
     } else {
         1
     }
@@ -3118,6 +3218,7 @@ fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
 /// solve a 2d case on an imported gmsh (.msh) unstructured mesh: build the
 /// cell-centered grid, drop a blast IC, and advance with the face-based solver.
 fn run_case_2d_msh(cfg: &CaseConfig, path: &str, msh_path: &str) -> i32 {
+    let model = model_from_config(cfg);
     let m = match mesh_io::load_gmsh(msh_path) {
         Ok(m) => m,
         Err(e) => {
@@ -3152,7 +3253,7 @@ fn run_case_2d_msh(cfg: &CaseConfig, path: &str, msh_path: &str) -> i32 {
             my,
             e,
         };
-        return march_msh_uniform(cfg, path, ug, &mut st, gamma);
+        return march_msh_uniform(cfg, path, ug, &mut st, gamma, model);
     }
     // blast IC: over-pressured disc in ambient air, centered on the node bbox.
     let (mut rho, mut p) = (vec![1.0; nc], vec![1.0; nc]);
@@ -3236,7 +3337,10 @@ fn run_case_2d_msh(cfg: &CaseConfig, path: &str, msh_path: &str) -> i32 {
     let mut ok = true;
     let mut prog = progress::Progress::new(path, "2d-msh");
     while t < t_end && steps < max_steps {
-        let stepped_msh = advance_ugrid(&mut st, &ug, gamma, cfl);
+        let stepped_msh = match cfg.numerics.reconstruction {
+            Reconstruction::Muscl => advance_ugrid_recon(&mut st, &ug, gamma, cfl, model, true),
+            Reconstruction::FirstOrder => advance_ugrid(&mut st, &ug, gamma, cfl, model),
+        };
         match stepped_msh {
             Ok((dt, _)) => t += dt,
             Err(e) => {
@@ -3375,6 +3479,11 @@ fn ic_uniform_energy(rho: f64, p: f64, model: ThermoModel) -> Result<f64, String
             // uniform park5 ICs start as standard air; e_int carries the
             // formation offset through the mixture closure.
             Ok(nufor_core::species_march::air_ic_energy(rho, p))
+        }
+        ThermoModel::Combustion9 { .. } => {
+            // uniform combustion ICs start as the stoichiometric
+            // unburned fill; e_int carries the formation offset.
+            Ok(nufor_core::combustion_march::h2o2_ic_energy(rho, p))
         }
     }
 }
@@ -3568,9 +3677,22 @@ fn write_case_vtk2d_model(
     st: &ConservedState2d,
     model: ThermoModel,
     species: Option<&nufor_core::species::SpeciesState>,
+    combustion: Option<&nufor_core::combustion_march::CombustionState>,
 ) -> i32 {
     let dir = case_dir(path);
     let dst = dir.join(format!("{name}.vtk"));
+    if let (Some(sp), true) = (combustion, matches!(model, ThermoModel::Combustion9 { .. })) {
+        return match write_vtk2d_combustion(&dst, g, st, sp) {
+            Ok(()) => {
+                println!("wrote: {}", dst.display());
+                0
+            }
+            Err(e) => {
+                eprintln!("output error: {e}");
+                1
+            }
+        };
+    }
     if let (Some(sp), true) = (species, matches!(model, ThermoModel::Park5 { .. })) {
         return match write_vtk2d_park5(&dst, g, st, sp) {
             Ok(()) => {

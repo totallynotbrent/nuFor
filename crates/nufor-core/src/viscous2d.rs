@@ -8,6 +8,7 @@
 
 use crate::eos2d::eos_pressure2d;
 use crate::error::Error;
+use crate::thermo::ThermoModel;
 use crate::grid2d::Grid2d;
 use crate::solver2d::Boundaries2d;
 use crate::state2d::{cons_to_prim2d, ConservedState2d};
@@ -745,11 +746,11 @@ pub fn add_viscous_cells_mu(
             crate::thermo::ThermoModel::Perfect { .. } => {
                 crate::thermo::temperature(cl, &state.rho, &p)?
             }
-            crate::thermo::ThermoModel::Park5 { .. } => {
-                // the temperature closure needs the per-cell composition;
-                // the viscous lane does not serve park5.
+            crate::thermo::ThermoModel::Park5 { .. } | ThermoModel::Combustion9 { .. } => {
+                // the species lanes are inviscid-cartesian only; every other
+                // lane must reject them loudly.
                 return Err(Error::InvalidArgs);
-            }
+                }
         }
     } else {
         let p = eos_pressure2d(gamma, &state.rho, &et, &u, &v)?;

@@ -90,6 +90,12 @@ pub struct Physics {
     /// options (LAURA jtype 0 / fully-catalytic; DPLR icatmd 0 / 2).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub catalytic_wall: Option<String>,
+    /// combustion chemistry toggle: "on" (the default) runs the
+    /// operator-split reaction substep each step; "off" freezes the
+    /// composition so a cold-flow case pays nothing for the mechanism.
+    /// only read when `eos = "combustion"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chemistry: Option<String>,
 }
 
 /// the sa turbulence block of a rans_2d_sa case.
@@ -150,6 +156,11 @@ pub enum Eos {
     /// direction). inviscid cartesian only for now.
     #[serde(rename = "park5")]
     Park5,
+    /// h2/o2 combustion: the li 2004 9-species reaction set with
+    /// nasa-7 thermochemistry, advected mass fractions and an
+    /// operator-split chemistry substep. inviscid cartesian only.
+    #[serde(rename = "combustion")]
+    Combustion,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

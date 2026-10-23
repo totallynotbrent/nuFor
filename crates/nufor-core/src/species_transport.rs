@@ -13,7 +13,8 @@
 use crate::error::Error;
 use crate::species::SpeciesState;
 
-/// one species advection update on precomputed mass-flux sweeps.
+/// one species advection update on precomputed mass-flux sweeps, the
+/// park5 entry point over the shared core below.
 ///
 /// `fx[j].mass[f]` is the x-face mass flux on row j (f in 0..=nx),
 /// `fy[i].mass[f]` the y-face mass flux on column i (f in 0..=ny),
@@ -29,6 +30,21 @@ pub fn transport_species(
     fx: &[Vec<f64>],
     fy: &[Vec<f64>],
 ) -> Result<f64, Error> {
+    transport_species_generic(&mut state.y, rho, dt, dxs, dys, fx, fy)
+}
+
+/// the species-count-agnostic core both lanes share: `y` holds one
+/// row per species, however many that is.
+pub fn transport_species_generic(
+    y: &mut [Vec<f64>],
+    rho: &[f64],
+    dt: f64,
+    dxs: &[f64],
+    dys: &[f64],
+    fx: &[Vec<f64>],
+    fy: &[Vec<f64>],
+) -> Result<f64, Error> {
+    let ns = y.len();
     let nx = dxs.len();
     let ny = dys.len();
     if rho.len() != nx * ny || fx.len() != ny || fy.len() != nx {
@@ -38,18 +54,10 @@ pub fn transport_species(
     let mut resid = 0.0f64;
     // per-species arrays of per-cell upwind fractions: build the
     // face upwind Y first so both sweeps share the same choice.
-    let mut yx_face: Vec<Vec<f64>> = state
-        .y
-        .iter()
-        .map(|_| vec![0.0f64; (nx + 1) * ny])
-        .collect();
-    let mut yy_face: Vec<Vec<f64>> = state
-        .y
-        .iter()
-        .map(|_| vec![0.0f64; (ny + 1) * nx])
-        .collect();
-    for s in 0..crate::park::NS {
-        let yi = &state.y[s];
+    let mut yx_face: Vec<Vec<f64>> = y.iter().map(|_| vec![0.0f64; (nx + 1) * ny]).collect();
+    let mut yy_face: Vec<Vec<f64>> = y.iter().map(|_| vec![0.0f64; (ny + 1) * nx]).collect();
+    for s in 0..ns {
+        let yi = &y[s];
         for j in 0..ny {
             for f in 0..=nx {
                 let mf = fx[j][f];
@@ -93,7 +101,7 @@ pub fn transport_species(
     // density. applying the divergence to rho*Y keeps the pass
     // conservative in the per-species mass, not just the fraction.
     for s in 0..crate::park::NS {
-        let yi = &mut state.y[s];
+        let yi = &mut y[s];
         for j in 0..ny {
             for i in 0..nx {
                 let k = idx(i, j);
@@ -107,6 +115,11 @@ pub fn transport_species(
                 let d = -(dxi * flux_x + dyi * flux_y);
                 let new_rho_y = rho_y + d;
                 resid = resid.max(d.abs() / rho[k].max(1e-30));
+                // a species mass may not go negative: the honest fix is
+                // the step limit the caller applies (the species cfl
+                // probe), and the clip here is the last resort that
+                // keeps the field finite. it destroys that species'
+                // mass, so the caller must keep it from triggering.
                 yi[k] = if new_rho_y > 0.0 {
                     new_rho_y / rho[k]
                 } else {

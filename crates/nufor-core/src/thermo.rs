@@ -25,6 +25,11 @@ pub enum ThermoModel {
     /// the scalar members are unused by the closure itself; `gamma_shaping`
     /// only feeds the hllc wave-speed estimate.
     Park5 { gamma_shaping: f64 },
+    /// h2/o2 combustion: 9-species mass fractions with the li 2004
+    /// reaction set. like park5 the closure variable is the internal
+    /// energy per mass and the composition rides each face side;
+    /// inviscid cartesian only.
+    Combustion9 { gamma_shaping: f64 },
 }
 
 /// pressure for a whole field under the chosen closure.
@@ -55,7 +60,7 @@ pub fn pressure(
             Ok(p)
         }
         ThermoModel::EqAir { .. } => crate::eqair_cea::pressure(rho, e, u, v),
-        ThermoModel::Park5 { .. } => {
+        ThermoModel::Park5 { .. } | ThermoModel::Combustion9 { .. } => {
             // the species closure needs the per-cell composition, which this
             // signature does not carry: the species march computes its own
             // pressure and sound-speed fields through species_closure. reaching
@@ -96,7 +101,7 @@ pub fn temperature(model: ThermoModel, rho: &[f64], p: &[f64]) -> Result<Vec<f64
             Ok(out)
         }
         ThermoModel::EqAir { .. } => crate::eqair_cea::temperature(rho, p),
-        ThermoModel::Park5 { .. } => {
+        ThermoModel::Park5 { .. } | ThermoModel::Combustion9 { .. } => {
             // the species closure needs the per-cell composition, which this
             // signature does not carry: the species march computes its own
             // pressure and sound-speed fields through species_closure. reaching
@@ -138,7 +143,7 @@ pub fn sound_speed(
             // acoustic stiffness, so route the cfl cap through the table.
             Ok(crate::eqair_cea::sound_speed(rho, &e, u, v)?)
         }
-        ThermoModel::Park5 { .. } => {
+        ThermoModel::Park5 { .. } | ThermoModel::Combustion9 { .. } => {
             // the species closure needs the per-cell composition, which this
             // signature does not carry: the species march computes its own
             // pressure and sound-speed fields through species_closure. reaching
@@ -160,6 +165,9 @@ pub fn model_from_config(cfg: &nufor_config::CaseConfig) -> ThermoModel {
             r_gas: cfg.physics.gas_constant,
         },
         Eos::Park5 => ThermoModel::Park5 {
+            gamma_shaping: cfg.physics.gamma,
+        },
+        Eos::Combustion => ThermoModel::Combustion9 {
             gamma_shaping: cfg.physics.gamma,
         },
     }

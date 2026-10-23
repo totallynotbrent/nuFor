@@ -159,7 +159,8 @@ pub fn write_vtk2d_model(
             (p_, t_)
         }
         // park5 was rejected above (needs the species-aware writer).
-        crate::thermo::ThermoModel::Park5 { .. } => unreachable!(),
+        crate::thermo::ThermoModel::Park5 { .. }
+        | crate::thermo::ThermoModel::Combustion9 { .. } => unreachable!(),
     };
     let a = crate::thermo::sound_speed(model, &st.rho, &et, &u, &v)?;
     let mach: Vec<f64> = (0..n)
@@ -227,6 +228,58 @@ pub fn write_vtk2d_park5(
     append_scalar(&mut s, "mach", &mach);
     append_scalar(&mut s, "temperature", &temp);
     const NAMES: [&str; crate::park::NS] = ["y_N2", "y_O2", "y_NO", "y_N", "y_O"];
+    for (i, name) in NAMES.iter().enumerate() {
+        append_scalar(&mut s, name, &species.y[i]);
+    }
+    write_all(path, &s)
+}
+
+/// the 2d combustion snapshot: the closure-consistent pressure and
+/// temperature fields plus the 9 mass fractions.
+pub fn write_vtk2d_combustion(
+    path: &Path,
+    g: &Grid2d,
+    st: &ConservedState2d,
+    species: &crate::combustion_march::CombustionState,
+) -> Result<(), Error> {
+    let n = g.nx * g.ny;
+    let (u, v, et) = crate::state2d::cons_to_prim2d(&st.rho, &st.mx, &st.my, &st.e)?;
+    let e_int: Vec<f64> = (0..n)
+        .map(|k| et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]))
+        .collect();
+    let mut p = vec![0.0f64; n];
+    let mut temp = vec![0.0f64; n];
+    let mut a = vec![0.0f64; n];
+    for k in 0..n {
+        let mut y_cell = [0.0f64; crate::combustion_thermo::NS];
+        #[allow(clippy::needless_range_loop)]
+        for s in 0..crate::combustion_thermo::NS {
+            y_cell[s] = species.y[s][k];
+        }
+        p[k] = crate::combustion_closure::pressure_at(st.rho[k], e_int[k], &y_cell);
+        temp[k] = crate::combustion_closure::temperature_at(e_int[k], &y_cell);
+        a[k] = crate::combustion_closure::sound_speed_at(st.rho[k], e_int[k], &y_cell);
+    }
+    let mach: Vec<f64> = (0..n)
+        .map(|k| (u[k] * u[k] + v[k] * v[k]).sqrt() / a[k].max(1e-6))
+        .collect();
+    let mut s = String::with_capacity(n * 96);
+    s.push_str(
+        "# vtk DataFile Version 3.0\nnuFor 2d combustion snapshot\nASCII\nDATASET STRUCTURED_POINTS\n",
+    );
+    s.push_str(&format!(
+        "DIMENSIONS {} {} 1\nORIGIN {} {} 0\nSPACING {} {} 1\n",
+        g.nx, g.ny, g.xmin, g.ymin, g.dx, g.dy
+    ));
+    s.push_str(&format!("POINT_DATA {}\n", n));
+    append_scalar(&mut s, "density", &st.rho);
+    append_scalar(&mut s, "pressure", &p);
+    append_scalar(&mut s, "energy", &st.e);
+    append_scalar(&mut s, "mach", &mach);
+    append_scalar(&mut s, "temperature", &temp);
+    const NAMES: [&str; crate::combustion_thermo::NS] = [
+        "y_H2", "y_O2", "y_H2O", "y_OH", "y_H", "y_O", "y_HO2", "y_H2O2", "y_N2",
+    ];
     for (i, name) in NAMES.iter().enumerate() {
         append_scalar(&mut s, name, &species.y[i]);
     }
