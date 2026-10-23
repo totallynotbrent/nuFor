@@ -11,6 +11,7 @@ use crate::error::Error;
 use crate::grid2d::Grid2d;
 use crate::solver2d::Boundaries2d;
 use crate::state2d::{cons_to_prim2d, ConservedState2d};
+use crate::thermo::ThermoModel;
 
 /// sutherland's law: viscosity rising with temperature, referenced at (mu0, t0).
 pub fn sutherland_mu(mu0: f64, t: f64, t0: f64, s: f64) -> f64 {
@@ -745,9 +746,9 @@ pub fn add_viscous_cells_mu(
             crate::thermo::ThermoModel::Perfect { .. } => {
                 crate::thermo::temperature(cl, &state.rho, &p)?
             }
-            crate::thermo::ThermoModel::Park5 { .. } => {
-                // the temperature closure needs the per-cell composition;
-                // the viscous lane does not serve park5.
+            crate::thermo::ThermoModel::Park5 { .. } | ThermoModel::Combustion9 { .. } => {
+                // the species lanes are inviscid-cartesian only; every other
+                // lane must reject them loudly.
                 return Err(Error::InvalidArgs);
             }
         }

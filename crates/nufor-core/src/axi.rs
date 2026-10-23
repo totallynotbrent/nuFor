@@ -48,6 +48,40 @@ fn van_leer(dm: f64, dp: f64) -> f64 {
     }
 }
 
+/// the species field a flux computation rides along: either lane's
+/// mass-fraction rows behind one read interface.
+#[derive(Debug, Clone, Copy)]
+pub enum SpeciesField<'a> {
+    Park5(&'a crate::species::SpeciesState),
+    Combustion9(&'a crate::combustion_march::CombustionState),
+}
+
+impl<'a> SpeciesField<'a> {
+    pub fn n_species(&self) -> usize {
+        match self {
+            SpeciesField::Park5(_) => crate::park::NS,
+            SpeciesField::Combustion9(_) => crate::combustion_thermo::NS,
+        }
+    }
+
+    pub fn y(&self, s: usize, k: usize) -> f64 {
+        match self {
+            SpeciesField::Park5(sp) => sp.y[s][k],
+            SpeciesField::Combustion9(sp) => sp.y[s][k],
+        }
+    }
+
+    /// the composition the case injects: what an inflow face's
+    /// species ghost carries, so a burned edge cell cannot feed
+    /// itself back in through the inflow.
+    pub fn fill(&self) -> Vec<f64> {
+        match self {
+            SpeciesField::Park5(_) => vec![0.767, 0.233, 0.0, 0.0, 0.0],
+            SpeciesField::Combustion9(sp) => sp.fill.to_vec(),
+        }
+    }
+}
+
 /// muscl face states (left, right; each length n+1) from a padded slice
 /// of length n+2, identical to the planar march's version.
 fn face_states(p: &[f64], n: usize, muscl: bool) -> (Vec<f64>, Vec<f64>) {
@@ -108,9 +142,10 @@ pub fn advance2d_model_visc_rk2(
         ThermoModel::EqAir { .. } => crate::eqair_cea::fused_state_mu(&state.rho, &e_int, |t| {
             crate::viscous2d::sutherland_mu(mu0, t.max(1.0), t0_ref, s_param)
         }),
-        ThermoModel::Park5 { .. } => {
+        ThermoModel::Park5 { .. } | ThermoModel::Combustion9 { .. } => {
             // species scope: the march is inviscid euler only;
-            // the viscous, rans and cutcell lanes do not serve park5.
+            // the viscous, rans and cutcell lanes do not serve
+            // the species lanes.
             return Err(Error::InvalidArgs);
         }
         ThermoModel::Perfect { .. } => {
@@ -145,7 +180,9 @@ pub fn advance2d_model_visc_rk2(
         match model {
             ThermoModel::Perfect { gamma } => gamma,
             ThermoModel::EqAir { .. } => 1.4,
-            ThermoModel::Park5 { gamma_shaping } => gamma_shaping,
+            ThermoModel::Park5 { gamma_shaping } | ThermoModel::Combustion9 { gamma_shaping } => {
+                gamma_shaping
+            }
         },
         mu0,
         &mu_cells,
@@ -169,7 +206,9 @@ pub fn advance2d_model_visc_rk2(
         match model {
             ThermoModel::Perfect { gamma } => gamma,
             ThermoModel::EqAir { .. } => 1.4,
-            ThermoModel::Park5 { gamma_shaping } => gamma_shaping,
+            ThermoModel::Park5 { gamma_shaping } | ThermoModel::Combustion9 { gamma_shaping } => {
+                gamma_shaping
+            }
         },
         mu0,
         &mu_cells,
@@ -217,9 +256,10 @@ fn model_cell_mu(
                 crate::viscous2d::sutherland_mu(mu0, t.max(1.0), t0_ref, s_param)
             }))
         }
-        ThermoModel::Park5 { .. } => {
+        ThermoModel::Park5 { .. } | ThermoModel::Combustion9 { .. } => {
             // species scope: the march is inviscid euler only;
-            // the viscous, rans and cutcell lanes do not serve park5.
+            // the viscous, rans and cutcell lanes do not serve
+            // the species lanes.
             Err(Error::InvalidArgs)
         }
         ThermoModel::Perfect { .. } => {
@@ -276,7 +316,9 @@ pub fn advance2d_model_visc_lts(
         match model {
             ThermoModel::Perfect { gamma } => gamma,
             ThermoModel::EqAir { .. } => 1.4,
-            ThermoModel::Park5 { gamma_shaping } => gamma_shaping,
+            ThermoModel::Park5 { gamma_shaping } | ThermoModel::Combustion9 { gamma_shaping } => {
+                gamma_shaping
+            }
         },
         mu0,
         &mu_cells,
@@ -321,7 +363,9 @@ pub fn advance2d_sa_model_rk2(
     let gamma_eff = match model {
         ThermoModel::Perfect { gamma } => gamma,
         ThermoModel::EqAir { .. } => 1.4,
-        ThermoModel::Park5 { gamma_shaping } => gamma_shaping,
+        ThermoModel::Park5 { gamma_shaping } | ThermoModel::Combustion9 { gamma_shaping } => {
+            gamma_shaping
+        }
     };
     // eddy viscosity per cell from a nu_tilde field against a rho field.
     let mu_t_of = |nt: &[f64], rho: &[f64]| -> Vec<f64> {
@@ -461,8 +505,8 @@ pub fn model_local_dts(
             .zip(&e_int)
             .map(|(&r, &e)| (gamma * (gamma - 1.0) * e * r / r.max(1e-12)).sqrt())
             .collect::<Vec<f64>>(),
-        ThermoModel::Park5 { .. } => {
-            // the cutcell lanes do not serve park5.
+        ThermoModel::Park5 { .. } | ThermoModel::Combustion9 { .. } => {
+            // the cutcell lanes do not serve the species marches.
             return Err(Error::InvalidArgs);
         }
     };
@@ -532,8 +576,8 @@ fn advance2d_model_capped_dts(
             .zip(&e_int)
             .map(|(&r, &e)| (gamma - 1.0) * r * e)
             .collect::<Vec<f64>>(),
-        ThermoModel::Park5 { .. } => {
-            // the cutcell lanes do not serve park5.
+        ThermoModel::Park5 { .. } | ThermoModel::Combustion9 { .. } => {
+            // the cutcell lanes do not serve the species marches.
             return Err(Error::InvalidArgs);
         }
     };
@@ -706,8 +750,8 @@ fn advance2d_model_capped(
                                 let ak = (gamma * pk / rho[k].max(1e-12)).sqrt();
                                 (pk, ak)
                             }
-                            ThermoModel::Park5 { .. } => {
-                                unreachable!("park5 rejected at the head of the cutcell helper")
+                            ThermoModel::Park5 { .. } | ThermoModel::Combustion9 { .. } => {
+                                unreachable!("species lane rejected at the cutcell helper head")
                             }
                         };
                         *w = pk;
@@ -944,8 +988,8 @@ fn face_pair(
     ur: f64,
     vr: f64,
     xr: f64,
-    yl: &[f64; 5],
-    yr: &[f64; 5],
+    yl: &[f64],
+    yr: &[f64],
 ) -> (FacePrim, FacePrim) {
     match model {
         ThermoModel::Perfect { gamma } => (
@@ -996,13 +1040,43 @@ fn face_pair(
             // species reconstruction. pressure, sound speed and specific
             // internal energy all come from the mixture closure, so a frozen
             // uniform field runs as an exact perfect-gas case.
-            let face = |r: f64, u: f64, v: f64, x: f64, y: &[f64; 5]| -> FacePrim {
+            let face = |r: f64, u: f64, v: f64, x: f64, y: &[f64]| -> FacePrim {
+                let mut y5 = [0.0f64; 5];
+                for (dst, src) in y5.iter_mut().zip(y.iter()) {
+                    *dst = *src;
+                }
                 FacePrim {
                     rho: r,
                     u,
                     v,
-                    p: crate::species_closure::pressure_at(r, x, y),
-                    a: crate::species_closure::sound_speed_at(r, x, y),
+                    p: crate::species_closure::pressure_at(r, x, &y5),
+                    a: crate::species_closure::sound_speed_at(r, x, &y5),
+                    e: x,
+                }
+            };
+            (face(rl, ul, vl, xl, yl), face(rr, ur, vr, xr, yr))
+        }
+        ThermoModel::Combustion9 { .. } => {
+            // the 9-species h2/o2 closure: same reconstruction
+            // policy as park5. temperature is solved once per side
+            // (the pressure and sound speed both need it).
+            let face = |r: f64, u: f64, v: f64, x: f64, y: &[f64]| -> FacePrim {
+                let mut y9 = [0.0f64; crate::combustion_thermo::NS];
+                for (dst, src) in y9.iter_mut().zip(y.iter()) {
+                    *dst = *src;
+                }
+                let t = crate::combustion_closure::temperature_at(x, &y9);
+                let rmix = crate::combustion_closure::mix_gas_constant(&y9);
+                let p = r * rmix * t;
+                let cp = crate::combustion_thermo::mix_cp_mass(&y9, t);
+                let cv = (cp - rmix).max(1.0);
+                let gamma = (cp / cv).max(1.01);
+                FacePrim {
+                    rho: r,
+                    u,
+                    v,
+                    p,
+                    a: (gamma * p.max(1e-9) / r).sqrt(),
                     e: x,
                 }
             };
@@ -1024,7 +1098,7 @@ pub(crate) fn compute_axi_fluxes(
     bc: &Boundaries2d,
     p: &[f64],
     e_int: &[f64],
-    species: Option<&crate::species::SpeciesState>,
+    species: Option<SpeciesField>,
     nthreads: usize,
     wall: Option<&dyn Fn(f64, f64) -> f64>,
 ) -> Result<(Vec<Sweep>, Vec<Sweep>), Error> {
@@ -1035,14 +1109,18 @@ pub(crate) fn compute_axi_fluxes(
     let gamma = match model {
         ThermoModel::Perfect { gamma } => gamma,
         ThermoModel::EqAir { .. } => 1.4, // only the fallback shaping value
-        ThermoModel::Park5 { gamma_shaping } => gamma_shaping,
+        ThermoModel::Park5 { gamma_shaping } | ThermoModel::Combustion9 { gamma_shaping } => {
+            gamma_shaping
+        }
     };
     // the reconstructed closure variable per cell: p or e. under park5 the
     // closure variable is the internal energy per mass, like equilibrium
     // air: the mixture closure recovers the face pressure from it.
     let x: Vec<f64> = match model {
         ThermoModel::Perfect { .. } => p.to_vec(),
-        ThermoModel::EqAir { .. } | ThermoModel::Park5 { .. } => e_int.to_vec(),
+        ThermoModel::EqAir { .. } | ThermoModel::Park5 { .. } | ThermoModel::Combustion9 { .. } => {
+            e_int.to_vec()
+        }
     };
     // the row and column sweeps are built by run_jobs below, sharded
     // across threads when nthreads > 1.
@@ -1051,20 +1129,45 @@ pub(crate) fn compute_axi_fluxes(
     // row carries internal energy, but ghost_value answers the stored
     // pressure for supersonic inflow. invert the inflow state through
     // the closure so the ghost is the same gas the interior holds.
-    let bc_x = |side: &Bc2d, model: ThermoModel| -> Option<f64> {
+    let bc_x = |side: &Bc2d, model: ThermoModel, edge_y: Option<&[f64]>| -> Option<f64> {
         match (side, model) {
             (Bc2d::SupersonicInflow { rho, p, .. }, ThermoModel::EqAir { .. }) => {
                 crate::eqair::energy_from_pressure(&[*rho], &[*p])
                     .ok()
                     .and_then(|v| v.first().copied())
             }
+            // the species lanes: invert the inflow (rho, p) through the
+            // lane closure at the edge cell's composition, so the ghost
+            // carries the same internal energy the inflow gas holds.
+            // park5 keeps its historical inflow ghost: every banked
+            // park5 case runs a hypersonic freestream where the kinetic
+            // energy dwarfs the thermal, and re-pointing the ghost would
+            // invalidate the banked gate numbers.
+            (Bc2d::SupersonicInflow { rho, p, .. }, ThermoModel::Park5 { .. }) => {
+                let _ = (rho, p);
+                None
+            }
+            (Bc2d::SupersonicInflow { rho, p, .. }, ThermoModel::Combustion9 { .. }) => {
+                edge_y.map(|y9| {
+                    let mut y = [0.0f64; crate::combustion_thermo::NS];
+                    for (dst, src) in y.iter_mut().zip(y9.iter()) {
+                        *dst = *src;
+                    }
+                    let t = *p / (*rho * crate::combustion_closure::mix_gas_constant(&y));
+                    crate::combustion_closure::internal_energy_at(t, &y)
+                })
+            }
             _ => None,
         }
     };
-    let west_x = bc_x(&bc.west, model);
-    let east_x = bc_x(&bc.east, model);
-    let south_x_cache = bc_x(&bc.south, model);
-    let north_x_cache = bc_x(&bc.north, model);
+    // the composition an inflow face injects: the case fill, so a
+    // burned edge cell cannot feed itself back in through the inflow.
+    let inflow_fill: Option<Vec<f64>> = species.map(|sp| sp.fill());
+    // the species-lane inflow ghosts need the edge cell's composition,
+    // which lives per row (west/east) and per column (south/north);
+    // compute the row-boundary energies inside the jobs where the edge
+    // composition is at hand. eqair has no composition, so its ghosts
+    // stay cached here.
 
     // shard the row and column sweeps across threads when asked; each job
     // fills one sweep with no overlap, so the joined result matches the
@@ -1080,38 +1183,73 @@ pub(crate) fn compute_axi_fluxes(
             px[i] = x[k];
         }
         let y_row = g.centers_y[j * nx];
-        let pad = |c: &[f64], var: usize| -> Vec<f64> {
+        // the edge composition for the inflow energy inversion: the west
+        // ghost uses cell (0, j), the east uses (nx-1, j).
+        let edge_y_west: Option<Vec<f64>> = species.map(|sp| {
+            (0..sp.n_species())
+                .map(|s| sp.y(s, idx(0, j)))
+                .collect::<Vec<f64>>()
+        });
+        let edge_y_east: Option<Vec<f64>> = species.map(|sp| {
+            (0..sp.n_species())
+                .map(|s| sp.y(s, idx(nx - 1, j)))
+                .collect::<Vec<f64>>()
+        });
+        let west_x = bc_x(&bc.west, model, edge_y_west.as_deref());
+        let east_x = bc_x(&bc.east, model, edge_y_east.as_deref());
+        let pad = |c: &[f64], var: usize, s_idx: usize| -> Vec<f64> {
             let mut out = vec![0.0; nx + 2];
-            out[0] = west_x
-                .filter(|_| var == 3)
-                .unwrap_or_else(|| ghost_value(&bc.west, c[0], var, 1, y_row, px[0]));
-            out[nx + 1] = east_x
-                .filter(|_| var == 3)
-                .unwrap_or_else(|| ghost_value(&bc.east, c[nx - 1], var, 1, y_row, px[nx - 1]));
+            out[0] = west_x.filter(|_| var == 3).unwrap_or_else(|| {
+                ghost_value(
+                    &bc.west,
+                    c[0],
+                    var,
+                    1,
+                    y_row,
+                    px[0],
+                    inflow_fill.as_deref(),
+                    s_idx,
+                )
+            });
+            out[nx + 1] = east_x.filter(|_| var == 3).unwrap_or_else(|| {
+                ghost_value(
+                    &bc.east,
+                    c[nx - 1],
+                    var,
+                    1,
+                    y_row,
+                    px[nx - 1],
+                    inflow_fill.as_deref(),
+                    s_idx,
+                )
+            });
             out[1..=nx].copy_from_slice(c);
             out
         };
-        let flux_row = |c: &[f64], var: usize| -> (Vec<f64>, Vec<f64>) {
-            let padded = pad(c, var);
+        let flux_row = |c: &[f64], var: usize, s_idx: usize| -> (Vec<f64>, Vec<f64>) {
+            let padded = pad(c, var, s_idx);
             face_states(&padded, nx, muscl)
         };
-        let (rl, rr) = flux_row(&pr, 0);
-        let (ul, ur) = flux_row(&pu, 1);
-        let (vl, vr) = flux_row(&pv, 2);
-        let (xl, xr) = flux_row(&px, 3);
+        let (rl, rr) = flux_row(&pr, 0, 0);
+        let (ul, ur) = flux_row(&pu, 1, 0);
+        let (vl, vr) = flux_row(&pv, 2, 0);
+        let (xl, xr) = flux_row(&px, 3, 0);
         // park5: reconstruct each species' mass fraction the same way as
         // the flow variables (ghosts copy the edge cell, zero-order), then
         // stack the five species into per-face side compositions.
         let (yl_rows, yr_rows) = match species {
             Some(sp) => {
-                let mut l_rows = Vec::with_capacity(crate::park::NS);
-                let mut r_rows = Vec::with_capacity(crate::park::NS);
-                for s in 0..crate::park::NS {
+                let ns = sp.n_species();
+                let mut l_rows = Vec::with_capacity(ns);
+                let mut r_rows = Vec::with_capacity(ns);
+                for s in 0..ns {
                     let mut row = vec![0.0f64; nx];
                     for i in 0..nx {
-                        row[i] = sp.y[s][idx(i, j)];
+                        row[i] = sp.y(s, idx(i, j));
                     }
-                    let (l, r) = flux_row(&row, 3);
+                    // var 4: the composition ghost. an inflow face
+                    // injects the case fill; other bcs copy the edge.
+                    let (l, r) = flux_row(&row, 4, s);
                     l_rows.push(l);
                     r_rows.push(r);
                 }
@@ -1119,9 +1257,9 @@ pub(crate) fn compute_axi_fluxes(
             }
             None => (Vec::new(), Vec::new()),
         };
-        let y_stack = |rows: &Vec<Vec<f64>>, f: usize| -> [f64; 5] {
-            let mut y = [0.0f64; 5];
-            for s in 0..crate::park::NS.min(rows.len()) {
+        let y_stack = |rows: &Vec<Vec<f64>>, f: usize| -> Vec<f64> {
+            let mut y = vec![0.0f64; rows.len()];
+            for s in 0..rows.len() {
                 y[s] = rows[s][f];
             }
             y
@@ -1131,7 +1269,7 @@ pub(crate) fn compute_axi_fluxes(
             let (yl, yr) = if species.is_some() {
                 (y_stack(&yl_rows, f), y_stack(&yr_rows, f))
             } else {
-                ([0.0; 5], [0.0; 5])
+                (Vec::new(), Vec::new())
             };
             let (l, r) = face_pair(
                 model, rl[f], ul[f], vl[f], xl[f], rr[f], ur[f], vr[f], xr[f], &yl, &yr,
@@ -1158,35 +1296,68 @@ pub(crate) fn compute_axi_fluxes(
         let x_col = g.centers_x[i];
         let x_ghost_s = 2.0 * g.faces_x[0] - x_col;
         let x_ghost_n = 2.0 * g.faces_x[nx] - x_col;
-        let pad = |c: &[f64], var: usize| -> Vec<f64> {
+        let edge_y_south: Option<Vec<f64>> = species.map(|sp| {
+            (0..sp.n_species())
+                .map(|s| sp.y(s, idx(i, 0)))
+                .collect::<Vec<f64>>()
+        });
+        let edge_y_north: Option<Vec<f64>> = species.map(|sp| {
+            (0..sp.n_species())
+                .map(|s| sp.y(s, idx(i, ny - 1)))
+                .collect::<Vec<f64>>()
+        });
+        let south_x_here = bc_x(&bc.south, model, edge_y_south.as_deref());
+        let north_x_here = bc_x(&bc.north, model, edge_y_north.as_deref());
+        let pad = |c: &[f64], var: usize, s_idx: usize| -> Vec<f64> {
             let mut out = vec![0.0; ny + 2];
-            out[0] = south_x_cache
-                .filter(|_| var == 3)
-                .unwrap_or_else(|| ghost_value(&bc.south, c[0], var, 2, x_ghost_s, cx[0]));
-            out[ny + 1] = north_x_cache.filter(|_| var == 3).unwrap_or_else(|| {
-                ghost_value(&bc.north, c[ny - 1], var, 2, x_ghost_n, cx[ny - 1])
+            out[0] = south_x_here.filter(|_| var == 3).unwrap_or_else(|| {
+                ghost_value(
+                    &bc.south,
+                    c[0],
+                    var,
+                    2,
+                    x_ghost_s,
+                    cx[0],
+                    inflow_fill.as_deref(),
+                    s_idx,
+                )
+            });
+            out[ny + 1] = north_x_here.filter(|_| var == 3).unwrap_or_else(|| {
+                ghost_value(
+                    &bc.north,
+                    c[ny - 1],
+                    var,
+                    2,
+                    x_ghost_n,
+                    cx[ny - 1],
+                    inflow_fill.as_deref(),
+                    s_idx,
+                )
             });
             out[1..=ny].copy_from_slice(c);
             out
         };
-        let flux_col = |c: &[f64], var: usize| -> (Vec<f64>, Vec<f64>) {
-            let padded = pad(c, var);
+        let flux_col = |c: &[f64], var: usize, s_idx: usize| -> (Vec<f64>, Vec<f64>) {
+            let padded = pad(c, var, s_idx);
             face_states(&padded, ny, muscl)
         };
-        let (rl, rr) = flux_col(&cr, 0);
-        let (ul, ur) = flux_col(&cu, 1);
-        let (vl, vr) = flux_col(&cv, 2);
-        let (xl, xr) = flux_col(&cx, 3);
+        let (rl, rr) = flux_col(&cr, 0, 0);
+        let (ul, ur) = flux_col(&cu, 1, 0);
+        let (vl, vr) = flux_col(&cv, 2, 0);
+        let (xl, xr) = flux_col(&cx, 3, 0);
         let (yl_cols, yr_cols) = match species {
             Some(sp) => {
-                let mut l_cols = Vec::with_capacity(crate::park::NS);
-                let mut r_cols = Vec::with_capacity(crate::park::NS);
-                for s in 0..crate::park::NS {
+                let ns = sp.n_species();
+                let mut l_cols = Vec::with_capacity(ns);
+                let mut r_cols = Vec::with_capacity(ns);
+                for s in 0..ns {
                     let mut col = vec![0.0f64; ny];
                     for j in 0..ny {
-                        col[j] = sp.y[s][idx(i, j)];
+                        col[j] = sp.y(s, idx(i, j));
                     }
-                    let (l, r) = flux_col(&col, 3);
+                    // var 4: the composition ghost, same convention as
+                    // the row job.
+                    let (l, r) = flux_col(&col, 4, s);
                     l_cols.push(l);
                     r_cols.push(r);
                 }
@@ -1194,9 +1365,9 @@ pub(crate) fn compute_axi_fluxes(
             }
             None => (Vec::new(), Vec::new()),
         };
-        let y_stack = |rows: &Vec<Vec<f64>>, f: usize| -> [f64; 5] {
-            let mut y = [0.0f64; 5];
-            for s in 0..crate::park::NS.min(rows.len()) {
+        let y_stack = |rows: &Vec<Vec<f64>>, f: usize| -> Vec<f64> {
+            let mut y = vec![0.0f64; rows.len()];
+            for s in 0..rows.len() {
                 y[s] = rows[s][f];
             }
             y
@@ -1206,7 +1377,7 @@ pub(crate) fn compute_axi_fluxes(
             let (yl, yr) = if species.is_some() {
                 (y_stack(&yl_cols, f), y_stack(&yr_cols, f))
             } else {
-                ([0.0; 5], [0.0; 5])
+                (Vec::new(), Vec::new())
             };
             let (l, r) = face_pair(
                 model, rl[f], ul[f], vl[f], xl[f], rr[f], ur[f], vr[f], xr[f], &yl, &yr,
@@ -1295,11 +1466,12 @@ pub(crate) fn compute_axi_fluxes(
                 ThermoModel::EqAir { .. } => {
                     crate::eqair_cea::sound_speed_at(state.rho[k], e_int[k])
                 }
-                ThermoModel::Park5 { gamma_shaping } => {
+                ThermoModel::Park5 { gamma_shaping }
+                | ThermoModel::Combustion9 { gamma_shaping } => {
                     // the mirror-wall path only runs when the march carries a
-                    // wall; park5 bodies arrive with the species march, so this arm
-                    // shapes from the cell pressure like the perfect lane and
-                    // the march entry rejects park5+wall before reaching here.
+                    // wall; species bodies arrive with the species marches, so
+                    // this arm shapes from the cell pressure like the perfect
+                    // lane and the march entry rejects species+wall first.
                     (gamma_shaping * p[k].max(1e-12) / state.rho[k].max(1e-12)).sqrt()
                 }
             }

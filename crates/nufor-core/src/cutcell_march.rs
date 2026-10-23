@@ -153,9 +153,11 @@ pub fn advance2d_axi_cut(
     let gamma = match model {
         crate::thermo::ThermoModel::Perfect { gamma } => gamma,
         crate::thermo::ThermoModel::EqAir { .. } => 1.4,
-        // park5 never reaches here: the closure pressure call above rejects
-        // the model loudly (the species march computes its own fields).
-        crate::thermo::ThermoModel::Park5 { gamma_shaping } => gamma_shaping,
+        // the species lanes never reach here: the closure pressure call
+        // above rejects the model loudly (the species marches compute
+        // their own fields).
+        crate::thermo::ThermoModel::Park5 { gamma_shaping }
+        | crate::thermo::ThermoModel::Combustion9 { gamma_shaping } => gamma_shaping,
     };
     let (fx, fy) =
         compute_axi_fluxes(model, state, g, muscl, bc, &p, &e_int, None, nthreads, None)?;
@@ -253,7 +255,8 @@ pub fn advance2d_axi_cut(
                             },
                         )
                     }
-                    crate::thermo::ThermoModel::Park5 { .. } => {
+                    crate::thermo::ThermoModel::Park5 { .. }
+                    | crate::thermo::ThermoModel::Combustion9 { .. } => {
                         // park5 never reaches here: the closure pressure call
                         // earlier in this fn rejects the model loudly.
                         unreachable!("park5 rejected before the cutcell march")

@@ -516,7 +516,14 @@ mod tests {
         let (mx, my, e) = prim_to_cons2d(&rho, &u, &v, &et).unwrap();
         let mut st = ConservedState2d { rho, mx, my, e };
         for _ in 0..5 {
-            advance_ugrid(&mut st, &ug, 1.4, 0.4).unwrap();
+            advance_ugrid(
+                &mut st,
+                &ug,
+                1.4,
+                0.4,
+                nufor_core::ThermoModel::Perfect { gamma: 1.4 },
+            )
+            .unwrap();
         }
         assert!(st.rho.iter().all(|&r| r.is_finite() && r > 0.0));
         // the high-pressure center cell should have expanded (peak < initial 10 in p)
