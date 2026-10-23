@@ -29,7 +29,7 @@ fn sod_tube_reproduced_on_the_unstructured_path() {
     ug.freestream = [1.0, 0.0, 0.0, 1.0];
     let mut t = 0.0;
     while t < 0.2 {
-        let (dt, _) = advance_ugrid(&mut st, &ug, GAMMA, 0.3).unwrap();
+        let (dt, _) = advance_ugrid(&mut st, &ug, GAMMA, 0.3, nufor_core::ThermoModel::Perfect { gamma: GAMMA }).unwrap();
         t += dt;
     }
     assert!(

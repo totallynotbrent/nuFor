@@ -37,9 +37,24 @@ onto the same physics, not a separate solver.
 
 A case whose `mesh.path` ends in `.msh` runs on this solver. A uniform initial
 condition fills every cell and matches the inflow boundary, so an external
-flow over an imported body works the same way the structured cases do.
-Currently the march is perfect gas with `physics.gamma`; the equilibrium-air
-closure threading is the next piece of this path.
+flow over an imported body works the same way the structured cases do. Both
+closures run here: `eos = "eqair"` threads the equilibrium-air tables into
+every cell and boundary ghost (a freestream pressure is inverted to its table
+energy once per step), while `eos = "perfect"` stays on the gamma law. The
+species lanes still have no unstructured march and are rejected loudly.
+
+The reconstruction knob carries over: `reconstruction = "muscl"` builds
+green-gauss gradients per cell and extrapolates face states with a two-cell
+minmod limiter; `first_order` keeps the historical piecewise-constant states.
+
+The gate for the closure plus reconstruction is a hypersonic ramp channel on
+a 2,880-triangle mesh: Mach 8 air over a 14 degree ramp forms the oblique
+shock, holds it steady across the last quarter of the run, and lands within
+the coarse-mesh band of the theta-beta-M estimate (first order peaks at
+3,530 Pa against roughly 3,900, muscl at 3,638). The limiter is not
+transverse-invariant on triangles, so a small density undershoot rides the
+shock foot (about 13 percent below freestream); the flow stays positive and
+the shock position is unaffected.
 
 The heartbeat's peak-pressure read used to carry an extra density factor, which
 made every `p_max` the console ever showed for the unstructured runs

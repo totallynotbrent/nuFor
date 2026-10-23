@@ -37,7 +37,7 @@ fn uniform_flow_with_all_wall_groups_holds() {
     let (rho, u, v, p, gamma) = (0.5, 0.0, 0.0, 2.0e5, 1.4);
     let mut st = uniform_state(16, rho, u, v, p, gamma);
     let before = st.clone();
-    advance_ugrid(&mut st, &ug, gamma, 0.3).unwrap();
+    advance_ugrid(&mut st, &ug, gamma, 0.3, nufor_core::ThermoModel::Perfect { gamma }).unwrap();
     for c in 0..16 {
         assert!(
             (st.rho[c] - before.rho[c]).abs() < 1e-12,
@@ -89,7 +89,7 @@ fn uniform_flow_with_mixed_groups_holds() {
     ug.freestream = [rho, u, v, p];
     let mut st = uniform_state(18, rho, u, v, p, gamma);
     let before = st.clone();
-    advance_ugrid(&mut st, &ug, gamma, 0.4).unwrap();
+    advance_ugrid(&mut st, &ug, gamma, 0.4, nufor_core::ThermoModel::Perfect { gamma }).unwrap();
     for c in 0..18 {
         assert!((st.rho[c] - before.rho[c]).abs() < 1e-12, "rho drifted");
         assert!((st.mx[c] - before.mx[c]).abs() < 1e-9, "mx drifted");
@@ -115,7 +115,7 @@ fn inflow_group_drives_interior_not_vice_versa() {
     ug.freestream = [2.0, 100.0, 0.0, 5.0e5];
     // interior starts as still air at a different pressure
     let mut st = uniform_state(16, 1.0, 0.0, 0.0, 1.0e5, 1.4);
-    let (dt, _) = advance_ugrid(&mut st, &ug, 1.4, 0.2).unwrap();
+    let (dt, _) = advance_ugrid(&mut st, &ug, 1.4, 0.2, nufor_core::ThermoModel::Perfect { gamma: 1.4 }).unwrap();
     assert!(dt > 0.0);
     // momentum must increase in +x somewhere (freestream blowing in)
     let mx_sum: f64 = st.mx.iter().sum();
@@ -160,7 +160,7 @@ fn uniform_wind_in_duct_holds() {
     };
     let before = st.clone();
     for _ in 0..200 {
-        advance_ugrid(&mut st, &ug, gamma, 0.3).unwrap();
+        advance_ugrid(&mut st, &ug, gamma, 0.3, nufor_core::ThermoModel::Perfect { gamma }).unwrap();
     }
     let mut worst = 0.0f64;
     for c in 0..nc {
