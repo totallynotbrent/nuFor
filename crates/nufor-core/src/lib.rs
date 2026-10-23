@@ -102,8 +102,7 @@ pub use hllc2d::{hllc_flux, FacePrim, Flux4};
 pub use hllc3d::{hllc_flux3, FacePrim3, Flux5};
 pub use output::{
     write_csv, write_vtk, write_vtk2d, write_vtk2d_combustion, write_vtk2d_model,
-    write_vtk2d_park5, write_vtk3d,
-    write_vtk_curv, OutputState,
+    write_vtk2d_park5, write_vtk3d, write_vtk_curv, OutputState,
 };
 pub use probe::probe_line;
 pub use rectilinear::{

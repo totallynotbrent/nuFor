@@ -245,8 +245,6 @@ pub fn advance_ugrid(
     Ok((dt, resid))
 }
 
-
-
 /// green-gauss cell gradient of one primitive field, unlimited.
 #[allow(clippy::needless_range_loop)]
 fn green_gauss_gradient(ug: &Ugrid, p_face_hint: &[f64]) -> Vec<(f64, f64)> {
@@ -532,7 +530,7 @@ pub fn advance_ugrid_recon(
         let ke = 0.5 * (state.mx[c] * state.mx[c] + state.my[c] * state.my[c]) / state.rho[c];
         if state.e[c] - ke < e_floor {
             state.e[c] = ke + e_floor;
-    }
+        }
     }
     Ok((dt, resid))
 }
@@ -590,10 +588,7 @@ mod tests {
         }
         for c in 0..nc {
             assert!((st.rho[c] - rho).abs() / rho < 1e-12, "rho moved");
-            assert!(
-                (st.mx[c] - rho * u).abs() < 1e-9,
-                "momentum moved"
-            );
+            assert!((st.mx[c] - rho * u).abs() < 1e-9, "momentum moved");
         }
     }
 
@@ -612,10 +607,9 @@ mod tests {
         };
         // one cell over-pressured: the step must advance and stay positive
         st.e[13] = 25.0;
-        let (dt, _) = advance_ugrid(&mut st, &ug, 1.4, 0.3, ThermoModel::Perfect { gamma: 1.4 })
-            .unwrap();
+        let (dt, _) =
+            advance_ugrid(&mut st, &ug, 1.4, 0.3, ThermoModel::Perfect { gamma: 1.4 }).unwrap();
         assert!(dt > 0.0);
         assert!(st.rho.iter().all(|&r| r > 0.0));
     }
 }
-

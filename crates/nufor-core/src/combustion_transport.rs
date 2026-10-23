@@ -16,15 +16,15 @@ use crate::combustion_thermo::{M, NS, RU};
 
 /// lennard-jones well depths epsilon/kb, k.
 const EPS_K: [f64; NS] = [
-    38.0,   // H2
-    107.4,  // O2
-    572.4,  // H2O
-    80.0,   // OH
-    145.0,  // H
-    80.0,   // O
-    107.4,  // HO2 (the yaml reuses the O2 pair)
-    107.4,  // H2O2 (same)
-    97.53,  // N2
+    38.0,  // H2
+    107.4, // O2
+    572.4, // H2O
+    80.0,  // OH
+    145.0, // H
+    80.0,  // O
+    107.4, // HO2 (the yaml reuses the O2 pair)
+    107.4, // H2O2 (same)
+    97.53, // N2
 ];
 
 /// lennard-jones collision diameters sigma, angstrom.
@@ -253,7 +253,10 @@ mod tests {
         let mu_n2 = species_viscosity(combustion_thermo::IN2, 300.0);
         let lo = mu_h2.min(mu_n2);
         let hi = mu_h2.max(mu_n2);
-        assert!(mu_mix >= lo * 0.98 && mu_mix <= hi * 1.02, "mu_mix={mu_mix:e}");
+        assert!(
+            mu_mix >= lo * 0.98 && mu_mix <= hi * 1.02,
+            "mu_mix={mu_mix:e}"
+        );
         assert!(mu_mix < 0.5 * (mu_h2 + mu_n2), "should lean light");
     }
 
@@ -263,7 +266,12 @@ mod tests {
     /// chain surfaces, with the documented band in the message.
     #[test]
     fn h2_n2_diffusivity_documents_the_pair_bias() {
-        let d = binary_diffusivity(combustion_thermo::IH2, combustion_thermo::IN2, 298.15, 101_325.0);
+        let d = binary_diffusivity(
+            combustion_thermo::IH2,
+            combustion_thermo::IN2,
+            298.15,
+            101_325.0,
+        );
         let d_cm = d * 1.0e4;
         assert!(
             d_cm > 0.65 && d_cm < 1.3,

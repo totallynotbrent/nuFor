@@ -5,9 +5,8 @@
 //! here are the machine-extracted rows from that digest.
 
 use crate::combustion::omega;
-use crate::combustion_thermo as ct;
 use crate::combustion_closure as cl;
-
+use crate::combustion_thermo as ct;
 
 /// CEA mole fractions at the stoich flame point, 70 bar (gate-1 anchor).
 pub const CEA_FLAME_70BAR: [(usize, f64); 6] = [
@@ -84,12 +83,12 @@ pub fn equilibrate(t: f64, p: f64, y0: &[f64; ct::NS], y: &mut [f64; ct::NS]) ->
         }
     }
     let mut sum = 0.0f64;
-        #[allow(clippy::needless_range_loop)]
+    #[allow(clippy::needless_range_loop)]
     for s in 0..ct::NS {
         y[s] = y[s].max(0.0);
         sum += y[s];
     }
-        #[allow(clippy::needless_range_loop)]
+    #[allow(clippy::needless_range_loop)]
     for s in 0..ct::NS {
         y[s] /= sum;
     }

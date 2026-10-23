@@ -16,15 +16,14 @@ use nufor_core::ffi_mpi::{
 };
 use nufor_core::{
     advance2d_axi_lts, advance2d_axi_rk2, advance2d_model_rk2, advance2d_model_visc_lts,
-    advance_ugrid_recon,
     advance2d_model_visc_rk2, advance2d_sa_lts, advance2d_sa_model_rk2, advance3d_rk2,
-    advance_ugrid, apply_solid_fn, apply_solid_ref, body_cache, cons_to_prim2d, eos_pressure2d,
-    euler_solve, grid1d, grid2d, grid3d, prim_to_cons, prim_to_cons2d, prim_to_cons3d,
-    read_restart, read_restart2d, render_png, wall_distance2d, write_csv, write_h5, write_restart,
-    write_restart2d, write_vtk, write_vtk2d_combustion, write_vtk2d_model, write_vtk2d_park5, write_vtk3d, Bc2d,
-    Boundaries2d, Boundary, Bounds3d, ConservedState, ConservedState2d, ConservedState3d, Error,
-    EulerConfig, Grid1d, Grid2d, Grid3d, OutputState, SaParams, SolidPolygon, SolidShape,
-    SphereCone, SphereConeSdf, TurbState, Ugrid,
+    advance_ugrid, advance_ugrid_recon, apply_solid_fn, apply_solid_ref, body_cache,
+    cons_to_prim2d, eos_pressure2d, euler_solve, grid1d, grid2d, grid3d, prim_to_cons,
+    prim_to_cons2d, prim_to_cons3d, read_restart, read_restart2d, render_png, wall_distance2d,
+    write_csv, write_h5, write_restart, write_restart2d, write_vtk, write_vtk2d_combustion,
+    write_vtk2d_model, write_vtk2d_park5, write_vtk3d, Bc2d, Boundaries2d, Boundary, Bounds3d,
+    ConservedState, ConservedState2d, ConservedState3d, Error, EulerConfig, Grid1d, Grid2d, Grid3d,
+    OutputState, SaParams, SolidPolygon, SolidShape, SphereCone, SphereConeSdf, TurbState, Ugrid,
 };
 use nufor_core::{model_from_config, park2t, ThermoModel};
 
@@ -1212,15 +1211,7 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
             t,
             t0.elapsed().as_secs_f64()
         );
-        let rc = write_case_vtk2d_model(
-            path,
-            &cfg.metadata.name,
-            &g,
-            &st,
-            model,
-            None,
-            None,
-        );
+        let rc = write_case_vtk2d_model(path, &cfg.metadata.name, &g, &st, model, None, None);
         if rc == 0 {
             write_run_log_2d(
                 cfg,
@@ -1621,7 +1612,7 @@ fn progress_readout(
                 let mut y = [0.0f64; nufor_core::combustion_thermo::NS];
                 #[allow(clippy::needless_range_loop)]
                 #[allow(clippy::needless_range_loop)]
-            for s in 0..nufor_core::combustion_thermo::NS {
+                for s in 0..nufor_core::combustion_thermo::NS {
                     y[s] = sp.y[s][k];
                 }
                 nufor_core::combustion_closure::pressure_at(st.rho[k], e_int[k], &y)
@@ -1659,7 +1650,7 @@ fn progress_readout(
                 let mut y = [0.0f64; nufor_core::combustion_thermo::NS];
                 #[allow(clippy::needless_range_loop)]
                 #[allow(clippy::needless_range_loop)]
-            for s in 0..nufor_core::combustion_thermo::NS {
+                for s in 0..nufor_core::combustion_thermo::NS {
                     y[s] = sp.y[s][k];
                 }
                 nufor_core::combustion_closure::temperature_at(e_int[k], &y)
@@ -1846,7 +1837,9 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     // stoichiometric unburned fill (a chamber case reseeds through
     // the inflow boundary). chemistry off freezes the composition.
     let mut combustion_state = if matches!(model, ThermoModel::Combustion9 { .. }) {
-        Some(nufor_core::combustion_march::CombustionState::stoich_h2o2(g.nx * g.ny))
+        Some(nufor_core::combustion_march::CombustionState::stoich_h2o2(
+            g.nx * g.ny,
+        ))
     } else {
         None
     };
@@ -2039,15 +2032,7 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
             st.e.iter().cloned().fold(f64::INFINITY, f64::min),
             st.e.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
         );
-        let rc = write_case_vtk2d_model(
-            path,
-            &cfg.metadata.name,
-            &g,
-            &st,
-            model,
-            None,
-            None,
-        );
+        let rc = write_case_vtk2d_model(path, &cfg.metadata.name, &g, &st, model, None, None);
         if rc == 0 {
             write_run_log_2d(
                 cfg,

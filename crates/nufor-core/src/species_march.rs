@@ -444,7 +444,7 @@ mod visc_tests {
             assert!((s - 1.0).abs() < 1e-9);
         }
     }
-/// bit-identical after the step.
+    /// bit-identical after the step.
     #[test]
     fn non_catalytic_viscous_wall_keeps_uniform_composition() {
         let (nx, ny) = (12, 12);
@@ -491,7 +491,7 @@ mod visc_tests {
         }
     }
 
-/// condition, and the wall-adjacent composition moved.
+    /// condition, and the wall-adjacent composition moved.
     #[test]
     fn fully_catalytic_wall_pulls_atoms_wallward() {
         let (nx, ny) = (12, 12);
@@ -576,7 +576,7 @@ mod visc_tests {
         }
     }
 
-/// direction sign in the domain-wall catalytic flux.
+    /// direction sign in the domain-wall catalytic flux.
     #[test]
     fn fully_catalytic_north_wall_also_pulls_atoms() {
         let (nx, ny) = (12, 12);
@@ -654,5 +654,4 @@ mod visc_tests {
             "north catalytic wall must deplete wall atoms: full {n_atoms_f} vs non {n_atoms_n}"
         );
     }
-
 }

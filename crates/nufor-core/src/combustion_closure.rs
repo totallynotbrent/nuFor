@@ -12,7 +12,7 @@ use crate::combustion_thermo as ct;
 /// mixture gas constant, J/(kg K), from mass fractions.
 pub fn mix_gas_constant(y: &[f64; ct::NS]) -> f64 {
     let mut r = 0.0f64;
-        #[allow(clippy::needless_range_loop)]
+    #[allow(clippy::needless_range_loop)]
     for s in 0..ct::NS {
         r += y[s] * ct::RU / ct::M[s];
     }
@@ -22,7 +22,7 @@ pub fn mix_gas_constant(y: &[f64; ct::NS]) -> f64 {
 /// mixture molar mass, kg/mol, from mass fractions.
 pub fn mix_molar_mass(y: &[f64; ct::NS]) -> f64 {
     let mut inv = 0.0f64;
-        #[allow(clippy::needless_range_loop)]
+    #[allow(clippy::needless_range_loop)]
     for s in 0..ct::NS {
         if y[s] > 0.0 {
             inv += y[s] / ct::M[s];
@@ -110,9 +110,6 @@ pub fn sound_speed_at(rho: f64, e_int: f64, y: &[f64; ct::NS]) -> f64 {
     let p = pressure_at(rho, e_int, y).max(1e-9);
     (gamma * p / rho).sqrt()
 }
-
-
-
 
 /// stoichiometric unburned h2/o2 mass fractions: 2 h2 + o2 by mass.
 #[cfg(test)]

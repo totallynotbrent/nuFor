@@ -180,7 +180,9 @@ pub fn advance2d_model_visc_rk2(
         match model {
             ThermoModel::Perfect { gamma } => gamma,
             ThermoModel::EqAir { .. } => 1.4,
-            ThermoModel::Park5 { gamma_shaping } | ThermoModel::Combustion9 { gamma_shaping } => gamma_shaping,
+            ThermoModel::Park5 { gamma_shaping } | ThermoModel::Combustion9 { gamma_shaping } => {
+                gamma_shaping
+            }
         },
         mu0,
         &mu_cells,
@@ -204,7 +206,9 @@ pub fn advance2d_model_visc_rk2(
         match model {
             ThermoModel::Perfect { gamma } => gamma,
             ThermoModel::EqAir { .. } => 1.4,
-            ThermoModel::Park5 { gamma_shaping } | ThermoModel::Combustion9 { gamma_shaping } => gamma_shaping,
+            ThermoModel::Park5 { gamma_shaping } | ThermoModel::Combustion9 { gamma_shaping } => {
+                gamma_shaping
+            }
         },
         mu0,
         &mu_cells,
@@ -312,7 +316,9 @@ pub fn advance2d_model_visc_lts(
         match model {
             ThermoModel::Perfect { gamma } => gamma,
             ThermoModel::EqAir { .. } => 1.4,
-            ThermoModel::Park5 { gamma_shaping } | ThermoModel::Combustion9 { gamma_shaping } => gamma_shaping,
+            ThermoModel::Park5 { gamma_shaping } | ThermoModel::Combustion9 { gamma_shaping } => {
+                gamma_shaping
+            }
         },
         mu0,
         &mu_cells,
@@ -357,7 +363,9 @@ pub fn advance2d_sa_model_rk2(
     let gamma_eff = match model {
         ThermoModel::Perfect { gamma } => gamma,
         ThermoModel::EqAir { .. } => 1.4,
-        ThermoModel::Park5 { gamma_shaping } | ThermoModel::Combustion9 { gamma_shaping } => gamma_shaping,
+        ThermoModel::Park5 { gamma_shaping } | ThermoModel::Combustion9 { gamma_shaping } => {
+            gamma_shaping
+        }
     };
     // eddy viscosity per cell from a nu_tilde field against a rho field.
     let mu_t_of = |nt: &[f64], rho: &[f64]| -> Vec<f64> {
@@ -1101,7 +1109,9 @@ pub(crate) fn compute_axi_fluxes(
     let gamma = match model {
         ThermoModel::Perfect { gamma } => gamma,
         ThermoModel::EqAir { .. } => 1.4, // only the fallback shaping value
-        ThermoModel::Park5 { gamma_shaping } | ThermoModel::Combustion9 { gamma_shaping } => gamma_shaping,
+        ThermoModel::Park5 { gamma_shaping } | ThermoModel::Combustion9 { gamma_shaping } => {
+            gamma_shaping
+        }
     };
     // the reconstructed closure variable per cell: p or e. under park5 the
     // closure variable is the internal energy per mass, like equilibrium
@@ -1189,34 +1199,30 @@ pub(crate) fn compute_axi_fluxes(
         let east_x = bc_x(&bc.east, model, edge_y_east.as_deref());
         let pad = |c: &[f64], var: usize, s_idx: usize| -> Vec<f64> {
             let mut out = vec![0.0; nx + 2];
-            out[0] = west_x
-                .filter(|_| var == 3)
-                .unwrap_or_else(|| {
-                    ghost_value(
-                        &bc.west,
-                        c[0],
-                        var,
-                        1,
-                        y_row,
-                        px[0],
-                        inflow_fill.as_deref(),
-                        s_idx,
-                    )
-                });
-            out[nx + 1] = east_x
-                .filter(|_| var == 3)
-                .unwrap_or_else(|| {
-                    ghost_value(
-                        &bc.east,
-                        c[nx - 1],
-                        var,
-                        1,
-                        y_row,
-                        px[nx - 1],
-                        inflow_fill.as_deref(),
-                        s_idx,
-                    )
-                });
+            out[0] = west_x.filter(|_| var == 3).unwrap_or_else(|| {
+                ghost_value(
+                    &bc.west,
+                    c[0],
+                    var,
+                    1,
+                    y_row,
+                    px[0],
+                    inflow_fill.as_deref(),
+                    s_idx,
+                )
+            });
+            out[nx + 1] = east_x.filter(|_| var == 3).unwrap_or_else(|| {
+                ghost_value(
+                    &bc.east,
+                    c[nx - 1],
+                    var,
+                    1,
+                    y_row,
+                    px[nx - 1],
+                    inflow_fill.as_deref(),
+                    s_idx,
+                )
+            });
             out[1..=nx].copy_from_slice(c);
             out
         };
@@ -1304,20 +1310,18 @@ pub(crate) fn compute_axi_fluxes(
         let north_x_here = bc_x(&bc.north, model, edge_y_north.as_deref());
         let pad = |c: &[f64], var: usize, s_idx: usize| -> Vec<f64> {
             let mut out = vec![0.0; ny + 2];
-            out[0] = south_x_here
-                .filter(|_| var == 3)
-                .unwrap_or_else(|| {
-                    ghost_value(
-                        &bc.south,
-                        c[0],
-                        var,
-                        2,
-                        x_ghost_s,
-                        cx[0],
-                        inflow_fill.as_deref(),
-                        s_idx,
-                    )
-                });
+            out[0] = south_x_here.filter(|_| var == 3).unwrap_or_else(|| {
+                ghost_value(
+                    &bc.south,
+                    c[0],
+                    var,
+                    2,
+                    x_ghost_s,
+                    cx[0],
+                    inflow_fill.as_deref(),
+                    s_idx,
+                )
+            });
             out[ny + 1] = north_x_here.filter(|_| var == 3).unwrap_or_else(|| {
                 ghost_value(
                     &bc.north,
@@ -1462,7 +1466,8 @@ pub(crate) fn compute_axi_fluxes(
                 ThermoModel::EqAir { .. } => {
                     crate::eqair_cea::sound_speed_at(state.rho[k], e_int[k])
                 }
-                ThermoModel::Park5 { gamma_shaping } | ThermoModel::Combustion9 { gamma_shaping } => {
+                ThermoModel::Park5 { gamma_shaping }
+                | ThermoModel::Combustion9 { gamma_shaping } => {
                     // the mirror-wall path only runs when the march carries a
                     // wall; species bodies arrive with the species marches, so
                     // this arm shapes from the cell pressure like the perfect

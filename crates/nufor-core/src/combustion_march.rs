@@ -9,12 +9,12 @@
 //! rather than fall back to a perfect gas.
 
 use crate::axi::compute_axi_fluxes;
-use crate::solver2d::Boundaries2d;
 use crate::combustion as comb;
 use crate::combustion_closure as closure9;
 use crate::combustion_thermo as ct;
 use crate::error::Error;
 use crate::grid2d::Grid2d;
+use crate::solver2d::Boundaries2d;
 use crate::species_transport::transport_species_generic;
 use crate::state2d::cons_to_prim2d;
 use crate::state2d::ConservedState2d;
@@ -135,9 +135,7 @@ pub fn advance2d_combustion(
     }
     let dt = cfl * g.dx.min(g.dy) / smax.max(1e-12);
 
-    let model = ThermoModel::Combustion9 {
-        gamma_shaping: 1.2,
-    };
+    let model = ThermoModel::Combustion9 { gamma_shaping: 1.2 };
     let (fx, fy) = compute_axi_fluxes(
         model,
         state,
@@ -164,8 +162,7 @@ pub fn advance2d_combustion(
                 -(dxi * (fx[j].mx[i + 1] - fx[j].mx[i]) + dyi * (fy[i].mx[j + 1] - fy[i].mx[j]));
             let dmy =
                 -(dxi * (fx[j].my[i + 1] - fx[j].my[i]) + dyi * (fy[i].my[j + 1] - fy[i].my[j]));
-            let de =
-                -(dxi * (fx[j].e[i + 1] - fx[j].e[i]) + dyi * (fy[i].e[j + 1] - fy[i].e[j]));
+            let de = -(dxi * (fx[j].e[i + 1] - fx[j].e[i]) + dyi * (fy[i].e[j + 1] - fy[i].e[j]));
             state.rho[k] += drho;
             state.mx[k] += dmx;
             state.my[k] += dmy;
@@ -239,7 +236,7 @@ pub fn advance2d_combustion_rk2(
         for k in 0..n {
             let e_int = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
             let mut y_cell = [0.0f64; ct::NS];
-        #[allow(clippy::needless_range_loop)]
+            #[allow(clippy::needless_range_loop)]
             for s in 0..ct::NS {
                 y_cell[s] = species.y[s][k];
             }
@@ -453,8 +450,10 @@ mod tests {
                 "o pool drifted at dt {dt}: {o} vs {}",
                 16.0 / 18.016
             );
-            assert!((y_case.iter().sum::<f64>() - 1.0).abs() < 1e-12,
-                "mass sum drifted at dt {dt}");
+            assert!(
+                (y_case.iter().sum::<f64>() - 1.0).abs() < 1e-12,
+                "mass sum drifted at dt {dt}"
+            );
         }
     }
 

@@ -163,8 +163,7 @@ pub(crate) fn add_combustion_viscous(
         if wall_opts.temperature > 0.0 {
             // the +x fourier component at the wall: -k dT/dx, so a
             // hot cell against a cold wall loses energy either side.
-            q = -tr.k[a]
-                * wall_quad_deriv(wall_opts.temperature, tr.t[a], tr.t[b], face_x, c0, c1);
+            q = -tr.k[a] * wall_quad_deriv(wall_opts.temperature, tr.t[a], tr.t[b], face_x, c0, c1);
         }
         fxm[k] = txx;
         fym[k] = txy;
@@ -221,8 +220,7 @@ pub(crate) fn add_combustion_viscous(
         if wall_opts.temperature > 0. {
             // the +y fourier component at the wall: -k dT/dy, so a
             // hot cell against a cold wall loses energy either side.
-            q = -tr.k[a]
-                * wall_quad_deriv(wall_opts.temperature, tr.t[a], tr.t[b], face_y, c0, c1);
+            q = -tr.k[a] * wall_quad_deriv(wall_opts.temperature, tr.t[a], tr.t[b], face_y, c0, c1);
         }
         gym_x[k] = txy;
         gym_y[k] = tyy;
@@ -427,6 +425,3 @@ mod tests {
         );
     }
 }
-
-
-
