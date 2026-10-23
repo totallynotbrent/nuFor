@@ -85,10 +85,14 @@ chemistry substep adapts its internal substep to the fastest reaction
 timescale and caps the substep count per step, which keeps the stiff
 ignition transient inside the step budget.
 
-The transport is honest about one limitation: the inflow composition
-follows the near-face cell. A dedicated inflow-composition boundary
-is future work; for the combustor cases the near-face cell is the
-injectant itself, so the gate cases run correctly without it.
+The transport is honest about one limitation: the near-face cell feeds
+itself back through an inflow unless the case says otherwise. The
+`[physics.injection]` block names the species mass fractions the case
+injects, and an inflow face carries those fractions instead of the
+near-face cell. The block also sets the initial state, so a chamber
+running on burned gas starts at that composition's own energy rather
+than the premix's. A case with no injection block runs the
+stoichiometric unburned fill.
 
 ## Verification
 

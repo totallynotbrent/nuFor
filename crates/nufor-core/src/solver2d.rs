@@ -159,6 +159,23 @@ pub enum Bc2d {
         gamma: f64,
         gas_const: f64,
     },
+    /// subsonic reservoir inflow for a real-gas lane: the ghost is
+    /// the reservoir state expanded to the local face pressure through
+    /// the lane's own closure, so the acoustic feedback a fixed-state
+    /// inflow cannot give is preserved. the composition is the
+    /// chamber's injection mix.
+    ReservoirInflowRealGas {
+        /// the reservoir pressure.
+        pt: f64,
+        /// the reservoir temperature.
+        tt: f64,
+        /// the reservoir density.
+        rho_t: f64,
+        /// the injection composition, as mass fractions.
+        fill: Vec<f64>,
+        /// the lane's species count (five for park, nine for combustion).
+        n_species: usize,
+    },
     /// subsonic outflow at a fixed back pressure: the ghost copies the
     /// interior except the pressure, which is pinned.
     SubsonicOutflow { p_back: f64 },
@@ -210,6 +227,9 @@ pub(crate) fn ghost_value(
     // through the inflow); every other bc copies the near-face
     // composition.
     if var == 4 {
+        // the historical park5 ghost: a supersonic inflow injects the
+        // case fill, every other boundary copies the edge cell. the
+        // banked park5 gates depend on this exactly.
         if let (Bc2d::SupersonicInflow { .. }, Some(fill)) = (bc, inflow_y) {
             if let Some(v) = fill.get(species_index) {
                 return *v;
@@ -281,6 +301,13 @@ pub(crate) fn ghost_value(
             } else {
                 interior
             }
+        }
+        Bc2d::ReservoirInflowRealGas { .. } => {
+            // the real-gas reservoir ghost is computed by the lane
+            // that owns the closure (the axi lane's helper), because
+            // it needs the composition and the lane's own pressure
+            // inversion. this generic ghost cannot answer it.
+            interior
         }
         Bc2d::ProfileInflow { profile, rho, p } => match var {
             0 => *rho,

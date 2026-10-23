@@ -34,6 +34,14 @@ unchanged.
   that answers with a denser, slower state, the acoustic feedback a
   supersonic-inflow ghost cannot give. The tangential velocity is zero.
   This is the chamber-inflow condition the nozzle case runs on.
+- ReservoirInflowRealGas: the same idea for a real-gas lane, where the
+  stagnation state is a composition rather than a temperature. The ghost
+  expands the reservoir state to the local face pressure through the lane's
+  own closure, so a combustion chamber holds its pressure while the throat
+  chokes. The mixture's own gamma comes from the closure at the reservoir
+  temperature, not from the shaping constant. A combustion case selects it
+  by asking for a `reservoir_inflow` on the left side; the composition and
+  the reservoir state come from the case's injection block.
 - SubsonicOutflow: the ghost copies the interior but pins the ghost
   pressure to a fixed back value, the standard subsonic exit for the
   pressure-ratio nozzle studies. The config surface is

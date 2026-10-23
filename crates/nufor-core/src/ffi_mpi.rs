@@ -419,7 +419,9 @@ pub fn march_euler2d_mpi(
             // are rust-lane bcs (the nozzle case marches the axi lane in
             // rust); a fortran-marched case that carries them falls back
             // to the transmissive ghost until the mpi lane learns them.
-            ReservoirInflow { .. } | SubsonicOutflow { .. } => (0, [0.0; 5]),
+            ReservoirInflow { .. } | ReservoirInflowRealGas { .. } | SubsonicOutflow { .. } => {
+                (0, [0.0; 5])
+            }
         }
     };
     let (bw, bvw) = bc_code(&bc.west);
@@ -605,7 +607,9 @@ pub fn march_viscous2d_mpi(
             // are rust-lane bcs (the nozzle case marches the axi lane in
             // rust); a fortran-marched case that carries them falls back
             // to the transmissive ghost until the mpi lane learns them.
-            ReservoirInflow { .. } | SubsonicOutflow { .. } => (0, [0.0; 5]),
+            ReservoirInflow { .. } | ReservoirInflowRealGas { .. } | SubsonicOutflow { .. } => {
+                (0, [0.0; 5])
+            }
         }
     };
     let (bw, bvw) = bc_code(&bc.west);
@@ -799,7 +803,9 @@ pub fn march_rans2d_mpi(
             // are rust-lane bcs (the nozzle case marches the axi lane in
             // rust); a fortran-marched case that carries them falls back
             // to the transmissive ghost until the mpi lane learns them.
-            ReservoirInflow { .. } | SubsonicOutflow { .. } => (0, [0.0; 5]),
+            ReservoirInflow { .. } | ReservoirInflowRealGas { .. } | SubsonicOutflow { .. } => {
+                (0, [0.0; 5])
+            }
         }
     };
     let (bw, bvw) = bc_code(&bc.west);

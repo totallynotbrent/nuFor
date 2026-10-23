@@ -30,11 +30,18 @@ pub fn transport_species(
     fx: &[Vec<f64>],
     fy: &[Vec<f64>],
 ) -> Result<f64, Error> {
-    transport_species_generic(&mut state.y, rho, dt, dxs, dys, fx, fy)
+    transport_species_generic(&mut state.y, rho, dt, dxs, dys, fx, fy, None)
 }
 
 /// the species-count-agnostic core both lanes share: `y` holds one
 /// row per species, however many that is.
+///
+/// `radial_weights` carries the axisymmetric face radii: when it is
+/// given, the y-sweep update is weighted by the face radius (the
+/// annular divergence the flow update uses), so the species mass
+/// conserves against the flow on an annular grid. `None` is the
+/// planar lane.
+#[allow(clippy::too_many_arguments)]
 pub fn transport_species_generic(
     y: &mut [Vec<f64>],
     rho: &[f64],
@@ -43,6 +50,7 @@ pub fn transport_species_generic(
     dys: &[f64],
     fx: &[Vec<f64>],
     fy: &[Vec<f64>],
+    radial_weights: Option<&[f64]>,
 ) -> Result<f64, Error> {
     let ns = y.len();
     let nx = dxs.len();
@@ -100,7 +108,7 @@ pub fn transport_species_generic(
     // (mass flux * Y_upwind), then Y_i renormalizes against the new
     // density. applying the divergence to rho*Y keeps the pass
     // conservative in the per-species mass, not just the fraction.
-    for s in 0..crate::park::NS {
+    for s in 0..ns {
         let yi = &mut y[s];
         for j in 0..ny {
             for i in 0..nx {
@@ -111,6 +119,21 @@ pub fn transport_species_generic(
                     yx_face[s][(i + 1) * ny + j] * fx[j][i + 1] - yx_face[s][i * ny + j] * fx[j][i];
                 let flux_y =
                     yy_face[s][(j + 1) * nx + i] * fy[i][j + 1] - yy_face[s][j * nx + i] * fy[i][j];
+                // the axisymmetric y-sweep: the annular divergence
+                // weights the radial faces by their radius, exactly as
+                // the flow update does, so the species mass stays
+                // consistent with the conserved flow mass.
+                let flux_y = match radial_weights {
+                    Some(w) => {
+                        let rm = w[j];
+                        let rp = w[j + 1];
+                        let rc = 0.5 * (rm + rp);
+                        (rp * yy_face[s][(j + 1) * nx + i] * fy[i][j + 1]
+                            - rm * yy_face[s][j * nx + i] * fy[i][j])
+                            / (rc * dys[j])
+                    }
+                    None => flux_y,
+                };
                 let rho_y = rho[k] * yi[k];
                 let d = -(dxi * flux_x + dyi * flux_y);
                 let new_rho_y = rho_y + d;
@@ -205,5 +228,45 @@ mod tests {
             assert!((s.y[0][j * 4] - 1.0).abs() < 1e-12);
         }
         assert!(s.max_sum_drift() < 1e-12);
+    }
+
+    /// the generic transport must move every species row it is
+    /// given: the update loop once hardcoded the park count of five,
+    /// so the combustion lane's O, HO2, H2O2, and N2 rows were never
+    /// advected. a nine-row field with a divergent flux must move the
+    /// last row too.
+    #[test]
+    fn generic_transport_moves_every_species_row() {
+        let (dxs, dys) = grid(4);
+        let n = 16;
+        let rho = vec![1.0; n];
+        let mut y: Vec<Vec<f64>> = (0..9).map(|_| vec![0.0; n]).collect();
+        for row in y.iter_mut() {
+            row.fill(0.1);
+        }
+        // a y-flux that diverges: the bottom face carries flow up, the
+        // top face carries none, so the top row loses mass.
+        let fx: Vec<Vec<f64>> = (0..4).map(|_| vec![0.0; 5]).collect();
+        let fy: Vec<Vec<f64>> = (0..4).map(|_| vec![0.0, 0.0, 0.0, 0.0, 0.0]).collect();
+        let mut fy = fy;
+        for col in fy.iter_mut() {
+            col[0] = 0.5;
+        }
+        let resid =
+            transport_species_generic(&mut y, &rho, 0.01, &dxs, &dys, &fx, &fy, None).unwrap();
+        assert!(resid > 1e-6, "the flux must move something");
+        // the bottom row gains the inflowed mass (the flux diverges
+        // there); the last species row must have moved like the first.
+        let last_moved = (y[8][0] - 0.1).abs();
+        let first_moved = (y[0][0] - 0.1).abs();
+        assert!(
+            last_moved > 1e-9,
+            "the ninth species row did not move: {}",
+            y[8][0]
+        );
+        assert!(
+            (last_moved - first_moved).abs() < 1e-14,
+            "species rows diverged: {last_moved} vs {first_moved}"
+        );
     }
 }

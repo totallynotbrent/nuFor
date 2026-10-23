@@ -82,6 +82,73 @@ impl<'a> SpeciesField<'a> {
     }
 }
 
+/// the real-gas reservoir ghost: the reservoir state expanded
+/// isentropically to the local face pressure through the lane's own
+/// closure. the fixed-state inflow cannot give the acoustic feedback a
+/// chamber needs (the throat chokes while the chamber holds its
+/// pressure), so the chamber case uses this one.
+///
+/// `p_loc` is the interior face pressure in the lane's own closure.
+/// returns (rho, u, closure_variable), where the closure variable is
+/// the internal energy for the real-gas lanes and the pressure for
+/// the perfect-gas one.
+pub fn reservoir_real_gas(bc: &Bc2d, model: ThermoModel, p_loc: f64) -> Option<(f64, f64, f64)> {
+    let Bc2d::ReservoirInflowRealGas {
+        pt,
+        tt,
+        rho_t,
+        fill,
+        n_species,
+    } = bc
+    else {
+        return None;
+    };
+    let p_loc = p_loc.max(1e-9).min(*pt);
+    let (gamma, r_mix) = match model {
+        ThermoModel::Perfect { gamma } => (gamma, 287.05),
+        ThermoModel::Combustion9 { gamma_shaping } => {
+            if *n_species != crate::combustion_thermo::NS
+                || fill.len() != crate::combustion_thermo::NS
+            {
+                return None;
+            }
+            let mut y = [0.0f64; crate::combustion_thermo::NS];
+            for (dst, src) in y.iter_mut().zip(fill.iter()) {
+                *dst = *src;
+            }
+            let rmix = crate::combustion_closure::mix_gas_constant(&y);
+            // the mixture's own gamma at the reservoir temperature: the
+            // shaping value is the fallback, the closure is the truth.
+            let cp = crate::combustion_thermo::mix_cp_mass(&y, *tt);
+            let g = if cp > rmix {
+                (cp / (cp - rmix)).max(1.01)
+            } else {
+                gamma_shaping
+            };
+            (g, rmix)
+        }
+        _ => return None,
+    };
+    // the isentropic expansion from the reservoir to the face pressure
+    let pr = p_loc / pt;
+    let t_loc = tt * pr.powf((gamma - 1.0) / gamma);
+    let rho_loc = rho_t * pr.powf(1.0 / gamma);
+    let cp = gamma * r_mix / (gamma - 1.0);
+    let u_loc = (2.0 * cp * (tt - t_loc)).max(0.0).sqrt();
+    // the closure variable the face reconstruction carries
+    let closure_var = match model {
+        ThermoModel::Perfect { .. } => p_loc,
+        _ => {
+            let mut y = [0.0f64; crate::combustion_thermo::NS];
+            for (dst, src) in y.iter_mut().zip(fill.iter()) {
+                *dst = *src;
+            }
+            crate::combustion_closure::internal_energy_at(t_loc, &y)
+        }
+    };
+    Some((rho_loc, u_loc, closure_var))
+}
+
 /// muscl face states (left, right; each length n+1) from a padded slice
 /// of length n+2, identical to the planar march's version.
 fn face_states(p: &[f64], n: usize, muscl: bool) -> (Vec<f64>, Vec<f64>) {
@@ -1197,32 +1264,64 @@ pub(crate) fn compute_axi_fluxes(
         });
         let west_x = bc_x(&bc.west, model, edge_y_west.as_deref());
         let east_x = bc_x(&bc.east, model, edge_y_east.as_deref());
+        // the real-gas reservoir ghosts: the reservoir state expanded
+        // to the local face pressure, which is the interior cell's own
+        // pressure through the lane's closure.
+        let west_res = reservoir_real_gas(&bc.west, model, p[idx(0, j)]);
+        let east_res = reservoir_real_gas(&bc.east, model, p[idx(nx - 1, j)]);
         let pad = |c: &[f64], var: usize, s_idx: usize| -> Vec<f64> {
             let mut out = vec![0.0; nx + 2];
-            out[0] = west_x.filter(|_| var == 3).unwrap_or_else(|| {
-                ghost_value(
-                    &bc.west,
-                    c[0],
-                    var,
-                    1,
-                    y_row,
-                    px[0],
-                    inflow_fill.as_deref(),
-                    s_idx,
-                )
-            });
-            out[nx + 1] = east_x.filter(|_| var == 3).unwrap_or_else(|| {
-                ghost_value(
-                    &bc.east,
-                    c[nx - 1],
-                    var,
-                    1,
-                    y_row,
-                    px[nx - 1],
-                    inflow_fill.as_deref(),
-                    s_idx,
-                )
-            });
+            // the west ghost: a real-gas reservoir carries the expanded
+            // reservoir state, otherwise the bc's own ghost answers.
+            out[0] = match west_res {
+                Some((rho_g, u_g, cv_g)) => match var {
+                    0 => rho_g,
+                    1 => u_g,
+                    2 => 0.0,
+                    3 => cv_g,
+                    _ => inflow_fill
+                        .as_ref()
+                        .and_then(|f| f.get(s_idx).copied())
+                        .unwrap_or(c[0]),
+                },
+                None => west_x.filter(|_| var == 3).unwrap_or_else(|| {
+                    ghost_value(
+                        &bc.west,
+                        c[0],
+                        var,
+                        1,
+                        y_row,
+                        px[0],
+                        inflow_fill.as_deref(),
+                        s_idx,
+                    )
+                }),
+            };
+            // the east ghost: the same treatment on the far side.
+            out[nx + 1] = match east_res {
+                Some((rho_g, u_g, cv_g)) => match var {
+                    0 => rho_g,
+                    1 => u_g,
+                    2 => 0.0,
+                    3 => cv_g,
+                    _ => inflow_fill
+                        .as_ref()
+                        .and_then(|f| f.get(s_idx).copied())
+                        .unwrap_or(c[nx - 1]),
+                },
+                None => east_x.filter(|_| var == 3).unwrap_or_else(|| {
+                    ghost_value(
+                        &bc.east,
+                        c[nx - 1],
+                        var,
+                        1,
+                        y_row,
+                        px[nx - 1],
+                        inflow_fill.as_deref(),
+                        s_idx,
+                    )
+                }),
+            };
             out[1..=nx].copy_from_slice(c);
             out
         };
@@ -1308,32 +1407,55 @@ pub(crate) fn compute_axi_fluxes(
         });
         let south_x_here = bc_x(&bc.south, model, edge_y_south.as_deref());
         let north_x_here = bc_x(&bc.north, model, edge_y_north.as_deref());
+        // the real-gas reservoir ghosts on the column faces.
+        let south_res = reservoir_real_gas(&bc.south, model, p[idx(i, 0)]);
+        let north_res = reservoir_real_gas(&bc.north, model, p[idx(i, ny - 1)]);
         let pad = |c: &[f64], var: usize, s_idx: usize| -> Vec<f64> {
             let mut out = vec![0.0; ny + 2];
-            out[0] = south_x_here.filter(|_| var == 3).unwrap_or_else(|| {
-                ghost_value(
-                    &bc.south,
-                    c[0],
-                    var,
-                    2,
-                    x_ghost_s,
-                    cx[0],
-                    inflow_fill.as_deref(),
-                    s_idx,
-                )
-            });
-            out[ny + 1] = north_x_here.filter(|_| var == 3).unwrap_or_else(|| {
-                ghost_value(
-                    &bc.north,
-                    c[ny - 1],
-                    var,
-                    2,
-                    x_ghost_n,
-                    cx[ny - 1],
-                    inflow_fill.as_deref(),
-                    s_idx,
-                )
-            });
+            if let Some((rho_g, u_g, cv_g)) = south_res {
+                out[0] = match var {
+                    0 => rho_g,
+                    1 => 0.0,
+                    2 => u_g,
+                    3 => cv_g,
+                    _ => c[0],
+                };
+            } else {
+                out[0] = south_x_here.filter(|_| var == 3).unwrap_or_else(|| {
+                    ghost_value(
+                        &bc.south,
+                        c[0],
+                        var,
+                        2,
+                        x_ghost_s,
+                        cx[0],
+                        inflow_fill.as_deref(),
+                        s_idx,
+                    )
+                });
+            }
+            if let Some((rho_g, u_g, cv_g)) = north_res {
+                out[ny + 1] = match var {
+                    0 => rho_g,
+                    1 => 0.0,
+                    2 => u_g,
+                    3 => cv_g,
+                    _ => c[ny - 1],
+                };
+            } else {
+                out[ny + 1] = north_x_here.filter(|_| var == 3).unwrap_or_else(|| {
+                    ghost_value(
+                        &bc.north,
+                        c[ny - 1],
+                        var,
+                        2,
+                        x_ghost_n,
+                        cx[ny - 1],
+                        inflow_fill.as_deref(),
+                        s_idx,
+                    )
+                });
+            }
             out[1..=ny].copy_from_slice(c);
             out
         };

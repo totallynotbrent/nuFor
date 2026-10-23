@@ -1,5 +1,7 @@
 //! typed case.toml schema; strict structs reject unknown keys.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 /// top-level case file.
@@ -96,6 +98,14 @@ pub struct Physics {
     /// only read when `eos = "combustion"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chemistry: Option<String>,
+    /// the composition the case injects, as mass fractions by species
+    /// name ("H2", "O2", "H2O", "OH", "H", "O", "HO2", "H2O2", "N2").
+    /// omitted means the stoichiometric unburned h2/o2 fill. a
+    /// chamber case injects the burned composition here, so the
+    /// injection face carries the equilibrium gas rather than the
+    /// premix.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub injection: Option<HashMap<String, f64>>,
 }
 
 /// the sa turbulence block of a rans_2d_sa case.

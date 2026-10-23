@@ -47,13 +47,29 @@ pub fn path_for(case_path: &str) -> Option<PathBuf> {
 
 /// the optional cae readout a march can attach to a tick. everything
 /// defaults to none, so a plain euler case costs nothing.
-#[derive(Default, Clone, Copy)]
 pub struct SampleExtra {
     pub cd: Option<f64>,
     pub cl: Option<f64>,
     pub q_max: Option<f64>,
     pub residual: f64,
     pub t_max: Option<f64>,
+    /// the peak cell pressure through the run's own closure. none
+    /// means the tick computes the perfect-gas form, which is right
+    /// for the perfect-gas lanes only.
+    pub p_peak: Option<f64>,
+}
+
+impl Default for SampleExtra {
+    fn default() -> Self {
+        SampleExtra {
+            cd: None,
+            cl: None,
+            q_max: None,
+            residual: 0.0,
+            t_max: None,
+            p_peak: None,
+        }
+    }
 }
 
 impl Progress {
@@ -174,19 +190,28 @@ impl Progress {
         let n = st.rho.len();
         let mut rho_min = f64::INFINITY;
         let mut rho_max = f64::NEG_INFINITY;
-        let mut p_max = 0.0f64;
+        // the peak pressure comes from the run's own closure when the
+        // caller supplies it: the perfect-gas form (gamma-1) * (e -
+        // rho*ke) misreads the eqair and combustion lanes, whose
+        // pressure is not a function of the internal energy alone.
+        let p_max = match extra.p_peak {
+            Some(p) => p,
+            None => {
+                let mut p_max = 0.0f64;
+                for i in 0..n {
+                    let e_int = st.e[i]
+                        - 0.5 * (st.mx[i] * st.mx[i] + st.my[i] * st.my[i]) / st.rho[i].max(1e-30);
+                    let p_i = 0.4 * e_int;
+                    if p_i > 0.0 {
+                        p_max = p_max.max(p_i);
+                    }
+                }
+                p_max
+            }
+        };
         for i in 0..n {
             rho_min = rho_min.min(st.rho[i]);
             rho_max = rho_max.max(st.rho[i]);
-            // p from the conserved state exactly as eos_pressure2d
-            // computes it: (gamma-1) * (e - rho*ke), with rho*ke =
-            // 0.5*(mx^2 + my^2)/rho. the previous form multiplied by
-            // rho a second time and understated p by that factor.
-            let p_i =
-                0.4 * (st.e[i] - 0.5 * (st.mx[i] * st.mx[i] + st.my[i] * st.my[i]) / st.rho[i]);
-            if p_i > 0.0 {
-                p_max = p_max.max(p_i);
-            }
         }
         let wall = self.t0.elapsed().as_secs_f64();
         self.samples.push(Sample {

@@ -182,6 +182,60 @@ impl Default for SolidRef {
     }
 }
 
+/// the combustion-aware solid fill: the same body treatment as
+/// apply_solid_ref, with the reference state read through the
+/// combustion closure at the case's fill composition. the scalar
+/// inert reference (rho 1, e 2.5) reads as unburned gas at an absurd
+/// temperature under the species closure, and the muscl stencil feeds
+/// that state to the band cells.
+#[allow(clippy::too_many_arguments)]
+pub fn apply_solid_combustion(
+    state: &mut ConservedState2d,
+    g: &Grid2d,
+    dist: &dyn Fn(f64, f64) -> f64,
+    normal: &dyn Fn(f64, f64) -> (f64, f64),
+    rho_fs: f64,
+    u_fs: f64,
+    p_fs: f64,
+    fill: &[f64; crate::combustion_thermo::NS],
+) {
+    // e is per volume: quiescent freestream internal energy at the
+    // fill composition, no kinetic term.
+    let mut y = [0.0f64; crate::combustion_thermo::NS];
+    for (dst, src) in y.iter_mut().zip(fill.iter()) {
+        *dst = *src;
+    }
+    let t_fs = p_fs / (rho_fs * crate::combustion_closure::mix_gas_constant(&y));
+    let e_int = crate::combustion_closure::internal_energy_at(t_fs, &y);
+    let band = 1.5 * g.dx.min(g.dy);
+    let cache = body_cache(g, dist, band);
+    for k in &cache.solid_cells {
+        state.rho[*k] = rho_fs;
+        state.mx[*k] = 0.0;
+        state.my[*k] = 0.0;
+        state.e[*k] = e_int * rho_fs;
+    }
+    for k in &cache.pocket_cells {
+        state.rho[*k] = rho_fs;
+        state.mx[*k] = 0.0;
+        state.my[*k] = 0.0;
+        state.e[*k] = e_int * rho_fs;
+    }
+    // the band projection is composition-agnostic: the tangency
+    // condition only touches the momentum.
+    let _ = (u_fs, normal);
+    for k in &cache.band_cells {
+        let (nx, ny) = normal(g.centers_x[*k], g.centers_y[*k]);
+        let u = state.mx[*k] / state.rho[*k];
+        let v = state.my[*k] / state.rho[*k];
+        let un = u * nx + v * ny;
+        if un > 0.0 {
+            state.mx[*k] -= rho_fs * un * nx;
+            state.my[*k] -= rho_fs * un * ny;
+        }
+    }
+}
+
 /// impose the solid body on the state after each step.
 ///
 /// cells strictly inside the body are held at the inert reference; fluid cells

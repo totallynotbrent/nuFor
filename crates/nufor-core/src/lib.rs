@@ -78,8 +78,8 @@ pub use axi::{
 };
 pub use blasius::{BlasiusProfile, BlasiusTable, CF_CONST};
 pub use body::{
-    apply_solid, apply_solid_fn, apply_solid_ref, body_cache, solid_mask, BodyCache, SolidBody,
-    SolidPolygon, SolidShape,
+    apply_solid, apply_solid_combustion, apply_solid_fn, apply_solid_ref, body_cache, solid_mask,
+    BodyCache, SolidBody, SolidPolygon, SolidShape,
 };
 pub use cfl::{cfl_dt, CflStep};
 pub use cutcell::{cut_fractions, cut_fractions_corner, CutFractions};

@@ -17,8 +17,8 @@ use nufor_core::ffi_mpi::{
 use nufor_core::{
     advance2d_axi_lts, advance2d_axi_rk2, advance2d_model_rk2, advance2d_model_visc_lts,
     advance2d_model_visc_rk2, advance2d_sa_lts, advance2d_sa_model_rk2, advance3d_rk2,
-    advance_ugrid, advance_ugrid_recon, apply_solid_fn, apply_solid_ref, body_cache,
-    cons_to_prim2d, eos_pressure2d, euler_solve, grid1d, grid2d, grid3d, prim_to_cons,
+    advance_ugrid, advance_ugrid_recon, apply_solid_combustion, apply_solid_fn, apply_solid_ref,
+    body_cache, cons_to_prim2d, eos_pressure2d, euler_solve, grid1d, grid2d, grid3d, prim_to_cons,
     prim_to_cons2d, prim_to_cons3d, read_restart, read_restart2d, render_png, wall_distance2d,
     write_csv, write_h5, write_restart, write_restart2d, write_vtk, write_vtk2d_combustion,
     write_vtk2d_model, write_vtk2d_park5, write_vtk3d, Bc2d, Boundaries2d, Boundary, Bounds3d,
@@ -1070,6 +1070,37 @@ pub fn case_boundaries(cfg: &CaseConfig) -> Boundaries2d {
 /// the axisymmetric euler run: planar fluxes with the annular update,
 /// optional immersed body via the solid mask, slip-wall south boundary
 /// as the symmetry axis.
+/// the injection composition a combustion case asks for: the mass
+/// fractions by species name, normalized to one. omitted means the
+/// stoichiometric unburned h2/o2 fill.
+fn combustion_fill(cfg: &CaseConfig) -> Result<[f64; nufor_core::combustion_thermo::NS], String> {
+    use nufor_core::combustion_thermo as ct;
+    let mut y = [0.0f64; ct::NS];
+    match &cfg.physics.injection {
+        None => {
+            y[ct::IH2] = 2.016 / 18.016;
+            y[ct::IO2] = 16.0 / 18.016;
+        }
+        Some(map) => {
+            for (name, frac) in map {
+                let idx = ct::SPECIES_NAMES
+                    .iter()
+                    .position(|n| n.eq_ignore_ascii_case(name))
+                    .ok_or_else(|| format!("unknown species {name:?} in the injection block"))?;
+                y[idx] = *frac;
+            }
+            let sum: f64 = y.iter().sum();
+            if sum <= 0.0 {
+                return Err("the injection composition sums to zero".into());
+            }
+            for v in y.iter_mut() {
+                *v /= sum;
+            }
+        }
+    }
+    Ok(y)
+}
+
 fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
     let g = match build_2d_mesh_in(&cfg.mesh, Some(&case_dir(path))) {
         Ok(g) => g,
@@ -1104,7 +1135,7 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
                 return 2;
             }
         },
-        None => match ic2d_from_case_model(&cfg.initial_condition, &g, gamma, model) {
+        None => match ic2d_from_case_model(&cfg.initial_condition, &g, gamma, model, cfg) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("initial condition error: {e}");
@@ -1114,8 +1145,58 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
     };
     let body = case_body_fns(&cfg.body);
     if let Some((dist, normal)) = &body {
-        apply_solid_fn(&mut st, &g, dist.as_ref(), normal.as_ref(), gamma);
+        if matches!(model, ThermoModel::Combustion9 { .. }) {
+            // the combustion closure reads the scalar inert reference
+            // as unburned gas at an absurd temperature; fill the solid
+            // with the case's own fill state instead.
+            match &cfg.initial_condition {
+                nufor_config::InitialCondition::Uniform { rho, u, p } => {
+                    let fill = combustion_fill(cfg).unwrap_or_else(|e| {
+                        eprintln!("injection composition error: {e}");
+                        [0.0; nufor_core::combustion_thermo::NS]
+                    });
+                    nufor_core::apply_solid_combustion(
+                        &mut st,
+                        &g,
+                        dist.as_ref(),
+                        normal.as_ref(),
+                        *rho,
+                        *u,
+                        *p,
+                        &fill,
+                    );
+                }
+                _ => apply_solid_fn(&mut st, &g, dist.as_ref(), normal.as_ref(), gamma),
+            }
+        } else {
+            apply_solid_fn(&mut st, &g, dist.as_ref(), normal.as_ref(), gamma);
+        }
     }
+    // the combustion lane carries its own nine-species state beside
+    // the flow state: the fill composition, then the march.
+    let mut combustion_state = if matches!(model, ThermoModel::Combustion9 { .. }) {
+        let fill = match combustion_fill(cfg) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("injection composition error: {e}");
+                return 2;
+            }
+        };
+        Some(nufor_core::combustion_march::CombustionState::with_fill(
+            g.nx * g.ny,
+            &fill,
+        ))
+    } else {
+        None
+    };
+    let combustion_react = match cfg.physics.chemistry.as_deref() {
+        Some("on") | Some("equilibrium") => true,
+        Some("off") | Some("frozen") | None => false,
+        other => {
+            eprintln!("unknown chemistry setting {other:?}");
+            return 2;
+        }
+    };
     let mut bc = case_boundaries(cfg);
     // the axisymmetric defaults: the south side is the symmetry axis
     // (slip wall) and the north side vents unless the case says more.
@@ -1124,6 +1205,36 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
     }
     if cfg.boundaries.top.is_none() {
         bc.north = Bc2d::SupersonicOutflow;
+    }
+    // the combustion lane's chamber inflow: a real-gas reservoir that
+    // expands to the local face pressure, so the chamber holds its
+    // pressure while the throat chokes. the perfect-gas reservoir
+    // ghost cannot answer a real-gas closure.
+    if matches!(model, ThermoModel::Combustion9 { .. }) {
+        if let Some((rho, _u, _v, p)) = case_inflow_state(cfg) {
+            let fill = match combustion_fill(cfg) {
+                Ok(f) => f.to_vec(),
+                Err(e) => {
+                    eprintln!("injection composition error: {e}");
+                    return 2;
+                }
+            };
+            let fill_arr: [f64; nufor_core::combustion_thermo::NS] = fill
+                .as_slice()
+                .try_into()
+                .unwrap_or([0.0; nufor_core::combustion_thermo::NS]);
+            let tt = p / (rho * nufor_core::combustion_closure::mix_gas_constant(&fill_arr));
+            let real_gas = Bc2d::ReservoirInflowRealGas {
+                pt: p,
+                tt,
+                rho_t: rho,
+                fill,
+                n_species: nufor_core::combustion_thermo::NS,
+            };
+            if cfg.boundaries.left == nufor_config::BoundaryKind::ReservoirInflow {
+                bc.west = real_gas;
+            }
+        }
     }
     let cfl = cfg.numerics.cfl;
     let t_end = cfg.time.final_time;
@@ -1140,7 +1251,19 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
     let mut ok = true;
     let mut prog = progress::Progress::new(path, "2d-axi");
     while t < t_end && steps < max_steps {
-        let stepped_axi = if cfg.numerics.local_time_stepping {
+        let stepped_axi = if let Some(sp) = combustion_state.as_mut() {
+            nufor_core::combustion_march::advance2d_combustion_axi_rk2(
+                &mut st,
+                sp,
+                &g,
+                cfl,
+                true,
+                &bc,
+                cfg.numerics.threads,
+                None,
+                combustion_react,
+            )
+        } else if cfg.numerics.local_time_stepping {
             advance2d_axi_lts(
                 &mut st,
                 &g,
@@ -1211,7 +1334,15 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
             t,
             t0.elapsed().as_secs_f64()
         );
-        let rc = write_case_vtk2d_model(path, &cfg.metadata.name, &g, &st, model, None, None);
+        let rc = write_case_vtk2d_model(
+            path,
+            &cfg.metadata.name,
+            &g,
+            &st,
+            model,
+            None,
+            combustion_state.as_ref(),
+        );
         if rc == 0 {
             write_run_log_2d(
                 cfg,
@@ -1611,7 +1742,6 @@ fn progress_readout(
             .map(|k| {
                 let mut y = [0.0f64; nufor_core::combustion_thermo::NS];
                 #[allow(clippy::needless_range_loop)]
-                #[allow(clippy::needless_range_loop)]
                 for s in 0..nufor_core::combustion_thermo::NS {
                     y[s] = sp.y[s][k];
                 }
@@ -1649,7 +1779,6 @@ fn progress_readout(
             .map(|k| {
                 let mut y = [0.0f64; nufor_core::combustion_thermo::NS];
                 #[allow(clippy::needless_range_loop)]
-                #[allow(clippy::needless_range_loop)]
                 for s in 0..nufor_core::combustion_thermo::NS {
                     y[s] = sp.y[s][k];
                 }
@@ -1672,9 +1801,19 @@ fn progress_readout(
                 })
             }),
     };
+    // the peak pressure through the run's own closure, so the tick's
+    // readout agrees with the march (the perfect-gas form misreads the
+    // eqair and combustion lanes).
+    let p_peak = p.iter().copied().filter(|v| *v > 0.0).fold(None, |a, v| {
+        Some(match a {
+            Some(m) if m >= v => m,
+            _ => v,
+        })
+    });
     let mut extra = progress::SampleExtra {
         residual,
         t_max,
+        p_peak,
         ..Default::default()
     };
     let Some((dist, normal)) = body else {
@@ -1777,7 +1916,7 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
             restart_time = rd.time;
             rd.state
         }
-        None => match ic2d_from_case_model(&cfg.initial_condition, &g, gamma, model) {
+        None => match ic2d_from_case_model(&cfg.initial_condition, &g, gamma, model, cfg) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("initial condition error: {e}");
@@ -1809,6 +1948,29 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
                 visc_no_slip,
             );
             let _ = u_fs;
+        } else if matches!(model, ThermoModel::Combustion9 { .. }) {
+            // the combustion closure reads the scalar inert reference
+            // (rho 1, e 2.5) as unburned gas at an absurd temperature;
+            // fill the solid with the case's own fill state instead.
+            match &cfg.initial_condition {
+                nufor_config::InitialCondition::Uniform { rho, u, p } => {
+                    let fill = combustion_fill(cfg).unwrap_or_else(|e| {
+                        eprintln!("injection composition error: {e}");
+                        [0.0; nufor_core::combustion_thermo::NS]
+                    });
+                    apply_solid_combustion(
+                        &mut st,
+                        &g,
+                        dist.as_ref(),
+                        normal.as_ref(),
+                        *rho,
+                        *u,
+                        *p,
+                        &fill,
+                    );
+                }
+                _ => apply_solid_fn(&mut st, &g, dist.as_ref(), normal.as_ref(), gamma),
+            }
         } else {
             apply_solid_fn(&mut st, &g, dist.as_ref(), normal.as_ref(), gamma);
         }
@@ -1837,8 +1999,16 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     // stoichiometric unburned fill (a chamber case reseeds through
     // the inflow boundary). chemistry off freezes the composition.
     let mut combustion_state = if matches!(model, ThermoModel::Combustion9 { .. }) {
-        Some(nufor_core::combustion_march::CombustionState::stoich_h2o2(
+        let fill = match combustion_fill(cfg) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("injection composition error: {e}");
+                return 2;
+            }
+        };
+        Some(nufor_core::combustion_march::CombustionState::with_fill(
             g.nx * g.ny,
+            &fill,
         ))
     } else {
         None
@@ -2953,7 +3123,7 @@ fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
         }
     };
     let gamma = cfg.physics.gamma;
-    let mut st = match ic2d_from_case_model(&cfg.initial_condition, &g, gamma, model) {
+    let mut st = match ic2d_from_case_model(&cfg.initial_condition, &g, gamma, model, cfg) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("initial condition error: {e}");
@@ -3454,7 +3624,12 @@ fn run_case_3d(cfg: &CaseConfig, path: &str) -> i32 {
 /// 2d initial condition: uniform field or an over-pressured fireball.
 /// the uniform IC under either closure: perfect gas inverts p directly,
 /// equilibrium air bisects the fits for e.
-fn ic_uniform_energy(rho: f64, p: f64, model: ThermoModel) -> Result<f64, String> {
+fn ic_uniform_energy(
+    rho: f64,
+    p: f64,
+    model: ThermoModel,
+    cfg: &CaseConfig,
+) -> Result<f64, String> {
     match model {
         ThermoModel::Perfect { gamma } => Ok(p / ((gamma - 1.0) * rho)),
         ThermoModel::EqAir { .. } => nufor_core::eqair_energy(&[rho], &[p])
@@ -3466,9 +3641,21 @@ fn ic_uniform_energy(rho: f64, p: f64, model: ThermoModel) -> Result<f64, String
             Ok(nufor_core::species_march::air_ic_energy(rho, p))
         }
         ThermoModel::Combustion9 { .. } => {
-            // uniform combustion ICs start as the stoichiometric
-            // unburned fill; e_int carries the formation offset.
-            Ok(nufor_core::combustion_march::h2o2_ic_energy(rho, p))
+            // uniform combustion ICs start as the injection
+            // composition's energy, not the stoich premix's: a
+            // chamber case fills with the burned gas.
+            let mut y = [0.0f64; nufor_core::combustion_thermo::NS];
+            y[nufor_core::combustion_thermo::IH2] = 2.016 / 18.016;
+            y[nufor_core::combustion_thermo::IO2] = 16.0 / 18.016;
+            match &cfg.physics.injection {
+                None => Ok(nufor_core::combustion_march::h2o2_ic_energy_at(rho, p, &y)),
+                Some(_) => {
+                    let y_case = combustion_fill(cfg)?;
+                    Ok(nufor_core::combustion_march::h2o2_ic_energy_at(
+                        rho, p, &y_case,
+                    ))
+                }
+            }
         }
     }
 }
@@ -3478,10 +3665,11 @@ fn ic2d_from_case_model(
     g: &Grid2d,
     gamma: f64,
     model: ThermoModel,
+    cfg: &CaseConfig,
 ) -> Result<ConservedState2d, String> {
     match ic {
         InitialCondition::Uniform { rho, u, p } => {
-            let e_int = ic_uniform_energy(*rho, *p, model)?;
+            let e_int = ic_uniform_energy(*rho, *p, model, cfg)?;
             let n = g.nx * g.ny;
             let et = e_int + 0.5 * u * u;
             let rhost = vec![*rho; n];

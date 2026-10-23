@@ -55,8 +55,30 @@ case is the test that they are present and correct.
 The setup and the checked numbers are on
 [[verification/axisymmetric-sphere|the sphere validation page]].
 
+## The chamber lane
+
+The axisymmetric march carries the nine-species combustion closure, so a
+chamber and its throat run on the same code. Two pieces make the chamber
+behave like a chamber rather than a pipe:
+
+- The radial species transport carries the face radii, like the flow
+  update does. A planar mass-flux difference would move the wrong
+  amount of composition into the inner rows.
+- The chamber's inflow is a real-gas reservoir. The ghost expands the
+  reservoir state to the local face pressure through the closure, so
+  the chamber holds its pressure while the throat chokes, and the
+  pressure wave that the throat sends back upstream is answered
+  instead of reflected. The perfect-gas reservoir ghost cannot answer
+  a real-gas closure, so the combustion lane has its own.
+
+The body fill reads the case's injection composition, not the scalar
+inert reference: under the species closure the inert reference is
+unburned gas at an absurd temperature, and the reconstruction stencil
+would feed it to the wall-adjacent cells.
+
 ## See also
 
 - [[numerics/2d/euler|2D Euler solver]], the planar march whose fluxes the
   annular update reuses
+- [[numerics/2d/combustion|Combustion]], the nine-species closure and march
 - [[verification/axisymmetric-sphere|Sphere validation]]
