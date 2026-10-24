@@ -230,7 +230,7 @@ impl Watch {
             nufor_config::Eos::Combustion => "combustion",
         };
         let (frho, fu, fp) = match &cfg.initial_condition {
-            nufor_config::InitialCondition::Uniform { rho, u, p } => {
+            nufor_config::InitialCondition::Uniform { rho, u, p, .. } => {
                 (format!("{rho:e}"), format!("{u:e}"), format!("{p:e}"))
             }
             nufor_config::InitialCondition::TwoState { left, .. } => (

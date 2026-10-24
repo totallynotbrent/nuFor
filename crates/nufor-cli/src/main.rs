@@ -836,7 +836,7 @@ pub fn ic_from_case(ic: &InitialCondition, n: usize, gamma: f64) -> Result<Conse
         ConservedState { rho, m, e }
     };
     match ic {
-        InitialCondition::Uniform { rho, u, p } => Ok(fill(*rho, *u, *p)),
+        InitialCondition::Uniform { rho, u, p, .. } => Ok(fill(*rho, *u, *p)),
         InitialCondition::Quasi1d { .. } => {
             Err("the quasi1d initial condition is 2d only".to_owned())
         }
@@ -989,7 +989,7 @@ pub fn case_body_fns(body: &Option<nufor_config::BodySection>) -> Option<CaseBod
 /// falling back to the uniform freestream.
 pub fn case_side_bc_euler(
     k: BoundaryKind,
-    inflow: Option<(f64, f64, f64, f64)>,
+    inflow: Option<(f64, f64, f64, f64, Option<f64>)>,
     gas_const: f64,
     gamma: f64,
     p_back: Option<f64>,
@@ -999,14 +999,14 @@ pub fn case_side_bc_euler(
         BoundaryKind::SlipWall => Bc2d::SlipWall,
         BoundaryKind::SupersonicOutflow => Bc2d::SupersonicOutflow,
         BoundaryKind::SupersonicInflow | BoundaryKind::Inflow => match inflow {
-            Some((rho, u, v, p)) => Bc2d::SupersonicInflow { rho, u, v, p },
+            Some((rho, u, v, p, t)) => Bc2d::SupersonicInflow { rho, u, v, p, t },
             None => Bc2d::Transmissive,
         },
         // the reservoir inflow reads its stagnation state from
         // inflow_state: pt = the state's p, tt from rho/p through the
         // case gas constant.
         BoundaryKind::ReservoirInflow => match inflow {
-            Some((rho, _u, _v, p)) if rho > 0.0 && p > 0.0 => Bc2d::ReservoirInflow {
+            Some((rho, _u, _v, p, _t)) if rho > 0.0 && p > 0.0 => Bc2d::ReservoirInflow {
                 pt: p,
                 tt: p / (rho * gas_const),
                 gas_const,
@@ -1026,25 +1026,27 @@ pub fn case_side_bc_euler(
 
 /// the inflow state a supersonic_inflow side carries: the explicit
 /// boundaries.inflow_state when present, else the uniform freestream.
-pub fn case_inflow_state(cfg: &CaseConfig) -> Option<(f64, f64, f64, f64)> {
+pub fn case_inflow_state(cfg: &CaseConfig) -> Option<(f64, f64, f64, f64, Option<f64>)> {
     match &cfg.boundaries.inflow_state {
-        Some(s) => Some((s.rho, s.u, s.v, s.p)),
+        Some(s) => Some((s.rho, s.u, s.v, s.p, s.t)),
         None => Some(freestream(cfg)),
     }
 }
 
 /// the uniform freestream state the inflow sides use, taken from the
 /// initial condition.
-fn freestream(cfg: &CaseConfig) -> (f64, f64, f64, f64) {
+fn freestream(cfg: &CaseConfig) -> (f64, f64, f64, f64, Option<f64>) {
     match &cfg.initial_condition {
-        InitialCondition::Uniform { rho, u, p } => (*rho, *u, 0.0, *p),
-        InitialCondition::TwoState { left, .. } => (left.rho, left.u, 0.0, left.p),
-        InitialCondition::Blast { ambient, .. } => (ambient.rho, ambient.u, 0.0, ambient.p),
+        InitialCondition::Uniform { rho, u, p, t } => (*rho, *u, 0.0, *p, *t),
+        InitialCondition::TwoState { left, .. } => (left.rho, left.u, 0.0, left.p, left.t),
+        InitialCondition::Blast { ambient, .. } => {
+            (ambient.rho, ambient.u, 0.0, ambient.p, ambient.t)
+        }
         // a quasi-1d case's reservoir state fronts the field; the
         // inflow sides carry their own ghost states.
         InitialCondition::Quasi1d { p0, t0 } => {
             let r = cfg.physics.gas_constant;
-            (p0 / (r * t0), 0.0, 0.0, *p0)
+            (p0 / (r * t0), 0.0, 0.0, *p0, Some(*t0))
         }
     }
 }
@@ -1158,7 +1160,7 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
     // fill state, hoisted out of the loop.
     let mut solid_fill_cache: Option<[f64; nufor_core::combustion_thermo::NS]> = None;
     let solid_rho_p: (f64, f64) = match &cfg.initial_condition {
-        nufor_config::InitialCondition::Uniform { rho, u: _, p } => (*rho, *p),
+        nufor_config::InitialCondition::Uniform { rho, u: _, p, .. } => (*rho, *p),
         nufor_config::InitialCondition::Quasi1d { p0, t0 } => {
             (p0 / (cfg.physics.gas_constant * t0), *p0)
         }
@@ -1177,7 +1179,7 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
             // the uniform case's (rho, p), or the quasi-1d case's
             // chamber stagnation state.
             let (rho_f, u_f, p_f) = match &cfg.initial_condition {
-                nufor_config::InitialCondition::Uniform { rho, u, p } => (*rho, *u, *p),
+                nufor_config::InitialCondition::Uniform { rho, u, p, .. } => (*rho, *u, *p),
                 nufor_config::InitialCondition::Quasi1d { p0, t0 } => {
                     (p0 / (cfg.physics.gas_constant * t0), 0.0, *p0)
                 }
@@ -1239,7 +1241,7 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
     // pressure while the throat chokes. the perfect-gas reservoir
     // ghost cannot answer a real-gas closure.
     if matches!(model, ThermoModel::Combustion9 { .. }) {
-        if let Some((rho, _u, _v, p)) = case_inflow_state(cfg) {
+        if let Some((rho, _u, _v, p, _t)) = case_inflow_state(cfg) {
             let fill = match combustion_fill(cfg) {
                 Ok(f) => f.to_vec(),
                 Err(e) => {
@@ -1561,7 +1563,7 @@ fn run_case_axi_curv(cfg: &CaseConfig, path: &str) -> i32 {
     let g = CurvGrid::over_sphere_cone(&sc, cfg.mesh.nx as usize, ny, 6.0, 2.0);
     let model = model_from_config(cfg);
     let (rho0, u0, p0) = match &cfg.initial_condition {
-        nufor_config::InitialCondition::Uniform { rho, u, p } => (*rho, *u, *p),
+        nufor_config::InitialCondition::Uniform { rho, u, p, .. } => (*rho, *u, *p),
         _ => {
             eprintln!("o-grid runner needs a uniform initial condition");
             return 2;
@@ -1998,7 +2000,7 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     // no-slip wall fluxes do the braking.
     let visc_no_slip = cfg.physics.mu.is_some_and(|m| m > 0.0);
     let fs_ref = match (&cfg.initial_condition, model) {
-        (nufor_config::InitialCondition::Uniform { rho, u, p }, ThermoModel::EqAir { .. }) => {
+        (nufor_config::InitialCondition::Uniform { rho, u, p, .. }, ThermoModel::EqAir { .. }) => {
             Some((*rho, *p, *u))
         }
         _ => None,
@@ -2020,7 +2022,7 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
             // (rho 1, e 2.5) as unburned gas at an absurd temperature;
             // fill the solid with the case's own fill state instead.
             match &cfg.initial_condition {
-                nufor_config::InitialCondition::Uniform { rho, u, p } => {
+                nufor_config::InitialCondition::Uniform { rho, u, p, .. } => {
                     let fill = combustion_fill(cfg).unwrap_or_else(|e| {
                         eprintln!("injection composition error: {e}");
                         [0.0; nufor_core::combustion_thermo::NS]
@@ -3276,6 +3278,12 @@ fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
                 InitialCondition::Blast { ambient, .. } => ambient.p,
                 InitialCondition::Quasi1d { p0, .. } => *p0,
             },
+            t: match &cfg.initial_condition {
+                InitialCondition::Uniform { t, .. } => *t,
+                InitialCondition::TwoState { left, .. } => left.t,
+                InitialCondition::Blast { ambient, .. } => ambient.t,
+                InitialCondition::Quasi1d { t0, .. } => Some(*t0),
+            },
         },
         // the reservoir inflow and subsonic back-pressure outflow are
         // euler-lane bcs; the sa lane treats them as transmissive until
@@ -3474,7 +3482,7 @@ fn run_case_2d_msh(cfg: &CaseConfig, path: &str, msh_path: &str) -> i32 {
     // a uniform IC seeds every cell with the freestream state and
     // matches the inflow boundary to it; the blast IC keeps its demo
     // path below.
-    if let nufor_config::InitialCondition::Uniform { rho, u, p } = &cfg.initial_condition {
+    if let nufor_config::InitialCondition::Uniform { rho, u, p, .. } = &cfg.initial_condition {
         ug.freestream = [*rho, *u, 0.0, *p];
         // total specific energy = internal + kinetic; prim_to_cons2d
         // stores e = rho * et verbatim.
@@ -3708,6 +3716,7 @@ fn run_case_3d(cfg: &CaseConfig, path: &str) -> i32 {
 fn ic_uniform_energy(
     rho: f64,
     p: f64,
+    t_fill: Option<f64>,
     model: ThermoModel,
     cfg: &CaseConfig,
 ) -> Result<f64, String> {
@@ -3728,15 +3737,17 @@ fn ic_uniform_energy(
             let mut y = [0.0f64; nufor_core::combustion_thermo::NS];
             y[nufor_core::combustion_thermo::IH2] = 2.016 / 18.016;
             y[nufor_core::combustion_thermo::IO2] = 16.0 / 18.016;
-            match &cfg.physics.injection {
-                None => Ok(nufor_core::combustion_march::h2o2_ic_energy_at(rho, p, &y)),
-                Some(_) => {
-                    let y_case = combustion_fill(cfg)?;
-                    Ok(nufor_core::combustion_march::h2o2_ic_energy_at(
-                        rho, p, &y_case,
-                    ))
-                }
-            }
+            let fill = match &cfg.physics.injection {
+                None => y,
+                Some(_) => combustion_fill(cfg)?,
+            };
+            // a stated temperature wins over the one the mixture's own
+            // gas constant implies: a premix below its ignition limit
+            // stays cold however long the march runs.
+            Ok(match t_fill {
+                Some(t) => nufor_core::combustion_march::h2o2_ic_energy_at_temp(&fill, t),
+                None => nufor_core::combustion_march::h2o2_ic_energy_at(rho, p, &fill),
+            })
         }
     }
 }
@@ -3749,8 +3760,8 @@ fn ic2d_from_case_model(
     cfg: &CaseConfig,
 ) -> Result<ConservedState2d, String> {
     match ic {
-        InitialCondition::Uniform { rho, u, p } => {
-            let e_int = ic_uniform_energy(*rho, *p, model, cfg)?;
+        InitialCondition::Uniform { rho, u, p, t } => {
+            let e_int = ic_uniform_energy(*rho, *p, *t, model, cfg)?;
             let n = g.nx * g.ny;
             let et = e_int + 0.5 * u * u;
             let rhost = vec![*rho; n];
@@ -3824,7 +3835,7 @@ fn ic2d_from_case_model(
                         // motion, which the solid mask overrides anyway.
                         rho[k] = st_i.rho;
                         u[k] = 0.0;
-                        let e_int = ic_uniform_energy(st_i.rho, st_i.p, model, cfg)?;
+                        let e_int = ic_uniform_energy(st_i.rho, st_i.p, None, model, cfg)?;
                         e[k] = e_int;
                         continue;
                     }
@@ -3838,7 +3849,7 @@ fn ic2d_from_case_model(
                     // into a violent radial transient.
                     let slope = quasi1d::contour_slope(&contour, x);
                     v[k] = st_i.u * (y / r.max(1e-12)) * slope;
-                    let e_int = ic_uniform_energy(st_i.rho, st_i.p, model, cfg)?;
+                    let e_int = ic_uniform_energy(st_i.rho, st_i.p, None, model, cfg)?;
                     e[k] = e_int + 0.5 * (st_i.u * st_i.u + v[k] * v[k]);
                 }
             }
@@ -3860,7 +3871,7 @@ fn ic2d_from_case(
         0.5 * (g.ymin + g.ymax),
     );
     match ic {
-        InitialCondition::Uniform { rho, u, p } => fill2d(*rho, *u, 0.0, *p, n, gamma),
+        InitialCondition::Uniform { rho, u, p, .. } => fill2d(*rho, *u, 0.0, *p, n, gamma),
         InitialCondition::Quasi1d { .. } => {
             Err("the quasi1d initial condition needs the model-aware path".to_owned())
         }
@@ -3905,7 +3916,7 @@ fn ic3d_from_case(
         0.5 * (g.zmin + g.zmax),
     );
     match ic {
-        InitialCondition::Uniform { rho, u, p } => fill3d(*rho, *u, 0.0, 0.0, *p, n, gamma),
+        InitialCondition::Uniform { rho, u, p, .. } => fill3d(*rho, *u, 0.0, 0.0, *p, n, gamma),
         InitialCondition::Quasi1d { .. } => {
             Err("the quasi1d initial condition is 2d only".to_owned())
         }

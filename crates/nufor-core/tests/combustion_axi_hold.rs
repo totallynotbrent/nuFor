@@ -36,7 +36,13 @@ fn axi_combustion_holds_a_moving_state() {
         e: vec![rho * et; n],
     };
     let bc = Boundaries2d {
-        west: Bc2d::SupersonicInflow { rho, u, v: 0.0, p },
+        west: Bc2d::SupersonicInflow {
+            rho,
+            u,
+            v: 0.0,
+            p,
+            t: None,
+        },
         east: Bc2d::SupersonicOutflow,
         south: Bc2d::SlipWall,
         north: Bc2d::SlipWall,

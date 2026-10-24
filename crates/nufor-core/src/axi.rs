@@ -1413,13 +1413,24 @@ pub(crate) fn compute_axi_fluxes(
                 let _ = (rho, p);
                 None
             }
-            (Bc2d::SupersonicInflow { rho, p, .. }, ThermoModel::Combustion9 { .. }) => {
+            (
+                Bc2d::SupersonicInflow {
+                    rho, p, t: t_in, ..
+                },
+                ThermoModel::Combustion9 { .. },
+            ) => {
                 edge_y.map(|y9| {
                     let mut y = [0.0f64; crate::combustion_thermo::NS];
                     for (dst, src) in y.iter_mut().zip(y9.iter()) {
                         *dst = *src;
                     }
-                    let t = *p / (*rho * crate::combustion_closure::mix_gas_constant(&y));
+                    // a stated inflow temperature wins: the ghost then
+                    // arrives as hot as the case says, which is what
+                    // lets a premix cross its ignition limit.
+                    let t = match t_in {
+                        Some(t) => *t,
+                        None => *p / (*rho * crate::combustion_closure::mix_gas_constant(&y)),
+                    };
                     crate::combustion_closure::internal_energy_at(t, &y)
                 })
             }

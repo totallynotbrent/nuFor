@@ -102,10 +102,10 @@ silently change a run.
 | `mesh.growth` | float | no (default `1.15`) | > 1 | Geometric growth ratio of successive cells on a clustered axis. |
 | `mesh.cluster` | string | no (default `wall`) | `wall` \| `channel` \| `top` | Which side a clustered mesh refines: the bottom wall, both walls symmetric (needs an even `ny`), or the top wall. |
 | `initial_condition.type` | string | yes | `uniform` \| `two_state` \| `blast` | IC shape. |
-| `initial_condition` (uniform) | rho, u, p | yes | rho, p > 0 | Constant state. |
-| `initial_condition` (two_state) | left, right | yes | rho, p > 0 per side | Left/right constant states, e.g. a shock tube (1D). |
+| `initial_condition` (uniform) | rho, u, p | yes | rho, p > 0 | Constant state. `t` is optional and gives the state its temperature in kelvin; the reacting lane reads it, and a premix left at the temperature its own gas constant implies sits below the chain's ignition floor. |
+| `initial_condition` (two_state) | left, right | yes | rho, p > 0 per side | Left/right constant states, e.g. a shock tube (1D). Each side takes an optional `t`. |
 | `initial_condition` (blast) | radius, ambient, fireball | yes | radius > 0; rho, p > 0 | Over-pressured fireball in ambient surroundings; the natural 2D/3D shock-tube. |
-| `boundaries.left` | string | yes | `wall` \| `inflow` \| `outflow` \| `periodic` \| `profile_inflow` \| `slip_wall` \| `supersonic_inflow` \| `supersonic_outflow` | Left boundary condition. `profile_inflow` needs `[boundaries.inflow_profile]`; `supersonic_inflow` needs `[boundaries.inflow_state]`; the full kind list lives in [[formats/case-body]]. |
+| `boundaries.left` | string | yes | `wall` \| `inflow` \| `outflow` \| `periodic` \| `profile_inflow` \| `slip_wall` \| `supersonic_inflow` \| `supersonic_outflow` \| `subsonic_outflow` \| `reservoir_inflow` | Left boundary condition. `profile_inflow` needs `[boundaries.inflow_profile]`; `supersonic_inflow` needs `[boundaries.inflow_state]`; `subsonic_outflow` needs `[boundaries.outflow_state]` for its back pressure; the full kind list lives in [[formats/case-body]]. |
 | `boundaries.right` | string | yes | same set | Right boundary condition. |
 | `boundaries.top` | string | no | same set | Top boundary, honored by the 2D solvers (default `outflow`). |
 | `boundaries.bottom` | string | no | same set | Bottom boundary, honored by the 2D solvers (default `outflow`). A `wall` side is no-slip, which is what the SA model expects at a solid surface. |
@@ -122,7 +122,8 @@ silently change a run.
 | `time.restart_in` | string | no | | Seed the 2D run from this restart file instead of the initial condition; the file's mesh must match the case grid, and the run resumes at the file's time. |
 | `time.restart_out` | string | no | | Write a restart file to this path when the run ends (serial and MPI paths). |
 | `body` | table | no | | Optional immersed body; the shape set (`sphere_cone`, `sphere`, `polygon`) and keys live in [[formats/case-body]]. |
-| `boundaries.inflow_state` | table | with a `supersonic_inflow` side | rho, p > 0 | The fixed state a supersonic inflow side carries (`v` optional, default 0). |
+| `boundaries.inflow_state` | table | with a `supersonic_inflow` side | rho, p > 0 | The fixed state a supersonic inflow side carries (`v` optional, default 0; `t` optional, the inlet temperature in kelvin). |
+| `boundaries.outflow_state` | table | with a `subsonic_outflow` side | p > 0 | The back pressure a subsonic outflow holds. Only the pressure field is read. |
 | `output.interval_steps` | int | yes | >= 1 | Write cadence in solver steps. |
 | `output.formats` | string list | yes | non-empty, `csv` \| `vtk` \| `hdf5` | Writers to run. |
 | `output.fields` | string list | yes | non-empty | Fields written, e.g. `rho`, `u`, `p`. |

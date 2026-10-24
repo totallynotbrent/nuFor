@@ -54,6 +54,7 @@ fn aeroshell_peak_q_bow_shock_forms() {
             u: u1,
             v: 0.0,
             p: 1.0,
+            t: None,
         },
         east: Bc2d::SupersonicOutflow,
         south: Bc2d::SlipWall, // the axis

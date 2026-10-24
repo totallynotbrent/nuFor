@@ -101,6 +101,7 @@ fn polygon_cylinder_forms_the_same_bow_shock() {
             u: u1,
             v: 0.0,
             p: 1.0,
+            t: None,
         },
         east: Bc2d::SupersonicOutflow,
         south: Bc2d::SlipWall,

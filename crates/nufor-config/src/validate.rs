@@ -126,6 +126,16 @@ impl CaseConfig {
         }
         // the injector area only means something on a reservoir inflow,
         // and it has to be a positive area.
+        if let Some(state) = &self.boundaries.inflow_state {
+            if let Some(t) = state.t {
+                check_positive(t, "boundaries.inflow_state.t", &mut problems);
+            }
+        }
+        if let Some(state) = &self.boundaries.outflow_state {
+            if let Some(t) = state.t {
+                check_positive(t, "boundaries.outflow_state.t", &mut problems);
+            }
+        }
         if let Some(area) = self.boundaries.injector_area {
             check_positive(area, "boundaries.injector_area", &mut problems);
             if !matches!(self.boundaries.left, BoundaryKind::ReservoirInflow)
@@ -138,15 +148,24 @@ impl CaseConfig {
         }
 
         match &self.initial_condition {
-            InitialCondition::Uniform { rho, p, .. } => {
+            InitialCondition::Uniform { rho, p, t, .. } => {
                 check_positive(*rho, "initial_condition.rho", &mut problems);
                 check_positive(*p, "initial_condition.p", &mut problems);
+                if let Some(t) = t {
+                    check_positive(*t, "initial_condition.t", &mut problems);
+                }
             }
             InitialCondition::TwoState { left, right } => {
                 check_positive(left.rho, "initial_condition.left.rho", &mut problems);
                 check_positive(left.p, "initial_condition.left.p", &mut problems);
                 check_positive(right.rho, "initial_condition.right.rho", &mut problems);
                 check_positive(right.p, "initial_condition.right.p", &mut problems);
+                if let Some(t) = left.t {
+                    check_positive(t, "initial_condition.left.t", &mut problems);
+                }
+                if let Some(t) = right.t {
+                    check_positive(t, "initial_condition.right.t", &mut problems);
+                }
             }
             InitialCondition::Blast {
                 radius,
@@ -295,6 +314,33 @@ fields = ["rho", "u", "p"]
     fn termination_by_residual_alone_is_enough() {
         let toml = valid_case().replace("[time]\nfinal_time = 0.2\n", "[time]\n");
         assert!(problems_for(&toml).is_empty(), "max_steps across the check");
+    }
+
+    #[test]
+    fn accepts_a_stated_temperature() {
+        let toml = valid_case().replace(
+            "left = { rho = 1.0, u = 0.0, p = 1.0 }",
+            "left = { rho = 1.0, u = 0.0, p = 1.0, t = 1600.0 }",
+        );
+        assert!(
+            problems_for(&toml).is_empty(),
+            "a stated temperature is a legal state"
+        );
+    }
+
+    #[test]
+    fn rejects_a_nonpositive_temperature() {
+        let toml = valid_case().replace(
+            "left = { rho = 1.0, u = 0.0, p = 1.0 }",
+            "left = { rho = 1.0, u = 0.0, p = 1.0, t = -100.0 }",
+        );
+        let problems = problems_for(&toml);
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.contains("initial_condition.left.t")),
+            "expected a temperature error, got {problems:?}"
+        );
     }
 
     #[test]

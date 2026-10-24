@@ -71,6 +71,7 @@ fn supersonic_cylinder_forms_a_detached_bow_shock() {
             u: u1,
             v: 0.0,
             p: 1.0,
+            t: None,
         },
         east: Bc2d::SupersonicOutflow,
         south: Bc2d::SlipWall,

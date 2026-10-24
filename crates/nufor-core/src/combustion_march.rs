@@ -663,6 +663,16 @@ pub fn h2o2_ic_energy_at(rho: f64, p: f64, fill: &[f64; ct::NS]) -> f64 {
     closure9::internal_energy_at(t, fill)
 }
 
+/// the closure energy of a uniform fill held at a stated temperature.
+/// a premix's temperature decides whether its chain reaction runs: the
+/// mixture's own gas constant puts an unburned h2/o2 fill near 800 K at
+/// 70 bar, where the chain is frozen and nothing burns however long the
+/// march runs. a case that wants the mix to burn states the temperature
+/// it starts at, and the fill's energy follows from it.
+pub fn h2o2_ic_energy_at_temp(fill: &[f64; ct::NS], t_fill: f64) -> f64 {
+    closure9::internal_energy_at(t_fill, fill)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -940,6 +950,7 @@ mod tests {
                 u: 100.0,
                 v: 0.0,
                 p: 7.0e6,
+                t: None,
             },
             east: crate::solver2d::Bc2d::SupersonicOutflow,
             south: crate::solver2d::Bc2d::SlipWall,

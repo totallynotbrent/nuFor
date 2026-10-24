@@ -1,7 +1,14 @@
 //! mpi parity gate: the fortran march at np=1 must match the rust march to
 //! rel-diff < 1e-12 on the sod 2d case (bit-identity across languages is not
 //! possible; the within-fortran np=1-vs-np=8 bit-identity gate runs under
-//! mpirun, see scratch/mpi-gates.sh).
+//! mpirun).
+//!
+//! run each gate in its own process. the gates share one mpi communicator,
+//! and a process that runs them back to back carries the previous gate's
+//! collective state into the next one: the sa gate then lands on the east
+//! domain edge with a drift of 4.8e-5 instead of its own 8.2e-14, and
+//! which of the two it gets varies from run to run. `tools/regression.sh`
+//! runs them one per process, the way the ci does.
 use nufor_core::ffi_mpi::{march_euler2d_mpi, march_viscous2d_mpi};
 use nufor_core::{
     advance2d_model, advance2d_model_rk2, advance2d_model_visc_rk2, grid2d, prim_to_cons2d, Bc2d,
@@ -442,6 +449,7 @@ fn mpi_np1_matches_rust_capsule_inner() {
             u: 6691.0,
             v: 0.0,
             p: 685.0,
+            t: None,
         },
         east: Bc2d::SupersonicOutflow,
         south: Bc2d::SupersonicInflow {
@@ -449,6 +457,7 @@ fn mpi_np1_matches_rust_capsule_inner() {
             u: 6691.0,
             v: 0.0,
             p: 685.0,
+            t: None,
         },
         north: Bc2d::SupersonicOutflow,
     };

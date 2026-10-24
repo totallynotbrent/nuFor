@@ -276,12 +276,15 @@ pub enum InitialCondition {
         rho: f64,
         u: f64,
         p: f64,
+        /// the fill's temperature, in kelvin. the reacting lane reads it
+        /// when it is set: a premix below its ignition limit stays cold
+        /// however long the march runs, so a case that wants the mix to
+        /// burn says how hot it starts.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        t: Option<f64>,
     },
     /// left/right constant states, e.g. a shock tube.
-    TwoState {
-        left: State,
-        right: State,
-    },
+    TwoState { left: State, right: State },
     /// an over-pressured sphere in ambient surroundings (the classic blast);
     /// natural for the 2D and 3D equations.
     Blast {
@@ -313,6 +316,11 @@ pub struct State {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub v: f64,
     pub p: f64,
+    /// the state's temperature, in kelvin. a reacting lane needs it:
+    /// a premix's temperature decides whether its chain reaction runs
+    /// at all, and a uniform fill cannot carry one otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub t: Option<f64>,
 }
 
 fn is_zero(v: &f64) -> bool {

@@ -419,6 +419,7 @@ mod visc_tests {
                 u: 6047.0,
                 v: 0.0,
                 p: 0.89,
+                t: None,
             },
             east: crate::solver2d::Bc2d::Transmissive,
             south: crate::solver2d::Bc2d::NoSlipWall,

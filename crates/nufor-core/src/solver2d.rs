@@ -148,7 +148,17 @@ pub enum Bc2d {
     #[default]
     Transmissive,
     /// fixed freestream primitive state, used at a supersonic inflow face.
-    SupersonicInflow { rho: f64, u: f64, v: f64, p: f64 },
+    SupersonicInflow {
+        rho: f64,
+        u: f64,
+        v: f64,
+        p: f64,
+        /// the inflow gas's temperature, in kelvin. a reacting lane
+        /// needs it: the chain reaction's rate depends on the
+        /// temperature the mix arrives at, and the mixture's own gas
+        /// constant puts an unburned premix below its ignition limit.
+        t: Option<f64>,
+    },
     /// subsonic reservoir inflow: the ghost is the isentropic expansion
     /// of a (pt, tt) reservoir to the local interior pressure, velocity
     /// directed into the domain. the interior pressure feeding the ghost
@@ -258,7 +268,7 @@ pub(crate) fn ghost_value(
                 interior
             }
         }
-        Bc2d::SupersonicInflow { rho, u, v, p } => match var {
+        Bc2d::SupersonicInflow { rho, u, v, p, .. } => match var {
             0 => *rho,
             2 => *v,
             3 => *p,
