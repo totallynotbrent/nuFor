@@ -292,6 +292,15 @@ pub enum InitialCondition {
         /// high-pressure fireball state.
         fireball: State,
     },
+    /// the isentropic area-mach solution of the case's own contour, seeded
+    /// per column from a stagnation state. a chamber-throat case starts at
+    /// the choked quasi-1d steady state instead of slamming it from rest.
+    Quasi1d {
+        /// stagnation pressure.
+        p0: f64,
+        /// stagnation temperature.
+        t0: f64,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

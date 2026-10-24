@@ -237,6 +237,14 @@ impl Watch {
                 format!("{:e}", ambient.u),
                 format!("{:e}", ambient.p),
             ),
+            nufor_config::InitialCondition::Quasi1d { p0, .. } => {
+                // the chamber stagnation state fronts the quasi-1d field
+                (
+                    format!("{:e}", cfg.physics.gas_constant),
+                    "0".to_owned(),
+                    format!("{:e}", p0),
+                )
+            }
         };
         let mach = {
             // the freestream sound speed through the closure: perfect gas
@@ -245,11 +253,16 @@ impl Watch {
                 nufor_config::InitialCondition::Uniform { rho, p, .. } => (*rho, *p),
                 nufor_config::InitialCondition::TwoState { left, .. } => (left.rho, left.p),
                 nufor_config::InitialCondition::Blast { ambient, .. } => (ambient.rho, ambient.p),
+                nufor_config::InitialCondition::Quasi1d { p0, .. } => {
+                    // the chamber stagnation density from the perfect-gas form
+                    (p0 / (cfg.physics.gas_constant * 3676.53), *p0)
+                }
             };
             let u = match &cfg.initial_condition {
                 nufor_config::InitialCondition::Uniform { u, .. } => *u,
                 nufor_config::InitialCondition::TwoState { left, .. } => left.u,
                 nufor_config::InitialCondition::Blast { ambient, .. } => ambient.u,
+                nufor_config::InitialCondition::Quasi1d { .. } => 0.0,
             };
             match nufor_core::model_from_config(&cfg) {
                 nufor_core::ThermoModel::Perfect { gamma } => {

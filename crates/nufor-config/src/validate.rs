@@ -155,6 +155,10 @@ impl CaseConfig {
                 );
                 check_positive(fireball.p, "initial_condition.fireball.p", &mut problems);
             }
+            InitialCondition::Quasi1d { p0, t0 } => {
+                check_positive(*p0, "initial_condition.p0", &mut problems);
+                check_positive(*t0, "initial_condition.t0", &mut problems);
+            }
         }
 
         let cfl = self.numerics.cfl;

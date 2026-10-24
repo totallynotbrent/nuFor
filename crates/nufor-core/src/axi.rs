@@ -982,6 +982,14 @@ pub fn advance2d_axi(
     }
     let p = thermo::pressure(model, &state.rho, &e_int, &u, &v)?;
     let a = thermo::sound_speed(model, &state.rho, &et, &u, &v)?;
+    // the solid interior restores to this stage-entry state after the
+    // update: the wall pass seals its faces, but the solid cells still
+    // take part in the annular update, so without the restore their
+    // conserved state drifts into the closure's cold corner and the
+    // wall face then reads that state. the solid cells are boundary
+    // scaffolding, not flow.
+    let entry_rho: Vec<f64> = state.rho.clone();
+    let entry_e: Vec<f64> = state.e.clone();
     let mut smax = 0.0f64;
     for k in 0..n {
         smax = smax.max(u[k].abs().max(v[k].abs()) + a[k]);
@@ -1016,6 +1024,25 @@ pub fn advance2d_axi(
                 .max(dmx.abs())
                 .max(dmy.abs())
                 .max(de.abs());
+        }
+    }
+    // restore the solid interior to its stage-entry state: the cells
+    // inside the wall are scaffolding, and the closure reads their
+    // conserved state when the wall face is built.
+    if let Some(dist) = wall {
+        let band = 1.5 * g.dx.min(g.dy);
+        let wall_cache = crate::body::body_cache(g, dist, band);
+        for k in &wall_cache.solid_cells {
+            state.rho[*k] = entry_rho[*k];
+            state.mx[*k] = 0.0;
+            state.my[*k] = 0.0;
+            state.e[*k] = entry_e[*k];
+        }
+        for k in &wall_cache.pocket_cells {
+            state.rho[*k] = entry_rho[*k];
+            state.mx[*k] = 0.0;
+            state.my[*k] = 0.0;
+            state.e[*k] = entry_e[*k];
         }
     }
     Ok((dt, resid))
@@ -1196,7 +1223,11 @@ pub(crate) fn compute_axi_fluxes(
     // row carries internal energy, but ghost_value answers the stored
     // pressure for supersonic inflow. invert the inflow state through
     // the closure so the ghost is the same gas the interior holds.
-    let bc_x = |side: &Bc2d, model: ThermoModel, edge_y: Option<&[f64]>| -> Option<f64> {
+    let bc_x = |side: &Bc2d,
+                model: ThermoModel,
+                edge_y: Option<&[f64]>,
+                rho_edge: Option<f64>|
+     -> Option<f64> {
         match (side, model) {
             (Bc2d::SupersonicInflow { rho, p, .. }, ThermoModel::EqAir { .. }) => {
                 crate::eqair::energy_from_pressure(&[*rho], &[*p])
@@ -1221,6 +1252,22 @@ pub(crate) fn compute_axi_fluxes(
                         *dst = *src;
                     }
                     let t = *p / (*rho * crate::combustion_closure::mix_gas_constant(&y));
+                    crate::combustion_closure::internal_energy_at(t, &y)
+                })
+            }
+            // a subsonic outflow pins the ghost pressure to the back
+            // value; the species lanes carry internal energy there, so
+            // the ghost energy is the closure's energy at the edge
+            // cell's own composition and density.
+            (Bc2d::SubsonicOutflow { p_back }, ThermoModel::Combustion9 { .. }) => {
+                edge_y.map(|y9| {
+                    let mut y = [0.0f64; crate::combustion_thermo::NS];
+                    for (dst, src) in y.iter_mut().zip(y9.iter()) {
+                        *dst = *src;
+                    }
+                    let rmix = crate::combustion_closure::mix_gas_constant(&y);
+                    let rho = rho_edge.unwrap_or(1.0);
+                    let t = *p_back / (rho * rmix);
                     crate::combustion_closure::internal_energy_at(t, &y)
                 })
             }
@@ -1262,8 +1309,18 @@ pub(crate) fn compute_axi_fluxes(
                 .map(|s| sp.y(s, idx(nx - 1, j)))
                 .collect::<Vec<f64>>()
         });
-        let west_x = bc_x(&bc.west, model, edge_y_west.as_deref());
-        let east_x = bc_x(&bc.east, model, edge_y_east.as_deref());
+        let west_x = bc_x(
+            &bc.west,
+            model,
+            edge_y_west.as_deref(),
+            Some(state.rho[idx(0, j)]),
+        );
+        let east_x = bc_x(
+            &bc.east,
+            model,
+            edge_y_east.as_deref(),
+            Some(state.rho[idx(nx - 1, j)]),
+        );
         // the real-gas reservoir ghosts: the reservoir state expanded
         // to the local face pressure, which is the interior cell's own
         // pressure through the lane's closure.
@@ -1405,8 +1462,18 @@ pub(crate) fn compute_axi_fluxes(
                 .map(|s| sp.y(s, idx(i, ny - 1)))
                 .collect::<Vec<f64>>()
         });
-        let south_x_here = bc_x(&bc.south, model, edge_y_south.as_deref());
-        let north_x_here = bc_x(&bc.north, model, edge_y_north.as_deref());
+        let south_x_here = bc_x(
+            &bc.south,
+            model,
+            edge_y_south.as_deref(),
+            Some(state.rho[idx(i, 0)]),
+        );
+        let north_x_here = bc_x(
+            &bc.north,
+            model,
+            edge_y_north.as_deref(),
+            Some(state.rho[idx(i, ny - 1)]),
+        );
         // the real-gas reservoir ghosts on the column faces.
         let south_res = reservoir_real_gas(&bc.south, model, p[idx(i, 0)]);
         let north_res = reservoir_real_gas(&bc.north, model, p[idx(i, ny - 1)]);
@@ -1728,6 +1795,12 @@ pub fn advance2d_model(
     let (fx, fy) =
         compute_axi_fluxes(model, state, g, muscl, bc, &p, &e_int, None, nthreads, wall)?;
 
+    // the solid interior restores to this stage-entry state after the
+    // update: the wall pass seals its faces but the solid cells still
+    // take part in the update, so without the restore their state
+    // drifts and the wall face reads the drift.
+    let entry_rho: Vec<f64> = state.rho.clone();
+    let entry_e: Vec<f64> = state.e.clone();
     let mut resid = 0.0f64;
     #[allow(clippy::needless_range_loop)]
     for j in 0..ny {
@@ -1751,6 +1824,25 @@ pub fn advance2d_model(
                 .max(dmx.abs())
                 .max(dmy.abs())
                 .max(de.abs());
+        }
+    }
+    // restore the solid interior to its stage-entry state: the cells
+    // inside the wall are scaffolding, and the closure reads their
+    // conserved state when the wall face is built.
+    if let Some(dist) = wall {
+        let band = 1.5 * g.dx.min(g.dy);
+        let wall_cache = crate::body::body_cache(g, dist, band);
+        for k in &wall_cache.solid_cells {
+            state.rho[*k] = entry_rho[*k];
+            state.mx[*k] = 0.0;
+            state.my[*k] = 0.0;
+            state.e[*k] = entry_e[*k];
+        }
+        for k in &wall_cache.pocket_cells {
+            state.rho[*k] = entry_rho[*k];
+            state.mx[*k] = 0.0;
+            state.my[*k] = 0.0;
+            state.e[*k] = entry_e[*k];
         }
     }
     Ok((dt, resid))
