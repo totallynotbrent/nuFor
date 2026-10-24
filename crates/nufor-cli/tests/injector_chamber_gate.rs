@@ -13,6 +13,12 @@
 //! enthalpy difference: the first column cooled, its pressure fell,
 //! the ghost thinned, and the feed ran away. the ghost now takes the
 //! chamber's own state.
+//!
+//! heavy: the march takes a few minutes, so the gate is ignore-marked
+//! and run locally with `cargo test -p nufor-cli --test
+//! injector_chamber_gate --release -- --ignored`. the continuous
+//! integration runs the build, the lint and the parity gates, not the
+//! chamber marches.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -167,6 +173,7 @@ fn throat_index(nx: usize) -> usize {
 /// the injector feeds a chamber that holds its pressure, and no cell
 /// collapses while the march runs.
 #[test]
+#[ignore = "heavy: a chamber march, run locally with -- --ignored"]
 fn an_injector_holds_a_chamber_at_its_pressure() {
     let dir = std::env::temp_dir().join(format!("nufor_injector_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
