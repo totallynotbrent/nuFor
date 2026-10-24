@@ -86,6 +86,20 @@ inert reference: under the species closure the inert reference is
 unburned gas at an absurd temperature, and the reconstruction stencil
 would feed it to the wall-adjacent cells.
 
+## The time step
+
+The axisymmetric lane's radial term is stiff, and the time step has to
+respect it. A Courant number of 0.05 holds a chamber together cleanly.
+At 0.15 and above the radial update goes unstable: the pressure and
+temperature alternate between neighbouring rows, the hot rows lose their
+energy to the cold ones, and the chamber collapses to the closure's
+temperature floor within a few hundred steps. The alternating pattern
+looks like a geometry problem, and the face radii are fine. It is the
+time step, and the cure is a smaller one.
+
+The planar lane tolerates a larger Courant number than the annular one,
+so a case that carries both kinds of flow needs the smaller of the two.
+
 ## See also
 
 - [[numerics/2d/euler|2D Euler solver]], the planar march whose fluxes the

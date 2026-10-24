@@ -743,29 +743,44 @@ mod tests {
             north: crate::Bc2d::SlipWall,
         };
         let model = crate::ThermoModel::Combustion9 { gamma_shaping: 1.2 };
-        // a face pressure below the reservoir: the ghost expands and
-        // accelerates toward the face.
+        // the ghost takes the chamber's own pressure and temperature:
+        // the gas leaving the reservoir has expanded and mixed into the
+        // chamber, and it sits at the chamber's state.
         let p_face = 5.0e6f64;
+        let t_face = 3400.0f64;
         let (rho_g, u_g, e_g) =
-            crate::axi::reservoir_real_gas(&bc.west, model, p_face).expect("no ghost");
-        assert!(rho_g > 0.0 && rho_g < rho_t, "expanded density {rho_g}");
-        assert!(u_g > 0.0, "the expansion must accelerate the flow");
+            crate::axi::reservoir_real_gas(&bc.west, model, p_face, t_face).expect("no ghost");
+        // the density follows from the chamber's pressure and
+        // temperature.
+        let rmix = crate::combustion_closure::mix_gas_constant(&y9);
+        let rho_want = p_face / (rmix * t_face);
+        assert!(
+            (rho_g - rho_want).abs() / rho_want < 1e-9,
+            "the ghost's density {rho_g} against {rho_want}"
+        );
         // the ghost's own pressure through the closure must land on
-        // the requested face pressure.
+        // the chamber's pressure.
         let p_g = crate::combustion_closure::pressure_at(rho_g, e_g, &y9);
         assert!(
             (p_g - p_face).abs() / p_face < 1e-3,
             "ghost pressure {p_g} vs the face {p_face}"
         );
-        // at the reservoir pressure the ghost is the reservoir state.
-        let (rho_full, u_full, e_full) =
-            crate::axi::reservoir_real_gas(&bc.west, model, pt).expect("no ghost");
-        assert!((rho_full - rho_t).abs() / rho_t < 1e-9, "rho {rho_full}");
-        assert!(u_full.abs() < 1e-9, "the reservoir must not accelerate");
-        let p_full = crate::combustion_closure::pressure_at(rho_full, e_full, &y9);
-        // the closure's own temperature inversion carries a few ppm of
-        // roundtrip error, so the bound is 1e-5 relative.
-        assert!((p_full - pt).abs() / pt < 1e-5, "pressure {p_full}");
+        // the ghost's closure variable must invert to the chamber's
+        // temperature.
+        let t_g = crate::combustion_closure::temperature_at(e_g, &y9);
+        assert!(
+            (t_g - t_face).abs() / t_face < 1e-3,
+            "the ghost's temperature {t_g} against the chamber's {t_face}"
+        );
+        // the velocity follows the reservoir's expansion to the face's
+        // pressure, so a lower face pressure carries a faster flow.
+        assert!(u_g > 0.0, "the expansion must accelerate the flow");
+        let (_, u_full, _) =
+            crate::axi::reservoir_real_gas(&bc.west, model, pt, t_face).expect("no ghost");
+        assert!(
+            u_full.abs() < 1e-9,
+            "at the reservoir's pressure the reservoir must not accelerate"
+        );
         // the composition is untouched by the expansion.
         let _ = &mut sp;
     }

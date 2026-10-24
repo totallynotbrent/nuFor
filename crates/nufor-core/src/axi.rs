@@ -92,35 +92,30 @@ impl<'a> SpeciesField<'a> {
 /// returns (rho, u, closure_variable), where the closure variable is
 /// the internal energy for the real-gas lanes and the pressure for
 /// the perfect-gas one.
-pub fn reservoir_real_gas(bc: &Bc2d, model: ThermoModel, p_loc: f64) -> Option<(f64, f64, f64)> {
-    reservoir_real_gas_at(bc, model, p_loc, 1.0)
-}
-
-/// the reservoir ghost with the injector's share of the face folded
-/// into the feed velocity. `face_share` is the fraction of the face's
-/// flow area the injector covers: the feed's mass flow is the
-/// reservoir's velocity times the injector's area, so the ghost's
-/// velocity carries the share instead of the mass.
-pub fn reservoir_real_gas_at(
+pub fn reservoir_real_gas(
     bc: &Bc2d,
     model: ThermoModel,
     p_loc: f64,
-    face_share: f64,
+    t_loc: f64,
 ) -> Option<(f64, f64, f64)> {
+    reservoir_real_gas_at(bc, model, p_loc, t_loc)
+}
+
+/// the mixture's own gamma and gas constant at a reservoir's
+/// temperature.
+///
+/// the shaping value is the fallback and the closure is the truth: a
+/// real-gas lane's gamma comes from the mixture's own heat capacity,
+/// and the reservoir's composition is what the tank holds.
+fn reservoir_gamma_and_r(bc: &Bc2d, model: ThermoModel, tt: f64) -> Option<(f64, f64)> {
     let Bc2d::ReservoirInflowRealGas {
-        pt,
-        tt,
-        rho_t,
-        fill,
-        n_species,
-        injector_area,
+        fill, n_species, ..
     } = bc
     else {
         return None;
     };
-    let p_loc = p_loc.max(1e-9).min(*pt);
-    let (gamma, r_mix) = match model {
-        ThermoModel::Perfect { gamma } => (gamma, 287.05),
+    match model {
+        ThermoModel::Perfect { gamma } => Some((gamma, 287.05)),
         ThermoModel::Combustion9 { gamma_shaping } => {
             if *n_species != crate::combustion_thermo::NS
                 || fill.len() != crate::combustion_thermo::NS
@@ -132,31 +127,60 @@ pub fn reservoir_real_gas_at(
                 *dst = *src;
             }
             let rmix = crate::combustion_closure::mix_gas_constant(&y);
-            // the mixture's own gamma at the reservoir temperature: the
-            // shaping value is the fallback, the closure is the truth.
-            let cp = crate::combustion_thermo::mix_cp_mass(&y, *tt);
+            let cp = crate::combustion_thermo::mix_cp_mass(&y, tt);
             let g = if cp > rmix {
                 (cp / (cp - rmix)).max(1.01)
             } else {
                 gamma_shaping
             };
-            (g, rmix)
+            Some((g, rmix))
         }
-        _ => return None,
+        _ => None,
+    }
+}
+
+/// the reservoir ghost for a side.
+///
+/// the ghost is one physical state: the density, the pressure, the
+/// temperature and the velocity agree.
+///
+/// the reservoir's state expanded to the face's pressure gives the
+/// ghost a temperature of its own. a chamber's gas is hotter than
+/// that expansion, because the chamber holds burned gas and the
+/// expansion runs cold. the difference matters more than it looks:
+/// the closure's internal energy carries the formation offset, so a
+/// temperature difference between the ghost and the cell is a
+/// megajoule-scale enthalpy difference, and the face's energy flux
+/// would carry that difference into the first column. the column
+/// would cool, its pressure would fall, the ghost would thin, and the
+/// feed would run away.
+///
+/// so the ghost takes the chamber's own pressure and temperature: the
+/// gas leaving the reservoir has expanded and mixed into the chamber,
+/// and it sits at the chamber's state. the ghost's velocity then
+/// carries the flow the side passes.
+pub fn reservoir_real_gas_at(
+    bc: &Bc2d,
+    model: ThermoModel,
+    p_loc: f64,
+    t_loc: f64,
+) -> Option<(f64, f64, f64)> {
+    let Bc2d::ReservoirInflowRealGas { pt, tt, fill, .. } = bc else {
+        return None;
     };
-    // the isentropic expansion from the reservoir to the face pressure
-    let pr = p_loc / pt;
-    let t_loc = tt * pr.powf((gamma - 1.0) / gamma);
-    let rho_loc = rho_t * pr.powf(1.0 / gamma);
+    let p_loc = p_loc.max(1e-9).min(*pt);
+    let (gamma, r_mix) = reservoir_gamma_and_r(bc, model, *tt)?;
+    // the ghost's state: the chamber's pressure and temperature, and
+    // the density that follows from them.
+    let t_ghost = t_loc.max(1.0);
+    let rho_ghost = p_loc / (r_mix * t_ghost);
+    // the reservoir's own expansion gives the velocity the flow would
+    // have without a chamber: the drop from the tank's stagnation
+    // state to the face's pressure.
+    let pr = (p_loc / pt).clamp(1e-9, 1.0);
+    let t_exp = tt * pr.powf((gamma - 1.0) / gamma);
     let cp = gamma * r_mix / (gamma - 1.0);
-    let u_loc = (2.0 * cp * (tt - t_loc)).max(0.0).sqrt();
-    // the injector's share of the face: the feed's mass flow is the
-    // injector's area times the reservoir's mass flux, so the ghost's
-    // velocity is scaled by that share.
-    let u_loc = match injector_area {
-        Some(a) if *a > 0.0 => u_loc * face_share,
-        _ => u_loc,
-    };
+    let u_loc = (2.0 * cp * (tt - t_exp)).max(0.0).sqrt();
     // the closure variable the face reconstruction carries
     let closure_var = match model {
         ThermoModel::Perfect { .. } => p_loc,
@@ -165,10 +189,79 @@ pub fn reservoir_real_gas_at(
             for (dst, src) in y.iter_mut().zip(fill.iter()) {
                 *dst = *src;
             }
-            crate::combustion_closure::internal_energy_at(t_loc, &y)
+            crate::combustion_closure::internal_energy_at(t_ghost, &y)
         }
     };
-    Some((rho_loc, u_loc, closure_var))
+    Some((rho_ghost, u_loc, closure_var))
+}
+
+/// the mass flow an injector passes, in kilograms per second.
+///
+/// an injector is a converging nozzle, and that shapes the whole feed.
+/// the mass flux through it follows the nozzle relation between the
+/// tank state and the chamber's pressure. once the chamber sits below
+/// the tank by more than the critical pressure ratio, the flow reaches
+/// a sonic exit and chokes: the mass flow then follows the tank state
+/// and the injector's area alone, and the chamber's pressure can no
+/// longer slow it down. below the critical ratio the injector runs
+/// unchoked and its flow follows the chamber's pressure.
+pub fn injector_mass_flow(bc: &Bc2d, model: ThermoModel, p_chamber: f64) -> Option<f64> {
+    let Bc2d::ReservoirInflowRealGas {
+        pt,
+        tt,
+        rho_t,
+        injector_area: Some(a),
+        ..
+    } = bc
+    else {
+        return None;
+    };
+    if *a <= 0.0 {
+        return None;
+    }
+    let (gamma, r_mix) = reservoir_gamma_and_r(bc, model, *tt)?;
+    let pr = (p_chamber / pt).clamp(1e-9, 1.0);
+    // the exit mach from the isentrope between the tank and the
+    // chamber.
+    let m2 = 2.0 / (gamma - 1.0) * (pr.powf(-(gamma - 1.0) / gamma) - 1.0);
+    let m = m2.max(0.0).sqrt();
+    // the choked flux of the tank state:
+    //   rho_t * sqrt(gamma R T_t) * (2 / (gamma + 1))^((gamma + 1) / (2 (gamma - 1)))
+    let choked_flux = rho_t
+        * (gamma * r_mix * tt).sqrt()
+        * (2.0 / (gamma + 1.0)).powf((gamma + 1.0) / (2.0 * (gamma - 1.0)));
+    // the unchoked flux: the nozzle's mass flux at the chamber's
+    // pressure, which is p * sqrt(gamma / (R T)) * M.
+    let t_loc = tt * pr.powf((gamma - 1.0) / gamma);
+    let unchoked_flux = if m > 0.0 {
+        p_chamber * (gamma / (r_mix * t_loc)).sqrt() * m
+    } else {
+        0.0
+    };
+    // the choke holds the flux at the tank's value once the isentrope
+    // reaches a sonic exit.
+    let flux = if m >= 1.0 { choked_flux } else { unchoked_flux };
+    Some(flux * a)
+}
+
+/// the annular flow area of a face, counted over the fluid rows only.
+///
+/// the rows a chamber's wall covers carry no flow, so counting them
+/// would spread an injector's mass flow over a face the gas never
+/// sees. the solid rows are read from the face's own column, so a
+/// chamber whose wall slopes across the domain sees the right area on
+/// each side.
+pub fn face_flow_area(g: &Grid2d, solid_mask: Option<&[bool]>, column: usize) -> f64 {
+    let mut area = 0.0;
+    for jj in 0..g.ny {
+        if solid_mask.is_some_and(|m| m[jj * g.nx + column]) {
+            continue;
+        }
+        let rm = g.faces_y[jj];
+        let rp = g.faces_y[jj + 1];
+        area += std::f64::consts::PI * (rp * rp - rm * rm);
+    }
+    area
 }
 
 /// muscl face states (left, right; each length n+1) from a padded slice
@@ -1257,6 +1350,12 @@ pub(crate) fn compute_axi_fluxes(
     wall: Option<&dyn Fn(f64, f64) -> f64>,
 ) -> Result<(Vec<Sweep>, Vec<Sweep>), Error> {
     let (nx, ny) = (g.nx, g.ny);
+    // the solid mask: the rows the chamber's wall covers carry no
+    // flow, and the injector's face area has to count only the fluid.
+    let solid_mask: Option<Vec<bool>> = wall.map(|dist| {
+        let band = 1.5 * g.dx.min(g.dy);
+        crate::body::body_cache(g, dist, band).mask.clone()
+    });
     #[allow(unused_variables)]
     let idx = |i: usize, j: usize| j * nx + i;
     let (u, v, _et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
@@ -1334,6 +1433,31 @@ pub(crate) fn compute_axi_fluxes(
             _ => None,
         }
     };
+    // the faces' annular flow areas, counted over the fluid rows only.
+    let face_area = face_flow_area(g, solid_mask.as_deref(), 0);
+    let east_face_area = face_flow_area(g, solid_mask.as_deref(), nx - 1);
+    // the injector's mass flow: the chamber's pressure sets the
+    // nozzle's state, and the chamber's pressure is the mean of the
+    // edge column's cells. an injector looks at the chamber it feeds,
+    // not at one cell's momentary excursion.
+    let chamber_pressure = |column: usize| -> f64 {
+        let mut sum = 0.0;
+        let mut count = 0.0;
+        for j in 0..ny {
+            if solid_mask.as_ref().is_some_and(|m| m[idx(column, j)]) {
+                continue;
+            }
+            sum += p[idx(column, j)];
+            count += 1.0;
+        }
+        if count > 0.0 {
+            sum / count
+        } else {
+            p[idx(column, ny / 2)]
+        }
+    };
+    let west_flow = injector_mass_flow(&bc.west, model, chamber_pressure(0));
+    let east_flow = injector_mass_flow(&bc.east, model, chamber_pressure(nx - 1));
     // the composition an inflow face injects: the case fill, so a
     // burned edge cell cannot feed itself back in through the inflow.
     let inflow_fill: Option<Vec<f64>> = species.map(|sp| sp.fill());
@@ -1381,37 +1505,75 @@ pub(crate) fn compute_axi_fluxes(
             edge_y_east.as_deref(),
             Some(state.rho[idx(nx - 1, j)]),
         );
-        // the real-gas reservoir ghosts: the reservoir state expanded
-        // to the local face pressure, which is the interior cell's own
-        // pressure through the lane's closure.
-        // the injector's share of the face: the feed passes through an
-        // injector of a fixed area, so the face's mass flux is the
-        // reservoir's times the injector's share of the face area.
-        let face_share = |side: &Bc2d| -> f64 {
-            let inj = match side {
-                Bc2d::ReservoirInflowRealGas {
-                    injector_area: Some(a),
-                    ..
-                } if *a > 0.0 => *a,
-                _ => return 1.0,
-            };
-            // the face's annular area: two pi times the integral of the
-            // radius over the face's height.
-            let mut area = 0.0;
-            for jj in 0..ny {
-                let rm = g.faces_y[jj];
-                let rp = g.faces_y[jj + 1];
-                area += std::f64::consts::PI * (rp * rp - rm * rm);
+        // the real-gas reservoir ghosts. the ghost takes the interior
+        // cell's own pressure and temperature, the state the face
+        // sees, and its velocity carries the flow the side passes.
+        //
+        // an injector scales that velocity so the face carries the
+        // injector's mass flow. the velocity is spread over the face's
+        // rows in proportion to their annular area, so the rows' flows
+        // add up to the injector's whole flow.
+        // the row's annular area on each side: a solid row carries no
+        // flow on that side, and a chamber whose wall slopes across
+        // the domain sees a different area on each side.
+        let row_area_at = |column: usize| -> f64 {
+            if solid_mask.as_ref().is_some_and(|m| m[idx(column, j)]) {
+                return 0.0;
             }
-            if area > 0.0 {
-                (inj / area).min(1.0)
-            } else {
-                1.0
+            let rm = g.faces_y[j];
+            let rp = g.faces_y[j + 1];
+            std::f64::consts::PI * (rp * rp - rm * rm)
+        };
+        let west_row_area = row_area_at(0);
+        let east_row_area = row_area_at(nx - 1);
+        // the edge cells' temperatures: the ghost sits at the state the
+        // face sees, and the face sees the cell next to it.
+        let edge_temperature = |column: usize, edge_y: Option<&[f64]>| -> f64 {
+            let k = idx(column, j);
+            match model {
+                ThermoModel::Combustion9 { .. } => edge_y
+                    .map(|y9| {
+                        let mut y = [0.0f64; crate::combustion_thermo::NS];
+                        for (dst, src) in y.iter_mut().zip(y9.iter()) {
+                            *dst = *src;
+                        }
+                        crate::combustion_closure::temperature_at(e_int[k], &y)
+                    })
+                    .unwrap_or(0.0),
+                _ => {
+                    let r = 287.05;
+                    p[k].max(1e-9) / (state.rho[k].max(1e-12) * r)
+                }
             }
         };
-        let west_res = reservoir_real_gas_at(&bc.west, model, p[idx(0, j)], face_share(&bc.west));
-        let east_res =
-            reservoir_real_gas_at(&bc.east, model, p[idx(nx - 1, j)], face_share(&bc.east));
+        let west_res = reservoir_real_gas_at(
+            &bc.west,
+            model,
+            p[idx(0, j)],
+            edge_temperature(0, edge_y_west.as_deref()),
+        )
+        .map(|(rho, u, cv)| match west_flow {
+            Some(flow) if west_row_area > 0.0 && face_area > 0.0 => {
+                // the flow this row carries: the injector's whole
+                // flow times the row's share of the face's area.
+                let row_flow = flow * west_row_area / face_area;
+                (rho, row_flow / (rho * west_row_area), cv)
+            }
+            _ => (rho, u, cv),
+        });
+        let east_res = reservoir_real_gas_at(
+            &bc.east,
+            model,
+            p[idx(nx - 1, j)],
+            edge_temperature(nx - 1, edge_y_east.as_deref()),
+        )
+        .map(|(rho, u, cv)| match east_flow {
+            Some(flow) if east_row_area > 0.0 && east_face_area > 0.0 => {
+                let row_flow = flow * east_row_area / east_face_area;
+                (rho, row_flow / (rho * east_row_area), cv)
+            }
+            _ => (rho, u, cv),
+        });
         let pad = |c: &[f64], var: usize, s_idx: usize| -> Vec<f64> {
             let mut out = vec![0.0; nx + 2];
             // the west ghost: a real-gas reservoir carries the expanded
@@ -1560,9 +1722,36 @@ pub(crate) fn compute_axi_fluxes(
             edge_y_north.as_deref(),
             Some(state.rho[idx(i, ny - 1)]),
         );
-        // the real-gas reservoir ghosts on the column faces.
-        let south_res = reservoir_real_gas(&bc.south, model, p[idx(i, 0)]);
-        let north_res = reservoir_real_gas(&bc.north, model, p[idx(i, ny - 1)]);
+        // the real-gas reservoir ghosts on the column faces. the ghost
+        // takes the edge cell's own temperature, the state the face
+        // sees.
+        let edge_temperature = |row: usize, edge_y: Option<&[f64]>| -> f64 {
+            let k = idx(i, row);
+            match model {
+                ThermoModel::Combustion9 { .. } => edge_y
+                    .map(|y9| {
+                        let mut y = [0.0f64; crate::combustion_thermo::NS];
+                        for (dst, src) in y.iter_mut().zip(y9.iter()) {
+                            *dst = *src;
+                        }
+                        crate::combustion_closure::temperature_at(e_int[k], &y)
+                    })
+                    .unwrap_or(0.0),
+                _ => p[k].max(1e-9) / (state.rho[k].max(1e-12) * 287.05),
+            }
+        };
+        let south_res = reservoir_real_gas(
+            &bc.south,
+            model,
+            p[idx(i, 0)],
+            edge_temperature(0, edge_y_south.as_deref()),
+        );
+        let north_res = reservoir_real_gas(
+            &bc.north,
+            model,
+            p[idx(i, ny - 1)],
+            edge_temperature(ny - 1, edge_y_north.as_deref()),
+        );
         let pad = |c: &[f64], var: usize, s_idx: usize| -> Vec<f64> {
             let mut out = vec![0.0; ny + 2];
             if let Some((rho_g, u_g, cv_g)) = south_res {
