@@ -58,7 +58,7 @@ unchanged.
 
         [boundaries]
         left = "reservoir_inflow"
-        injector_area = 1.2767e-4
+        injector_area = 7.2e-4
 
   An injector is a converging nozzle, and that shapes the whole feed. The
   mass flux through it follows the nozzle relation between the tank state
@@ -97,7 +97,9 @@ unchanged.
   number of 0.05, the chamber sits at 66.1 bar against the 70 bar its
   seed carried, the throat sits at 40.5 bar against the 40.54 bar an
   equilibrium calculation gives for the same mixture, and no cell in
-  the domain falls below 2000 kelvin.
+  the domain falls below 2000 kelvin. That run's injector was 7.2
+  square millimetres, which passes the 4.01 kilograms per second a
+  choked throat of that mixture swallows.
 - SubsonicOutflow: the ghost copies the interior but pins the ghost
   pressure to a fixed back value, the standard subsonic exit for the
   pressure-ratio nozzle studies. The config surface is
