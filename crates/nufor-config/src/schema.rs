@@ -371,6 +371,14 @@ pub struct Boundaries {
     /// pressure field is read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outflow_state: Option<State>,
+    /// the injector area a `reservoir_inflow` side feeds through, in
+    /// square metres. a rocket chamber is fed through an injector at
+    /// its head, not across its whole face: the feed has to supply the
+    /// throat's mass flow, and the throat passes a small fraction of
+    /// the chamber's flow area. without the area the feed either
+    /// stalls or floods.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub injector_area: Option<f64>,
 }
 
 /// how a profile-inflow side prescribes its boundary layer.

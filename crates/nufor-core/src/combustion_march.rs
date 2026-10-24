@@ -141,6 +141,18 @@ pub fn advance2d_combustion(
         smax = smax.max(u[k].abs().max(v[k].abs()) + a[k]);
     }
     let dt = cfl * g.dx.min(g.dy) / smax.max(1e-12);
+    // the closure's internal-energy floor per cell: the composition's
+    // energy at the fits' lower temperature bound. the nasa-7
+    // formation enthalpy puts a burned gas's internal energy at a
+    // large negative value, so zero is not the floor.
+    let mut e_floor = vec![0.0f64; n];
+    for (k, floor) in e_floor.iter_mut().enumerate() {
+        let mut y_cell = [0.0f64; ct::NS];
+        for (s, dst) in y_cell.iter_mut().enumerate() {
+            *dst = species.y[s][k];
+        }
+        *floor = closure9::internal_energy_at(200.0, &y_cell);
+    }
 
     let model = ThermoModel::Combustion9 { gamma_shaping: 1.2 };
     let (fx, fy) = compute_axi_fluxes(
@@ -174,6 +186,27 @@ pub fn advance2d_combustion(
             state.mx[k] += dmx;
             state.my[k] += dmy;
             state.e[k] += de;
+            // positivity guard: a step that overshoots can drive the
+            // internal energy below the closure's floor, and the
+            // closure then reads the cell at its temperature floor.
+            // the floor is the composition's internal energy at the
+            // fits' lower temperature bound, not zero: the nasa-7
+            // formation enthalpy puts the internal energy of a burned
+            // gas at a large negative value, and a healthy cell sits
+            // above that floor by megajoules.
+            let ke = 0.5 * (state.mx[k] * state.mx[k] + state.my[k] * state.my[k])
+                / state.rho[k].max(1e-12);
+            let e_int = state.e[k] - ke;
+            if !state.e[k].is_finite()
+                || !state.rho[k].is_finite()
+                || state.rho[k] <= 0.0
+                || e_int < e_floor[k]
+            {
+                state.rho[k] = state.rho[k].max(1e-10);
+                state.mx[k] = 0.0;
+                state.my[k] = 0.0;
+                state.e[k] = ke + e_floor[k] * state.rho[k] + 1e-6;
+            }
             resid = resid
                 .max(drho.abs())
                 .max(dmx.abs())
@@ -296,6 +329,18 @@ pub fn advance2d_combustion_axi(
         smax = smax.max(u[k].abs().max(v[k].abs()) + a[k]);
     }
     let dt = cfl * g.dx.min(g.dy) / smax.max(1e-12);
+    // the closure's internal-energy floor per cell: the composition's
+    // energy at the fits' lower temperature bound. the nasa-7
+    // formation enthalpy puts a burned gas's internal energy at a
+    // large negative value, so zero is not the floor.
+    let mut e_floor = vec![0.0f64; n];
+    for (k, floor) in e_floor.iter_mut().enumerate() {
+        let mut y_cell = [0.0f64; ct::NS];
+        for (s, dst) in y_cell.iter_mut().enumerate() {
+            *dst = species.y[s][k];
+        }
+        *floor = closure9::internal_energy_at(200.0, &y_cell);
+    }
     let model = ThermoModel::Combustion9 { gamma_shaping: 1.2 };
     let (fx, fy) = crate::axi::compute_axi_fluxes(
         model,
@@ -336,6 +381,27 @@ pub fn advance2d_combustion_axi(
             state.mx[k] += dmx;
             state.my[k] += dmy;
             state.e[k] += de;
+            // positivity guard: a step that overshoots can drive the
+            // internal energy below the closure's floor, and the
+            // closure then reads the cell at its temperature floor.
+            // the floor is the composition's internal energy at the
+            // fits' lower temperature bound, not zero: the nasa-7
+            // formation enthalpy puts the internal energy of a burned
+            // gas at a large negative value, and a healthy cell sits
+            // above that floor by megajoules.
+            let ke = 0.5 * (state.mx[k] * state.mx[k] + state.my[k] * state.my[k])
+                / state.rho[k].max(1e-12);
+            let e_int = state.e[k] - ke;
+            if !state.e[k].is_finite()
+                || !state.rho[k].is_finite()
+                || state.rho[k] <= 0.0
+                || e_int < e_floor[k]
+            {
+                state.rho[k] = state.rho[k].max(1e-10);
+                state.mx[k] = 0.0;
+                state.my[k] = 0.0;
+                state.e[k] = ke + e_floor[k] * state.rho[k] + 1e-6;
+            }
             resid = resid
                 .max(drho.abs())
                 .max(dmx.abs())
@@ -670,6 +736,7 @@ mod tests {
                 rho_t,
                 fill: fill.to_vec(),
                 n_species: ct::NS,
+                injector_area: None,
             },
             east: crate::Bc2d::SupersonicOutflow,
             south: crate::Bc2d::SlipWall,

@@ -58,18 +58,28 @@ The setup and the checked numbers are on
 ## The chamber lane
 
 The axisymmetric march carries the nine-species combustion closure, so a
-chamber and its throat run on the same code. Two pieces make the chamber
+chamber and its throat run on the same code. Three pieces make the chamber
 behave like a chamber rather than a pipe:
 
 - The radial species transport carries the face radii, like the flow
-  update does. A planar mass-flux difference would move the wrong
-  amount of composition into the inner rows.
+  update does, and takes the time step on its own: the annular divergence
+  already holds the cell width, so dividing by the width a second time
+  moves the wrong amount of composition into the inner rows.
 - The chamber's inflow is a real-gas reservoir. The ghost expands the
   reservoir state to the local face pressure through the closure, so
   the chamber holds its pressure while the throat chokes, and the
   pressure wave that the throat sends back upstream is answered
   instead of reflected. The perfect-gas reservoir ghost cannot answer
-  a real-gas closure, so the combustion lane has its own.
+  a real-gas closure, so the combustion lane has its own. The feed
+  passes through an injector, whose area the case gives, so the chamber
+  takes in the mass the throat lets out.
+- The chamber starts from the quasi-1D solution of its own wall
+  contour, so the march begins at the state the throat will settle
+  into rather than at a uniform fill it has to discover. The contour
+  comes from the case's polygon, and the chain stops at the closing
+  edge: the vertex that closes the polygon over the top of the
+  chamber sits at the box's outer radius, and seeding the duct with
+  that radius blows the exit area up by a factor of twenty.
 
 The body fill reads the case's injection composition, not the scalar
 inert reference: under the species closure the inert reference is

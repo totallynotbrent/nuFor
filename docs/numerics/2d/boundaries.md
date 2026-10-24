@@ -42,6 +42,19 @@ unchanged.
   temperature, not from the shaping constant. A combustion case selects it
   by asking for a `reservoir_inflow` on the left side; the composition and
   the reservoir state come from the case's injection block.
+- An injector area: a chamber is fed through an injector at its head, not
+  across its whole face, so the reservoir inflow takes an optional
+  `injector_area` in square metres. The face's mass flux is scaled by the
+  injector's share of the face area, and the feed then balances the throat
+  instead of either stalling or flooding the chamber. Set it in the case:
+
+        [boundaries]
+        left = "reservoir_inflow"
+        injector_area = 1.2767e-4
+
+  The area belongs to the side that feeds: with a chamber of radius 0.05 m
+  and a throat of radius 0.02 m, an injector of about 12.8 square
+  centimetres passes the throat's mass flow at a tank pressure of 120 bar.
 - SubsonicOutflow: the ghost copies the interior but pins the ghost
   pressure to a fixed back value, the standard subsonic exit for the
   pressure-ratio nozzle studies. The config surface is

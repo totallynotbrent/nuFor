@@ -114,7 +114,6 @@ pub fn transport_species_generic(
             for i in 0..nx {
                 let k = idx(i, j);
                 let dxi = dt / dxs[i];
-                let dyi = dt / dys[j];
                 let flux_x =
                     yx_face[s][(i + 1) * ny + j] * fx[j][i + 1] - yx_face[s][i * ny + j] * fx[j][i];
                 let flux_y =
@@ -122,20 +121,28 @@ pub fn transport_species_generic(
                 // the axisymmetric y-sweep: the annular divergence
                 // weights the radial faces by their radius, exactly as
                 // the flow update does, so the species mass stays
-                // consistent with the conserved flow mass.
-                let flux_y = match radial_weights {
+                // consistent with the conserved flow mass. the radial
+                // term carries its own cell width inside the annular
+                // divergence, so it takes the time step alone and not
+                // the planar coefficient: dividing by the cell width a
+                // second time shrinks the radial transport by the
+                // width and the composition stratifies.
+                let (radial_term, dt_y) = match radial_weights {
                     Some(w) => {
                         let rm = w[j];
                         let rp = w[j + 1];
                         let rc = 0.5 * (rm + rp);
-                        (rp * yy_face[s][(j + 1) * nx + i] * fy[i][j + 1]
-                            - rm * yy_face[s][j * nx + i] * fy[i][j])
-                            / (rc * dys[j])
+                        (
+                            (rp * yy_face[s][(j + 1) * nx + i] * fy[i][j + 1]
+                                - rm * yy_face[s][j * nx + i] * fy[i][j])
+                                / (rc * dys[j]),
+                            dt,
+                        )
                     }
-                    None => flux_y,
+                    None => (flux_y, dt / dys[j]),
                 };
                 let rho_y = rho[k] * yi[k];
-                let d = -(dxi * flux_x + dyi * flux_y);
+                let d = -(dxi * flux_x + dt_y * radial_term);
                 let new_rho_y = rho_y + d;
                 resid = resid.max(d.abs() / rho[k].max(1e-30));
                 // a species mass may not go negative: the honest fix is

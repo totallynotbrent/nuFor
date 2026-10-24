@@ -124,6 +124,18 @@ impl CaseConfig {
                 "boundaries.inflow_profile is set but no side is \"profile_inflow\"".to_owned(),
             );
         }
+        // the injector area only means something on a reservoir inflow,
+        // and it has to be a positive area.
+        if let Some(area) = self.boundaries.injector_area {
+            check_positive(area, "boundaries.injector_area", &mut problems);
+            if !matches!(self.boundaries.left, BoundaryKind::ReservoirInflow)
+                && !matches!(self.boundaries.right, BoundaryKind::ReservoirInflow)
+            {
+                problems.push(
+                    "boundaries.injector_area needs a side set to \"reservoir_inflow\"".to_owned(),
+                );
+            }
+        }
 
         match &self.initial_condition {
             InitialCondition::Uniform { rho, p, .. } => {

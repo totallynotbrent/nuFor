@@ -175,6 +175,11 @@ pub enum Bc2d {
         fill: Vec<f64>,
         /// the lane's species count (five for park, nine for combustion).
         n_species: usize,
+        /// the injector area the feed passes through, in square metres.
+        /// the mass flux at the face is scaled by the injector's share
+        /// of the face, so a chamber fed through a small injector holds
+        /// its mass balance against the throat.
+        injector_area: Option<f64>,
     },
     /// subsonic outflow at a fixed back pressure: the ghost copies the
     /// interior except the pressure, which is pinned.

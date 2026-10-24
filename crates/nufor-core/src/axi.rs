@@ -93,12 +93,27 @@ impl<'a> SpeciesField<'a> {
 /// the internal energy for the real-gas lanes and the pressure for
 /// the perfect-gas one.
 pub fn reservoir_real_gas(bc: &Bc2d, model: ThermoModel, p_loc: f64) -> Option<(f64, f64, f64)> {
+    reservoir_real_gas_at(bc, model, p_loc, 1.0)
+}
+
+/// the reservoir ghost with the injector's share of the face folded
+/// into the feed velocity. `face_share` is the fraction of the face's
+/// flow area the injector covers: the feed's mass flow is the
+/// reservoir's velocity times the injector's area, so the ghost's
+/// velocity carries the share instead of the mass.
+pub fn reservoir_real_gas_at(
+    bc: &Bc2d,
+    model: ThermoModel,
+    p_loc: f64,
+    face_share: f64,
+) -> Option<(f64, f64, f64)> {
     let Bc2d::ReservoirInflowRealGas {
         pt,
         tt,
         rho_t,
         fill,
         n_species,
+        injector_area,
     } = bc
     else {
         return None;
@@ -135,6 +150,13 @@ pub fn reservoir_real_gas(bc: &Bc2d, model: ThermoModel, p_loc: f64) -> Option<(
     let rho_loc = rho_t * pr.powf(1.0 / gamma);
     let cp = gamma * r_mix / (gamma - 1.0);
     let u_loc = (2.0 * cp * (tt - t_loc)).max(0.0).sqrt();
+    // the injector's share of the face: the feed's mass flow is the
+    // injector's area times the reservoir's mass flux, so the ghost's
+    // velocity is scaled by that share.
+    let u_loc = match injector_area {
+        Some(a) if *a > 0.0 => u_loc * face_share,
+        _ => u_loc,
+    };
     // the closure variable the face reconstruction carries
     let closure_var = match model {
         ThermoModel::Perfect { .. } => p_loc,
@@ -995,6 +1017,9 @@ pub fn advance2d_axi(
         smax = smax.max(u[k].abs().max(v[k].abs()) + a[k]);
     }
     let dt = cfl * g.dx.min(g.dy) / smax.max(1e-12);
+    // the closure's internal-energy floor: below it the lane reads the
+    // cell as colder than its temperature range.
+    let e_floor = internal_energy_floor(model, None);
 
     let (fx, fy) =
         compute_axi_fluxes(model, state, g, muscl, bc, &p, &e_int, None, nthreads, wall)?;
@@ -1019,6 +1044,21 @@ pub fn advance2d_axi(
             state.mx[k] += dmx;
             state.my[k] += dmy;
             state.e[k] += de;
+            // positivity guard: a step that overshoots can drive the
+            // internal energy below the closure's floor, and the
+            // closure then reads the cell at its temperature floor.
+            let ke = 0.5 * (state.mx[k] * state.mx[k] + state.my[k] * state.my[k])
+                / state.rho[k].max(1e-12);
+            if !state.e[k].is_finite()
+                || !state.rho[k].is_finite()
+                || state.rho[k] <= 0.0
+                || state.e[k] - ke < e_floor
+            {
+                state.rho[k] = state.rho[k].max(1e-10);
+                state.mx[k] = 0.0;
+                state.my[k] = 0.0;
+                state.e[k] = ke + e_floor + 1e-6;
+            }
             resid = resid
                 .max(drho.abs())
                 .max(dmx.abs())
@@ -1064,6 +1104,26 @@ impl Sweep {
             my: vec![0.0; n + 1],
             e: vec![0.0; n + 1],
         }
+    }
+}
+
+/// the internal-energy floor a cell may fall to before the closure
+/// reads it as below its temperature range. the nasa-7 formation
+/// enthalpy puts a burned gas's internal energy at a large negative
+/// value, so the floor is the composition's energy at the fits'
+/// lower temperature bound and not zero.
+pub fn internal_energy_floor(model: ThermoModel, y: Option<&[f64]>) -> f64 {
+    match model {
+        ThermoModel::Combustion9 { .. } => {
+            let mut y9 = [0.0f64; crate::combustion_thermo::NS];
+            if let Some(src) = y {
+                for (dst, s) in y9.iter_mut().zip(src.iter()) {
+                    *dst = *s;
+                }
+            }
+            crate::combustion_closure::internal_energy_at(200.0, &y9)
+        }
+        _ => 0.0,
     }
 }
 
@@ -1324,8 +1384,34 @@ pub(crate) fn compute_axi_fluxes(
         // the real-gas reservoir ghosts: the reservoir state expanded
         // to the local face pressure, which is the interior cell's own
         // pressure through the lane's closure.
-        let west_res = reservoir_real_gas(&bc.west, model, p[idx(0, j)]);
-        let east_res = reservoir_real_gas(&bc.east, model, p[idx(nx - 1, j)]);
+        // the injector's share of the face: the feed passes through an
+        // injector of a fixed area, so the face's mass flux is the
+        // reservoir's times the injector's share of the face area.
+        let face_share = |side: &Bc2d| -> f64 {
+            let inj = match side {
+                Bc2d::ReservoirInflowRealGas {
+                    injector_area: Some(a),
+                    ..
+                } if *a > 0.0 => *a,
+                _ => return 1.0,
+            };
+            // the face's annular area: two pi times the integral of the
+            // radius over the face's height.
+            let mut area = 0.0;
+            for jj in 0..ny {
+                let rm = g.faces_y[jj];
+                let rp = g.faces_y[jj + 1];
+                area += std::f64::consts::PI * (rp * rp - rm * rm);
+            }
+            if area > 0.0 {
+                (inj / area).min(1.0)
+            } else {
+                1.0
+            }
+        };
+        let west_res = reservoir_real_gas_at(&bc.west, model, p[idx(0, j)], face_share(&bc.west));
+        let east_res =
+            reservoir_real_gas_at(&bc.east, model, p[idx(nx - 1, j)], face_share(&bc.east));
         let pad = |c: &[f64], var: usize, s_idx: usize| -> Vec<f64> {
             let mut out = vec![0.0; nx + 2];
             // the west ghost: a real-gas reservoir carries the expanded
@@ -1791,6 +1877,9 @@ pub fn advance2d_model(
         smax = smax.max(u[k].abs().max(v[k].abs()) + a[k]);
     }
     let dt = cfl * g.dx.min(g.dy) / smax.max(1e-12);
+    // the closure's internal-energy floor: below it the lane reads the
+    // cell as colder than its temperature range.
+    let e_floor = internal_energy_floor(model, None);
 
     let (fx, fy) =
         compute_axi_fluxes(model, state, g, muscl, bc, &p, &e_int, None, nthreads, wall)?;
@@ -1819,6 +1908,21 @@ pub fn advance2d_model(
             state.mx[k] += dmx;
             state.my[k] += dmy;
             state.e[k] += de;
+            // positivity guard: a step that overshoots can drive the
+            // internal energy below the closure's floor, and the
+            // closure then reads the cell at its temperature floor.
+            let ke = 0.5 * (state.mx[k] * state.mx[k] + state.my[k] * state.my[k])
+                / state.rho[k].max(1e-12);
+            if !state.e[k].is_finite()
+                || !state.rho[k].is_finite()
+                || state.rho[k] <= 0.0
+                || state.e[k] - ke < e_floor
+            {
+                state.rho[k] = state.rho[k].max(1e-10);
+                state.mx[k] = 0.0;
+                state.my[k] = 0.0;
+                state.e[k] = ke + e_floor + 1e-6;
+            }
             resid = resid
                 .max(drho.abs())
                 .max(dmx.abs())

@@ -1258,6 +1258,7 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
                 rho_t: rho,
                 fill,
                 n_species: nufor_core::combustion_thermo::NS,
+                injector_area: cfg.boundaries.injector_area,
             };
             if cfg.boundaries.left == nufor_config::BoundaryKind::ReservoirInflow {
                 bc.west = real_gas;

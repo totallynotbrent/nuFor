@@ -74,6 +74,14 @@ heat: burning the mix at fixed energy converts the offset into
 temperature, and nothing else in the march needs to know a flame
 exists.
 
+The offset also sets the floor a cell may fall to. The march's
+positivity guard compares the cell's internal energy against the
+composition's energy at the fits' lower temperature bound, not against
+zero: a burned gas sits millions of joules per kilogram below zero
+before it does anything wrong, and a guard that tests it against zero
+brakes the flow on every step. The floor moves with the composition,
+so a cell that dissociates as it cools keeps its own bound.
+
 ## The march
 
 The step mirrors the park5 lane: a Heun two-stage update of the
