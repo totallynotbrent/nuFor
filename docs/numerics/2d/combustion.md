@@ -82,6 +82,11 @@ before it does anything wrong, and a guard that tests it against zero
 brakes the flow on every step. The floor moves with the composition,
 so a cell that dissociates as it cools keeps its own bound.
 
+Only the reacting lane has such a floor. A hypersonic flow's internal
+energy is negative by construction, because the kinetic energy dwarfs
+the thermal energy, and a floor of zero would stop such a flow dead on
+the first step. The other lanes carry no guard at all.
+
 ## The march
 
 The step mirrors the park5 lane: a Heun two-stage update of the

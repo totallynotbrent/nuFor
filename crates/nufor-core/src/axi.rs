@@ -1111,7 +1111,10 @@ pub fn advance2d_axi(
     }
     let dt = cfl * g.dx.min(g.dy) / smax.max(1e-12);
     // the closure's internal-energy floor: below it the lane reads the
-    // cell as colder than its temperature range.
+    // cell as colder than its temperature range. only the reacting
+    // lane has one: a hypersonic flow's internal energy is negative by
+    // construction, because the kinetic energy dwarfs the thermal
+    // energy, and a floor of zero would stop such a flow dead.
     let e_floor = internal_energy_floor(model, None);
 
     let (fx, fy) =
@@ -1142,15 +1145,17 @@ pub fn advance2d_axi(
             // closure then reads the cell at its temperature floor.
             let ke = 0.5 * (state.mx[k] * state.mx[k] + state.my[k] * state.my[k])
                 / state.rho[k].max(1e-12);
-            if !state.e[k].is_finite()
-                || !state.rho[k].is_finite()
-                || state.rho[k] <= 0.0
-                || state.e[k] - ke < e_floor
-            {
-                state.rho[k] = state.rho[k].max(1e-10);
-                state.mx[k] = 0.0;
-                state.my[k] = 0.0;
-                state.e[k] = ke + e_floor + 1e-6;
+            if let Some(floor) = e_floor {
+                if !state.e[k].is_finite()
+                    || !state.rho[k].is_finite()
+                    || state.rho[k] <= 0.0
+                    || state.e[k] - ke < floor
+                {
+                    state.rho[k] = state.rho[k].max(1e-10);
+                    state.mx[k] = 0.0;
+                    state.my[k] = 0.0;
+                    state.e[k] = ke + floor + 1e-6;
+                }
             }
             resid = resid
                 .max(drho.abs())
@@ -1205,7 +1210,7 @@ impl Sweep {
 /// enthalpy puts a burned gas's internal energy at a large negative
 /// value, so the floor is the composition's energy at the fits'
 /// lower temperature bound and not zero.
-pub fn internal_energy_floor(model: ThermoModel, y: Option<&[f64]>) -> f64 {
+pub fn internal_energy_floor(model: ThermoModel, y: Option<&[f64]>) -> Option<f64> {
     match model {
         ThermoModel::Combustion9 { .. } => {
             let mut y9 = [0.0f64; crate::combustion_thermo::NS];
@@ -1214,9 +1219,13 @@ pub fn internal_energy_floor(model: ThermoModel, y: Option<&[f64]>) -> f64 {
                     *dst = *s;
                 }
             }
-            crate::combustion_closure::internal_energy_at(200.0, &y9)
+            Some(crate::combustion_closure::internal_energy_at(200.0, &y9))
         }
-        _ => 0.0,
+        // the other lanes have no floor: a hypersonic flow's internal
+        // energy is negative by construction, because the kinetic
+        // energy dwarfs the thermal energy, and a floor of zero would
+        // stop such a flow dead.
+        _ => None,
     }
 }
 
@@ -2067,7 +2076,10 @@ pub fn advance2d_model(
     }
     let dt = cfl * g.dx.min(g.dy) / smax.max(1e-12);
     // the closure's internal-energy floor: below it the lane reads the
-    // cell as colder than its temperature range.
+    // cell as colder than its temperature range. only the reacting
+    // lane has one: a hypersonic flow's internal energy is negative by
+    // construction, because the kinetic energy dwarfs the thermal
+    // energy, and a floor of zero would stop such a flow dead.
     let e_floor = internal_energy_floor(model, None);
 
     let (fx, fy) =
@@ -2102,15 +2114,17 @@ pub fn advance2d_model(
             // closure then reads the cell at its temperature floor.
             let ke = 0.5 * (state.mx[k] * state.mx[k] + state.my[k] * state.my[k])
                 / state.rho[k].max(1e-12);
-            if !state.e[k].is_finite()
-                || !state.rho[k].is_finite()
-                || state.rho[k] <= 0.0
-                || state.e[k] - ke < e_floor
-            {
-                state.rho[k] = state.rho[k].max(1e-10);
-                state.mx[k] = 0.0;
-                state.my[k] = 0.0;
-                state.e[k] = ke + e_floor + 1e-6;
+            if let Some(floor) = e_floor {
+                if !state.e[k].is_finite()
+                    || !state.rho[k].is_finite()
+                    || state.rho[k] <= 0.0
+                    || state.e[k] - ke < floor
+                {
+                    state.rho[k] = state.rho[k].max(1e-10);
+                    state.mx[k] = 0.0;
+                    state.my[k] = 0.0;
+                    state.e[k] = ke + floor + 1e-6;
+                }
             }
             resid = resid
                 .max(drho.abs())

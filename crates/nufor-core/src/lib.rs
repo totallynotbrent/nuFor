@@ -75,7 +75,8 @@ mod wall_dist;
 pub use axi::{
     advance2d_axi, advance2d_axi_lts, advance2d_axi_rk2, advance2d_model, advance2d_model_rk2,
     advance2d_model_visc_lts, advance2d_model_visc_rk2, advance2d_sa_model_rk2, face_flow_area,
-    injector_mass_flow, model_local_dts, reservoir_real_gas, reservoir_real_gas_at,
+    injector_mass_flow, internal_energy_floor, model_local_dts, reservoir_real_gas,
+    reservoir_real_gas_at,
 };
 pub use blasius::{BlasiusProfile, BlasiusTable, CF_CONST};
 pub use body::{
