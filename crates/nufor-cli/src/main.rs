@@ -3968,3 +3968,65 @@ fn min_of(v: &[f64]) -> f64 {
 fn max_of(v: &[f64]) -> f64 {
     v.iter().cloned().fold(f64::NEG_INFINITY, f64::max)
 }
+
+#[cfg(test)]
+mod combustion_report_tests {
+    use super::*;
+    use nufor_core::combustion_march::CombustionState;
+
+    /// the viewer's render path on a combustion vtk: the species lanes
+    /// cannot recompute pressure or temperature from (rho, e) alone, so
+    /// the renderer reads them from the file. this is the path that
+    /// panicked on the chamber case (an empty temperature field feeding
+    /// the cell loop).
+    #[test]
+    fn combustion_vtk_renders_every_field() {
+        let g = grid2d(12, 8, 0.0, 0.08, 0.0, 0.08).unwrap();
+        let n = g.nx * g.ny;
+        let rho = 3.6116f64;
+        let p = 7.0e6;
+        let sp = CombustionState::stoich_h2o2(n);
+        let e_int = nufor_core::combustion_march::h2o2_ic_energy(rho, p);
+        let (mx, my, e) =
+            prim_to_cons2d(&vec![rho; n], &vec![0.0; n], &vec![0.0; n], &vec![e_int; n]).unwrap();
+        let st = ConservedState2d {
+            rho: vec![rho; n],
+            mx,
+            my,
+            e,
+        };
+        let dir = std::env::temp_dir().join("nufor-combustion-render");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let vtk = dir.join("chamber.vtk");
+        nufor_core::write_vtk2d_combustion(&vtk, &g, &st, &sp).unwrap();
+        // the read-back must carry the closure's own pressure and
+        // temperature, not recompute them through the perfect-gas form.
+        let fields = casework::case_vtk_read(&vtk, ThermoModel::Combustion9 { gamma_shaping: 1.2 });
+        let fields = fields.expect("the combustion vtk reads back");
+        let fp = fields
+            .pressure
+            .as_ref()
+            .expect("pressure in the vtk")
+            .clone();
+        let ft = fields
+            .temperature
+            .as_ref()
+            .expect("temperature in the vtk")
+            .clone();
+        assert_eq!(fp.len(), n, "the pressure field is per cell");
+        assert_eq!(ft.len(), n, "the temperature field is per cell");
+        assert!(
+            fp.iter().all(|x| (x - p).abs() / p < 1e-3),
+            "the vtk pressure round-trips the fill state"
+        );
+        // every named field must render without panicking.
+        let body = None;
+        let model = ThermoModel::Combustion9 { gamma_shaping: 1.2 };
+        for name in ["rho", "p", "t", "mach", "schlieren"] {
+            let (png, _, _) = casework::render_with_body_ranged(&g, &fields, name, &body, model);
+            assert!(!png.is_empty(), "the {name} render produced no png");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

@@ -7,7 +7,7 @@ use nufor_core::{render_png_gray, render_png_rect, ConservedState2d, Grid2d};
 pub fn case_vtk_read(
     path: &std::path::Path,
     model: nufor_core::ThermoModel,
-) -> Result<ConservedState2d, String> {
+) -> Result<CaseFields, String> {
     let f = std::fs::read_to_string(path).map_err(|e| format!("read vtk: {e}"))?;
     let (nx, ny) = f
         .lines()
@@ -41,6 +41,11 @@ pub fn case_vtk_read(
     }
     let e = field("energy").ok_or("read vtk: no energy")?;
     let mach = field("mach").unwrap_or_else(|| vec![0.0; n]);
+    // the vtk carries the closure's own pressure and temperature, which
+    // the species lanes cannot recompute from (rho, e) alone: the
+    // composition is not in the conserved state.
+    let pressure = field("pressure");
+    let temperature = field("temperature");
     // recover the speed per cell: |v| = mach * a, with a from the
     // closure at the running estimate of the internal energy.
     let mut speed = vec![0.0f64; n];
@@ -63,12 +68,28 @@ pub fn case_vtk_read(
         speed[k] = (2.0 * ke).sqrt();
     }
     let mx: Vec<f64> = (0..n).map(|k| rho[k] * speed[k]).collect();
-    Ok(ConservedState2d {
+    let st = ConservedState2d {
         rho,
         mx,
         my: vec![0.0; n],
         e,
+    };
+    Ok(CaseFields {
+        st,
+        pressure,
+        temperature,
     })
+}
+
+/// the fields a case vtk carries: the conserved state the renderer
+/// works from, plus the closure's own pressure and temperature when
+/// the vtk has them. the species lanes cannot recompute either from
+/// (rho, e) alone, because the composition is not in the conserved
+/// state.
+pub struct CaseFields {
+    pub st: ConservedState2d,
+    pub pressure: Option<Vec<f64>>,
+    pub temperature: Option<Vec<f64>>,
 }
 
 /// the viewer's variant of the render: same field math and body
@@ -78,19 +99,25 @@ pub fn case_vtk_read(
 /// returns the png bytes and the color window for the colorbar.
 pub fn render_with_body_ranged(
     g: &Grid2d,
-    st: &ConservedState2d,
+    fields: &CaseFields,
     field: &str,
     body: &Option<crate::CaseBodyFns>,
     model: nufor_core::ThermoModel,
 ) -> (Vec<u8>, f64, f64) {
+    let st = &fields.st;
     let n = g.nx * g.ny;
     let u: Vec<f64> = (0..n).map(|k| st.mx[k] / st.rho[k]).collect();
     let v: Vec<f64> = (0..n).map(|k| st.my[k] / st.rho[k]).collect();
     let e_int: Vec<f64> = (0..n)
         .map(|k| st.e[k] / st.rho[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]))
         .collect();
-    let p = nufor_core::thermo_pressure(model, &st.rho, &e_int, &u, &v)
-        .unwrap_or_else(|_| vec![1e-12; n]);
+    // the closure's own pressure comes from the vtk when it has one:
+    // the species lanes cannot recompute it from (rho, e) alone.
+    let p = match fields.pressure.as_ref() {
+        Some(v) if v.len() == n => v.clone(),
+        _ => nufor_core::thermo_pressure(model, &st.rho, &e_int, &u, &v)
+            .unwrap_or_else(|_| vec![1e-12; n]),
+    };
     let p: Vec<f64> = p.iter().map(|x| x.max(1e-12)).collect();
     let a =
         nufor_core::thermo_sound(model, &st.rho, &e_int, &u, &v).unwrap_or_else(|_| vec![1.0; n]);
@@ -124,9 +151,23 @@ pub fn render_with_body_ranged(
             s
         }
         "p" => p.clone(),
-        "t" => nufor_core::thermo_temperature(model, &st.rho, &p).unwrap_or_default(),
+        "t" => match fields.temperature.as_ref() {
+            Some(v) if v.len() == n => v.clone(),
+            _ => {
+                let t = nufor_core::thermo_temperature(model, &st.rho, &p);
+                match t {
+                    Ok(v) if v.len() == n => v,
+                    _ => st.rho.clone(),
+                }
+            }
+        },
         _ => st.rho.clone(),
     };
+    if data.len() != n {
+        // the renderer indexes the field by cell, so a short field is a
+        // wiring bug, not a rendering choice.
+        return (Vec::new(), 0.0, 1.0);
+    }
     // which cells are inside the body (masked from the range math)
     let mut solid = vec![false; n];
     if let Some((dist, _)) = body {
