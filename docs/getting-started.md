@@ -88,6 +88,11 @@ case console page]]. When the run finishes, a standalone HTML report lands
 next to the case, one file with everything inlined that opens in any
 browser with no server.
 
+The console reads the case's files while the march is still writing
+them, so it can catch a half-written field. A bad read is refused and
+the run carries on, because a viewer glitch must never take a march
+down with it.
+
 ## Bring your own mesh
 
 For 2D/3D, set `mesh.source = "file"` with `mesh.path` pointing at a

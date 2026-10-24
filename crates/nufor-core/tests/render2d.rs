@@ -63,3 +63,33 @@ fn blast_expands_and_renders_a_png() {
     f.write_all(&bytes).unwrap();
     eprintln!("wrote {} bytes to {}", bytes.len(), out.display());
 }
+
+/// a field shorter than the grid is an error, not a panic.
+///
+/// the renderers index the field by cell, so a short field reads past
+/// the end of the vector. the live viewer reads the case's files while
+/// the march rewrites them, and a half-written file can carry a
+/// truncated block, so the renderer has to refuse the field rather
+/// than walk off it.
+#[test]
+fn a_short_field_is_refused_rather_than_indexed() {
+    let short = vec![1.0f64; 5];
+    assert!(
+        nufor_core::render_png_rect(&short, 4, 4, 0.0, 2.0).is_err(),
+        "the rect renderer must refuse a short field"
+    );
+    assert!(
+        nufor_core::render_png_gray(&short, 4, 4, 0.0, 2.0).is_err(),
+        "the gray renderer must refuse a short field"
+    );
+    // the exact size still renders.
+    let exact = vec![1.0f64; 16];
+    assert!(
+        nufor_core::render_png_rect(&exact, 4, 4, 0.0, 2.0).is_ok(),
+        "the rect renderer must render an exact field"
+    );
+    assert!(
+        nufor_core::render_png_gray(&exact, 4, 4, 0.0, 2.0).is_ok(),
+        "the gray renderer must render an exact field"
+    );
+}

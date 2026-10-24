@@ -81,7 +81,13 @@ impl Watch {
             self.name
         );
         for mut stream in listener.incoming().flatten() {
-            let _ = self.serve_one(&mut stream);
+            // one bad request must not take the server down.
+            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = self.serve_one(&mut stream);
+            }));
+            if r.is_err() {
+                eprintln!("viewer: the request failed; the server continues");
+            }
         }
         Ok(())
     }
@@ -537,7 +543,15 @@ pub fn spawn_for_run(case_path: &str) -> Option<u16> {
         if let Ok(listener) = TcpListener::bind(("0.0.0.0", port)) {
             std::thread::spawn(move || {
                 for mut stream in listener.incoming().flatten() {
-                    let _ = w.serve_one(&mut stream);
+                    // the live viewer reads the case's files while the
+                    // march rewrites them, so a bad frame must not take
+                    // the run down with it.
+                    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        let _ = w.serve_one(&mut stream);
+                    }));
+                    if r.is_err() {
+                        eprintln!("viewer: the request failed; the run continues");
+                    }
                 }
             });
             return Some(port);

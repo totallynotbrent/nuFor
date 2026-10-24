@@ -190,7 +190,9 @@ pub fn render_with_body_ranged(
         .map(|(x, _)| *x)
         .filter(|x| x.is_finite())
         .collect();
-    live.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    // the finite filter above keeps the nan out, but a total order is
+    // still cheaper to ask for than a panic when one slips through.
+    live.sort_by(|a, b| a.total_cmp(b));
     let (lo, mut hi) = if live.is_empty() {
         (0.0, 1.0)
     } else {
