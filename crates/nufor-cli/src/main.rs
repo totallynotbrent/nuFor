@@ -1305,13 +1305,25 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
                 Ok((dt, _)) => dt,
                 Err(_) => 0.0,
             };
-            p.tick(
-                steps as u64,
-                t,
-                dt_last,
-                &st,
-                progress::SampleExtra::default(),
-            );
+            // the readout comes from the lane's own closure: the
+            // perfect-gas form misreads the combustion and equilibrium
+            // air lanes. the field scan is the expensive part, so it
+            // rides the kept-sample cadence.
+            let extra = if steps % 50 == 1 {
+                progress_readout(
+                    cfg,
+                    &g,
+                    &st,
+                    &body,
+                    model,
+                    None,
+                    combustion_state.as_ref(),
+                    false,
+                )
+            } else {
+                progress::SampleExtra::default()
+            };
+            p.tick(steps as u64, t, dt_last, &st, extra);
         }
         if steps % 200 == 0 {
             println!(
