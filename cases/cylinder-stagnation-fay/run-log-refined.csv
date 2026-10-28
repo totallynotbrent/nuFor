@@ -1,0 +1,50 @@
+case,steps,time,nx,wall_s,viscous,tw,eos,rho_ratio,p_peak_pa,t_at_peak_k,t_max_k
+cylinder-stagnation-fay-refined,100,0.000000,132,3.0,true,1000,EqAir { r_gas: 296.8 },1.84509e0,3.392e1,4405,4443
+cylinder-stagnation-fay-refined,60000,qw_peak_mwm2,0.263522,x,2.000,y,0.011
+cylinder-stagnation-fay-refined,60000,0.000033,132,1692.3,true,1000,EqAir { r_gas: 296.8 },9.45382e1,5.942e2,3047,5169
+cylinder-stagnation-fay-refined,60000,qw_peak_mwm2,0.230727,x,2.000,y,-0.006
+cylinder-stagnation-fay-refined,60000,0.000065,132,1706.1,true,1000,EqAir { r_gas: 296.8 },1.01069e2,5.963e2,2424,5220
+cylinder-stagnation-fay-refined,60000,qw_peak_mwm2,0.225566,x,2.000,y,-0.011
+cylinder-stagnation-fay-refined,60000,0.000091,132,1811.7,true,1000,EqAir { r_gas: 296.8 },1.01986e2,6.114e2,2261,5180
+cylinder-stagnation-fay-refined,60000,qw_peak_mwm2,0.220351,x,2.000,y,0.011
+cylinder-stagnation-fay-refined,60000,0.000115,132,1890.5,true,1000,EqAir { r_gas: 296.8 },1.04562e2,6.039e2,3022,5156
+cylinder-stagnation-fay-refined,60000,qw_peak_mwm2,0.215682,x,2.000,y,0.011
+cylinder-stagnation-fay-refined,60000,0.000138,132,1913.5,true,1000,EqAir { r_gas: 296.8 },1.08173e2,6.023e2,2240,5151
+cylinder-stagnation-fay-refined,60000,qw_peak_mwm2,0.196796,x,2.000,y,-0.011
+cylinder-stagnation-fay-refined,60000,0.000160,132,1775.5,true,1000,EqAir { r_gas: 296.8 },1.09669e2,5.856e2,2986,5212
+cylinder-stagnation-fay-refined,60000,qw_peak_mwm2,0.175625,x,2.000,y,-0.011
+cylinder-stagnation-fay-refined,60000,0.000182,132,1877.8,true,1000,EqAir { r_gas: 296.8 },1.08115e2,5.877e2,2331,5239
+cylinder-stagnation-fay-refined,60000,qw_peak_mwm2,0.145575,x,2.000,y,0.011
+cylinder-stagnation-fay-refined,60000,0.000204,132,1811.1,true,1000,EqAir { r_gas: 296.8 },1.06257e2,5.852e2,2270,5214
+cylinder-stagnation-fay-refined,60000,qw_peak_mwm2,0.130942,x,2.000,y,0.011
+cylinder-stagnation-fay-refined,60000,0.000226,132,1775.1,true,1000,EqAir { r_gas: 296.8 },1.08795e2,5.891e2,2968,5226
+cylinder-stagnation-fay-refined,60000,qw_peak_mwm2,0.120021,x,2.000,y,0.011
+cylinder-stagnation-fay-refined,60000,0.000250,132,1791.0,true,1000,EqAir { r_gas: 296.8 },1.10799e2,5.869e2,3060,5218
+cylinder-stagnation-fay-refined,60000,qw_peak_mwm2,0.109045,x,2.001,y,-0.040
+cylinder-stagnation-fay-refined,60000,0.000275,132,1879.0,true,1000,EqAir { r_gas: 296.8 },1.09671e2,5.909e2,3057,5168
+cylinder-stagnation-fay-refined,60000,qw_peak_mwm2,0.119018,x,2.001,y,-0.040
+cylinder-stagnation-fay-refined,60000,0.000300,132,1943.8,true,1000,EqAir { r_gas: 296.8 },1.08734e2,5.908e2,3006,5150
+cylinder-stagnation-fay-refined,60000,qw_peak_mwm2,0.114110,x,2.001,y,-0.040
+cylinder-stagnation-fay-refined,60000,0.000326,132,1869.6,true,1000,EqAir { r_gas: 296.8 },1.07460e2,5.721e2,2305,5137
+cylinder-stagnation-fay-refined,60000,qw_peak_mwm2,0.120109,x,2.001,y,-0.040
+cylinder-stagnation-fay-refined,60000,0.000352,132,1949.7,true,1000,EqAir { r_gas: 296.8 },1.07469e2,5.918e2,3039,5129
+cylinder-stagnation-fay-refined,60000,qw_peak_mwm2,0.114037,x,2.001,y,-0.040
+cylinder-stagnation-fay-refined,60000,0.000378,132,2017.4,true,1000,EqAir { r_gas: 296.8 },1.07903e2,5.736e2,3047,5141
+cylinder-stagnation-fay-refined,60000,qw_peak_mwm2,0.114542,x,2.001,y,-0.056
+cylinder-stagnation-fay-refined,60000,0.000404,132,2045.1,true,1000,EqAir { r_gas: 296.8 },1.04631e2,5.796e2,3016,5185
+cylinder-stagnation-fay-refined,60000,qw_peak_mwm2,0.113479,x,2.001,y,-0.056
+cylinder-stagnation-fay-refined,60000,0.000429,132,1908.0,true,1000,EqAir { r_gas: 296.8 },1.07636e2,5.849e2,3018,5152
+cylinder-stagnation-fay-refined,60000,qw_peak_mwm2,0.113045,x,2.001,y,-0.056
+cylinder-stagnation-fay-refined,60000,0.000453,132,1867.6,true,1000,EqAir { r_gas: 296.8 },1.07112e2,5.633e2,3038,5150
+cylinder-stagnation-fay-refined,60000,qw_peak_mwm2,0.109871,x,2.002,y,-0.065
+cylinder-stagnation-fay-refined,60000,0.000477,132,2008.5,true,1000,EqAir { r_gas: 296.8 },1.05531e2,5.581e2,3018,5142
+cylinder-stagnation-fay-refined,60000,qw_peak_mwm2,0.113727,x,2.001,y,0.056
+cylinder-stagnation-fay-refined,60000,0.000500,132,1955.8,true,1000,EqAir { r_gas: 296.8 },1.09028e2,5.883e2,3046,5172
+cylinder-stagnation-fay-refined,60000,qw_peak_mwm2,0.110544,x,2.002,y,0.065
+cylinder-stagnation-fay-refined,60000,0.000523,132,2011.1,true,1000,EqAir { r_gas: 296.8 },1.07623e2,5.728e2,3057,5185
+cylinder-stagnation-fay-refined,60000,qw_peak_mwm2,0.105272,x,2.002,y,0.065
+cylinder-stagnation-fay-refined,60000,0.000546,132,2009.7,true,1000,EqAir { r_gas: 296.8 },1.05437e2,5.547e2,3007,5190
+cylinder-stagnation-fay-refined,60000,qw_peak_mwm2,0.101972,x,2.002,y,0.065
+cylinder-stagnation-fay-refined,60000,0.000569,132,1985.8,true,1000,EqAir { r_gas: 296.8 },1.08596e2,5.538e2,2984,5146
+cylinder-stagnation-fay-refined,60000,qw_peak_mwm2,0.102695,x,2.002,y,0.065
+cylinder-stagnation-fay-refined,60000,0.000592,132,1943.7,true,1000,EqAir { r_gas: 296.8 },1.08929e2,5.807e2,3049,5132

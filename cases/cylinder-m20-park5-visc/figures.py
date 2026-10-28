@@ -1,11 +1,12 @@
-# park5 viscous catalytic-wall bracket figures on the shared house
-# template: the wall heat flux along the surface for the non-catalytic
-# vs fully-catalytic pair, and the near-wall composition the catalytic
-# condition drains. regenerates from the two runs' vtk.
+# park5 viscous catalytic-wall figures on the shared house template:
+# the wall heat flux along the surface for the non-catalytic vs fully
+# catalytic pair, and the near-wall composition the catalytic condition
+# drains. regenerates from the two runs' vtk and their run logs.
 import sys
 import os
 import re
 import math
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from figtemplate import figure, save, ORANGE, PURPLE, GREEN, GRAY
 
@@ -15,42 +16,50 @@ import numpy as np
 def read_fields(path):
     txt = open(path).read()
     blocks = re.findall(
-        r'SCALARS (\S+) double 1\nLOOKUP_TABLE default\n((?:[-\d.eE+ ]+\n)+)',
+        r"SCALARS (\S+) double 1\nLOOKUP_TABLE default\n((?:[-\d.eE+ ]+\n)+)",
         txt,
     )
     return {name: np.array([float(x) for x in body.split()]) for name, body in blocks}
 
 
 def read_wall_flux(path):
-    # the run-log's "wall heat flux vs surface x" block: pairs of
-    # (surface x, q MW/m2)
+    # the run log's surface-point block: triples of (x, y, q MW/m2)
     txt = open(path).read()
-    m = re.search(r'wall heat flux vs surface x \(MW/m\^2\):\n((?:\s*[-\d.]+\s+[-\d.]+\n)+)', txt)
-    pairs = [line.split() for line in m.group(1).strip().splitlines()]
-    return np.array([float(p[0]) for p in pairs]), np.array([float(p[1]) for p in pairs])
+    m = re.search(
+        r"wall heat flux by surface point \(MW/m\^2\):\n((?:\s*[-\d.]+\s+[-\d.]+\s+[-\d.]+\n)+)",
+        txt,
+    )
+    rows = [line.split() for line in m.group(1).strip().splitlines()]
+    pts = np.array([[float(c) for c in r[:3]] for r in rows])
+    return pts[:, 0], pts[:, 1], pts[:, 2]
+
+
+def sweep_angle(xs, ys):
+    # the flow arrives from the left, so the stagnation point is at the
+    # upstream end of the upper semicircle; the sweep angle runs from
+    # there over the shoulder to the trailing edge
+    ang = np.degrees(np.arctan2(ys, xs))
+    return 180.0 - ang
 
 
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
     f_none = read_fields(os.path.join(here, "cylinder-m20-park5-visc-none.vtk"))
     f_full = read_fields(os.path.join(here, "cylinder-m20-park5-visc-full.vtk"))
-    x_none, q_none = read_wall_flux(os.path.join(here, "run-log-none.txt"))
-    x_full, q_full = read_wall_flux(os.path.join(here, "run-log-full.txt"))
+    x_none, y_none, q_none = read_wall_flux(os.path.join(here, "run-log-none.txt"))
+    x_full, y_full, q_full = read_wall_flux(os.path.join(here, "run-log-full.txt"))
 
-    # surface angle from the surface x: the surface points parametrize
-    # the upper half of the r=1 circle; theta = acos(x) for the front
-    # face, wrapping around the back
-    def theta_of(xs):
-        return np.array([math.acos(max(-1.0, min(1.0, x))) for x in xs])
-
-    th_none, th_full = theta_of(x_none), theta_of(x_full)
+    sw_none = sweep_angle(x_none, y_none)
+    sw_full = sweep_angle(x_full, y_full)
 
     fig, ax = figure(figsize=(7.5, 3.6))
-    ax.plot(th_none * 180 / math.pi, q_none, color=GRAY, lw=2.0, label="non-catalytic")
-    ax.plot(th_full * 180 / math.pi, q_full, color=ORANGE, lw=2.0, label="fully-catalytic")
-    ax.set_xlabel(r"surface angle from stagnation point (deg)")
+    ax.plot(sw_none, q_none, color=GRAY, lw=1.8, marker="o", ms=3.5, label="non-catalytic")
+    ax.plot(sw_full, q_full, color=ORANGE, lw=1.8, marker="o", ms=3.5, label="fully-catalytic")
+    ax.set_xlim(0, 180)
+    ax.set_xticks(list(range(0, 181, 30)))
+    ax.set_xlabel("surface sweep angle from stagnation (deg)")
     ax.set_ylabel(r"$q_w$ (MW/m$^2$)")
-    ax.set_title("wall heat flux bracket, Mach 20 N2 cylinder, isothermal 1000 K wall")
+    ax.set_title("wall heat flux along the surface, Mach 20 N2 cylinder, 1000 K wall")
     ax.legend()
     save(fig, "cyl-park5visc-qw-bracket", out_dir=here)
 

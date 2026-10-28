@@ -1,0 +1,25 @@
+case cylinder-stagnation-fay  (660k-step continuous chain, 11 x 60k chunks, Oct 16-17)
+grid 84x384, viscous true, eos EqAir { r_gas: 296.8 }
+freestream rho 1.36300e-5 p 0.9 u 6047.0
+wall temperature 1000 K (0 = adiabatic)
+
+chunk-by-chunk peak stagnation heat flux (from run-log.csv):
+  chunk  1  t=1.53e-4  q_w 10.63 W/cm2   peak_p 639.5 Pa
+  chunk  2  t=2.76e-4  q_w  8.84 W/cm2   peak_p 593.0 Pa
+  chunk  3  t=4.15e-4  q_w  7.44 W/cm2   peak_p 566.9 Pa
+  chunk  4  t=5.70e-4  q_w  8.13 W/cm2   peak_p 565.3 Pa
+  chunk  5  t=7.41e-4  q_w  9.67 W/cm2   peak_p 571.5 Pa
+  chunk  6  t=9.34e-4  q_w 10.87 W/cm2   peak_p 540.5 Pa
+  chunk  7  t=1.15e-3  q_w 12.10 W/cm2   peak_p 569.8 Pa
+  chunk  8  t=1.38e-3  q_w 14.01 W/cm2   peak_p 582.8 Pa
+  chunk  9  t=1.62e-3  q_w 10.22 W/cm2   peak_p 646.6 Pa
+  chunk 10  t=1.86e-3  q_w  9.61 W/cm2   peak_p 546.3 Pa
+  chunk 11  t=2.11e-3  q_w  9.61 W/cm2   peak_p 560.7 Pa
+
+settled window (t > 0.7 ms): mean 10.9, stdev 1.7, band 7.4 to 14.0 W/cm2
+edge plateau: rho_e 2.3e-4 kg/m3, T_e 5040 K, p_e 505 Pa
+planar closed form on the sim's edge state: 8.48 W/cm2
+ratio, settled mean / closed form: 1.28
+
+the conductor holds a quasi-steady band; the stagnation-band momentum
+residue does not decay monotonically over 660k steps.

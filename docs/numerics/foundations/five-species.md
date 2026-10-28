@@ -100,13 +100,23 @@ Hess cycle on the dissociation energies pins the formation
 enthalpies.
 
 The external gate is the Casseau Mach-20 nitrogen cylinder, run
-inviscid at 400x200 cells: the reacting run peaks 2.8 kK below the
+inviscid at 400x200 cells: the reacting run peaks 2.0 kK below the
 frozen ceiling (dissociation cooling), the atomic fraction rises
 monotonically through the shock layer, and the stagnation-line
 temperature and composition land in or above the published bands for
 the right physical reason (one-temperature rates dissociate faster
 than the published two-temperature runs). Full numbers:
 [[research/results|the results page]].
+
+The run flies the state the case names, 220 K, 0.89 Pa, Mach 20, and the
+gate in the case directory holds the far field there to within 2% and the
+shock-layer scalars to within a few percent. Reaching that took two fixes:
+the uniform seed used the air mixture's energy inside a pure-nitrogen
+march, and the supersonic inflow handed the boundary pressure to the
+lane's internal-energy slot, which pinned the far field to the 50 K floor.
+The shock-layer scalars survived both faults because the enthalpy did,
+so the family agreed with its references while flying a stream the case
+never asked for.
 
 ![Shock-layer temperature and atomic nitrogen mass fraction](cyl-park5-fields.png)
 
@@ -140,8 +150,9 @@ species closure.
 
 A park5 case with `physics.mu > 0` leaves the inviscid lane for
 the species viscous march: Wilke mixture transport, effective-binary
-diffusion, and the isothermal wall with its catalytic condition.
-That lane and its heating bracket live on
+diffusion, and the isothermal wall with its catalytic condition, from
+a non-catalytic surface to a fully accommodating one. That lane and
+its wall-heating series live on
 [[numerics/foundations/catalytic-walls|the catalytic walls page]].
 The curvilinear, cut-cell, and unstructured marches still reject
 `park5` loudly (an invalid-arguments error at startup) rather than

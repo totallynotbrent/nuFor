@@ -1,0 +1,125 @@
+[
+ {
+  "tag": "park5-visc-accommodation",
+  "accommodation": [
+   {
+    "eta": 0.0,
+    "peak_q_mwm2": 3.7461,
+    "peak_x": 0.963,
+    "peak_y": 0.315,
+    "steps": 3244,
+    "max_temperature_k": 18791.0,
+    "kn_gll_rho": 1013.0,
+    "kn_gll_t": 9.335,
+    "cells_above_breakdown_pct": 10.5
+   },
+   {
+    "eta": 0.25,
+    "peak_q_mwm2": 3.8204,
+    "peak_x": 0.963,
+    "peak_y": 0.315,
+    "steps": 3244,
+    "max_temperature_k": 18650.0,
+    "kn_gll_rho": 1055.0,
+    "kn_gll_t": 9.393,
+    "cells_above_breakdown_pct": 10.5
+   },
+   {
+    "eta": 0.5,
+    "peak_q_mwm2": 3.8947,
+    "peak_x": 0.963,
+    "peak_y": 0.315,
+    "steps": 3247,
+    "max_temperature_k": 18515.0,
+    "kn_gll_rho": 1089.0,
+    "kn_gll_t": 9.877,
+    "cells_above_breakdown_pct": 10.4
+   },
+   {
+    "eta": 0.75,
+    "peak_q_mwm2": 4.2296,
+    "peak_x": 0.963,
+    "peak_y": 0.315,
+    "steps": 3244,
+    "max_temperature_k": 18693.0,
+    "kn_gll_rho": 1085.0,
+    "kn_gll_t": 9.897,
+    "cells_above_breakdown_pct": 10.3
+   },
+   {
+    "eta": 1.0,
+    "peak_q_mwm2": 4.8931,
+    "peak_x": 0.963,
+    "peak_y": 0.315,
+    "steps": 3244,
+    "max_temperature_k": 18659.0,
+    "kn_gll_rho": 936.6,
+    "kn_gll_t": 9.699,
+    "cells_above_breakdown_pct": 10.1
+   }
+  ],
+  "endpoint_checks": [
+   {
+    "eta": 0.0,
+    "measured_peak_q_mwm2": 3.7461,
+    "reference_peak_q_mwm2": 3.7461,
+    "drift_pct": 0.0,
+    "passed": true
+   },
+   {
+    "eta": 1.0,
+    "measured_peak_q_mwm2": 4.8931,
+    "reference_peak_q_mwm2": 4.8931,
+    "drift_pct": 0.0,
+    "passed": true
+   }
+  ],
+  "monotonic_in_accommodation": true,
+  "amplification": [
+   {
+    "eta": 0.0,
+    "amplification": 1.0
+   },
+   {
+    "eta": 0.25,
+    "amplification": 1.0198339606524118
+   },
+   {
+    "eta": 0.5,
+    "amplification": 1.0396679213048237
+   },
+   {
+    "eta": 0.75,
+    "amplification": 1.1290675635994767
+   },
+   {
+    "eta": 1.0,
+    "amplification": 1.306185099169803
+   }
+  ],
+  "amplification_within_band": true,
+  "legs_complete": [
+   {
+    "eta": 0.0,
+    "ran_with_continuum_probe": true
+   },
+   {
+    "eta": 0.25,
+    "ran_with_continuum_probe": true
+   },
+   {
+    "eta": 0.5,
+    "ran_with_continuum_probe": true
+   },
+   {
+    "eta": 0.75,
+    "ran_with_continuum_probe": true
+   },
+   {
+    "eta": 1.0,
+    "ran_with_continuum_probe": true
+   }
+  ],
+  "passed": true
+ }
+]

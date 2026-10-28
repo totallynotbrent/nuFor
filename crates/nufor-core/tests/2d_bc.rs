@@ -31,6 +31,7 @@ fn slip_walls_pass_a_uniform_supersonic_stream() {
             u: 1.5,
             v: 0.0,
             p: 1.0,
+            t: None,
         },
         east: Bc2d::SupersonicOutflow,
         south: Bc2d::SlipWall,

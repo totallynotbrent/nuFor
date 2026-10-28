@@ -1,0 +1,58 @@
+[
+ {
+  "tag": "h30.0",
+  "density_ratio": 11.257547368421054,
+  "peak_pressure_pa": 357703.4,
+  "max_temperature_k": 5079.072,
+  "wall_flux_mwm2": 0.015,
+  "C_D": 0.2363,
+  "C_L": 0.0879,
+  "L/D": 0.37198476512907325,
+  "density_ratio_drift_pct": 0.021781807983530067,
+  "peak_pressure_pct_drift_pct": 0.0,
+  "max_temperature_pct_drift_pct": 0.0014176018901381456,
+  "wall_flux_pct_drift_pct": 0.0
+ },
+ {
+  "tag": "h34.6",
+  "density_ratio": 15.7864,
+  "peak_pressure_pa": 480861.3,
+  "max_temperature_k": 7190.622,
+  "wall_flux_mwm2": 0.026,
+  "C_D": 0.2271,
+  "C_L": 0.0888,
+  "L/D": 0.3910171730515192,
+  "density_ratio_drift_pct": 0.022799240025324356,
+  "peak_pressure_pct_drift_pct": 0.0,
+  "max_temperature_pct_drift_pct": 0.0052565707133875915,
+  "wall_flux_pct_drift_pct": 0.0
+ },
+ {
+  "tag": "h40.0",
+  "density_ratio": 20.619025316455694,
+  "peak_pressure_pa": 452026.5,
+  "max_temperature_k": 11611.3,
+  "wall_flux_mwm2": 0.0441,
+  "C_D": 0.2559,
+  "C_L": 0.0974,
+  "L/D": 0.3806174286830793,
+  "density_ratio_drift_pct": 0.004726884307986142,
+  "peak_pressure_pct_drift_pct": 0.0,
+  "max_temperature_pct_drift_pct": 0.0025837567823552873,
+  "wall_flux_pct_drift_pct": 0.0
+ },
+ {
+  "tag": "h42.5",
+  "density_ratio": 18.939871641791044,
+  "peak_pressure_pa": 368419.1,
+  "max_temperature_k": 14709.63,
+  "wall_flux_mwm2": 0.0766,
+  "C_D": 0.2516,
+  "C_L": 0.0971,
+  "L/D": 0.38593004769475364,
+  "density_ratio_drift_pct": 0.0006777096565878304,
+  "peak_pressure_pct_drift_pct": 0.0,
+  "max_temperature_pct_drift_pct": 0.0025152957172046254,
+  "wall_flux_pct_drift_pct": 0.0
+ }
+]

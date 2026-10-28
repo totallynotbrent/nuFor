@@ -6,7 +6,7 @@ Two case.toml additions extend the format beyond empty boxes and shock
 tubes: an optional `[body]` section that puts an analytic solid in the
 domain, and the `euler_axi` equation set for axisymmetric runs. This
 page documents both. The base format lives in
-[[formats/case-toml]]; everything there still applies.
+[[formats/case-toml|the base case format]]; everything there still applies.
 
 ## The body section
 
@@ -77,7 +77,7 @@ below runs the full immersed body at hypersonic freestream.
 
 ## Boundary kinds
 
-The new kinds join the existing set (`wall`, `inflow`, `outflow`,
+The kinds join the existing set (`wall`, `inflow`, `outflow`,
 `periodic`, `profile_inflow`):
 
 | Kind | Meaning |
@@ -85,6 +85,8 @@ The new kinds join the existing set (`wall`, `inflow`, `outflow`,
 | `slip_wall` | Inviscid wall: the ghost mirrors the normal velocity. Also the axisymmetric symmetry axis. |
 | `supersonic_inflow` | Fixed supersonic inflow state; see `[boundaries.inflow_state]` below. |
 | `supersonic_outflow` | Supersonic outflow: the ghost copies the interior state, waves leave freely. |
+| `subsonic_outflow` | Subsonic outflow at a fixed back pressure; see `[boundaries.outflow_state]` below. |
+| `reservoir_inflow` | Reservoir inflow: the ghost is the isentropic expansion of a (pt, tt) reservoir to the local interior pressure. The axisymmetric chamber's injector treatment. |
 
 A `supersonic_inflow` side reads its state from an adjacent
 `[boundaries.inflow_state]` table rather than an inline value, so the
@@ -102,7 +104,26 @@ p = 1.0
 
 `v` is optional and defaults to 0. Without an explicit
 `inflow_state`, the inflow falls back to the uniform freestream from
-the initial condition.
+the initial condition. `t` is optional too, and it is the inlet
+temperature in kelvin. A reacting lane reads it, because the
+temperature decides whether the chain reaction runs at all.
+
+A `subsonic_outflow` side reads its back pressure from an adjacent
+`[boundaries.outflow_state]` table:
+
+```toml
+[boundaries]
+right = "subsonic_outflow"
+
+[boundaries.outflow_state]
+p = 7.0e6
+```
+
+Only the pressure field is read, so the table needs nothing but `p`. A
+density or a velocity in the table is ignored. A constant-area combustor
+duct needs one: with a fixed-mass inflow and a free exit, the heat
+release has nowhere to go and the pressure climbs until the case stops
+meaning anything.
 
 ## The capsule case
 

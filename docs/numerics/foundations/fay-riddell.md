@@ -182,3 +182,8 @@ planar Fay-Riddell form with CEA equilibrium-air transport to within
 a few percent at Casseau's Mach-20 conditions. The residual 3-8%
 against a frozen-Pr evaluation is left for the composition-aware
 wall closures, where the wall gets a real composition profile.
+
+Those bands are recomputed from the committed run by
+`cases/cylinder-stagnation-fay/gates.py`, which reads the chunk table
+and the series behind them, checks the two agree, and holds the edge
+plateau, the settled mean and the spread to their published values.

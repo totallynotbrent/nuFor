@@ -60,6 +60,24 @@ def subsonic_M_at(x, mdot):
         else: hi = M
     return 0.5*(lo+hi)
 
+def throat_mdot(pe_pt, a_exit_over_astar=1.5):
+    """the mass flow the 1d solution carries at the throat.
+
+    the choked cases sit at the throat's critical state, the fully
+    subsonic case at the mass flow its exit pressure implies.
+    """
+    p_second, p_third = critical_ratios(a_exit_over_astar)
+    pe_first = p_over_pt(mach_from_ar(a_exit_over_astar, False))
+    if pe_pt > pe_first:
+        lo, hi = 1e-8, flux_at(0.999999, area(5.0))
+        for _ in range(200):
+            mid = 0.5*(lo+hi)
+            if p_over_pt(subsonic_M_at(10.0, mid)) < pe_pt: hi = mid
+            else: lo = mid
+        return 0.5*(lo+hi)
+    return flux_at(1.0, area(5.0))
+
+
 def solve_1d(pe_pt, a_exit_over_astar=1.5):
     p_second, p_third = critical_ratios(a_exit_over_astar)
     # first critical: the exit pressure of the all-subsonic isentrope

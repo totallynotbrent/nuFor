@@ -36,6 +36,63 @@ pub enum CatalyticWall {
     /// wall composition = equilibrium at T_wall: atoms recombine on
     /// contact, the formation enthalpy lands on the surface.
     FullyCatalytic,
+    /// a partially accommodating surface: a fraction of the arriving
+    /// atoms sticks and recombines, the rest reflects. the wall
+    /// composition blends the near-wall cell composition with the
+    /// equilibrium one, so the accommodation falls out of the ghost
+    /// value instead of a separate limiter.
+    Partial { efficiency: f64 },
+}
+
+impl CatalyticWall {
+    /// the fraction of the arriving atoms the surface accommodates.
+    ///
+    /// the cli rejects an out-of-range coefficient at the case file;
+    /// the core clamps a programmatic caller's value to this range and
+    /// treats a non-finite one as no accommodation.
+    pub fn efficiency(self) -> f64 {
+        match self {
+            CatalyticWall::NonCatalytic => 0.0,
+            CatalyticWall::FullyCatalytic => 1.0,
+            CatalyticWall::Partial { efficiency } => {
+                if efficiency.is_finite() {
+                    efficiency.clamp(0.0, 1.0)
+                } else {
+                    0.0
+                }
+            }
+        }
+    }
+
+    /// true when the wall condition lets atoms recombine at all.
+    pub fn accommodates(self) -> bool {
+        self.efficiency() > 0.0
+    }
+}
+
+/// the wall-face composition the chosen condition carries: none for
+/// the non-catalytic wall (zero gradient), the equilibrium composition
+/// for the fully catalytic one, and the blend of the near-wall cell
+/// with that equilibrium for a partially accommodating surface.
+pub fn wall_composition(
+    catalytic: CatalyticWall,
+    t_wall: f64,
+    rho_near: f64,
+    y_near: &[f64; NS],
+) -> Option<[f64; NS]> {
+    if !catalytic.accommodates() {
+        return None;
+    }
+    let eq = equilibrium_wall_composition(t_wall.max(200.0), rho_near, y_near).ok()?;
+    let eta = catalytic.efficiency();
+    if eta >= 1.0 {
+        return Some(eq);
+    }
+    let mut y = [0.0f64; NS];
+    for s in 0..NS {
+        y[s] = (1.0 - eta) * y_near[s] + eta * eq[s];
+    }
+    Some(y)
 }
 
 /// wall composition for the fully-catalytic condition: the
@@ -43,9 +100,6 @@ pub enum CatalyticWall {
 /// park-1985 K_eq fits (the closure's own fits — no new constants).
 /// for the 5-species neutral set at a cold wall this is the
 /// all-molecules limit; the closed form covers any temperature.
-/// wall composition for the fully-catalytic condition: the
-/// equilibrium composition at the wall temperature from the
-/// park-1985 K_eq fits (the closure's own fits — no new constants).
 /// `rho_near` is the near-wall density; it only shapes the answer
 /// where the wall is hot enough to dissociate (K_c drives
 /// everywhere else). the degree of dissociation comes from the

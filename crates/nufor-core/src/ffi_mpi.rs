@@ -405,7 +405,7 @@ pub fn march_euler2d_mpi(
         use crate::solver2d::Bc2d::*;
         match b {
             Transmissive | SupersonicOutflow => (0, [0.0; 5]),
-            SupersonicInflow { rho, u, v, p } => {
+            SupersonicInflow { rho, u, v, p, .. } => {
                 let ein = crate::eqair::energy_from_pressure(&[*rho], &[*p])
                     .ok()
                     .and_then(|v| v.first().copied())
@@ -419,7 +419,9 @@ pub fn march_euler2d_mpi(
             // are rust-lane bcs (the nozzle case marches the axi lane in
             // rust); a fortran-marched case that carries them falls back
             // to the transmissive ghost until the mpi lane learns them.
-            ReservoirInflow { .. } | SubsonicOutflow { .. } => (0, [0.0; 5]),
+            ReservoirInflow { .. } | ReservoirInflowRealGas { .. } | SubsonicOutflow { .. } => {
+                (0, [0.0; 5])
+            }
         }
     };
     let (bw, bvw) = bc_code(&bc.west);
@@ -591,7 +593,7 @@ pub fn march_viscous2d_mpi(
         use crate::solver2d::Bc2d::*;
         match b {
             Transmissive | SupersonicOutflow => (0, [0.0; 5]),
-            SupersonicInflow { rho, u, v, p } => {
+            SupersonicInflow { rho, u, v, p, .. } => {
                 let ein = crate::eqair::energy_from_pressure(&[*rho], &[*p])
                     .ok()
                     .and_then(|v| v.first().copied())
@@ -605,7 +607,9 @@ pub fn march_viscous2d_mpi(
             // are rust-lane bcs (the nozzle case marches the axi lane in
             // rust); a fortran-marched case that carries them falls back
             // to the transmissive ghost until the mpi lane learns them.
-            ReservoirInflow { .. } | SubsonicOutflow { .. } => (0, [0.0; 5]),
+            ReservoirInflow { .. } | ReservoirInflowRealGas { .. } | SubsonicOutflow { .. } => {
+                (0, [0.0; 5])
+            }
         }
     };
     let (bw, bvw) = bc_code(&bc.west);
@@ -785,7 +789,7 @@ pub fn march_rans2d_mpi(
         use crate::solver2d::Bc2d::*;
         match b {
             Transmissive | SupersonicOutflow => (0, [0.0; 5]),
-            SupersonicInflow { rho, u, v, p } => {
+            SupersonicInflow { rho, u, v, p, .. } => {
                 let ein = crate::eqair::energy_from_pressure(&[*rho], &[*p])
                     .ok()
                     .and_then(|v| v.first().copied())
@@ -799,7 +803,9 @@ pub fn march_rans2d_mpi(
             // are rust-lane bcs (the nozzle case marches the axi lane in
             // rust); a fortran-marched case that carries them falls back
             // to the transmissive ghost until the mpi lane learns them.
-            ReservoirInflow { .. } | SubsonicOutflow { .. } => (0, [0.0; 5]),
+            ReservoirInflow { .. } | ReservoirInflowRealGas { .. } | SubsonicOutflow { .. } => {
+                (0, [0.0; 5])
+            }
         }
     };
     let (bw, bvw) = bc_code(&bc.west);

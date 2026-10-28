@@ -15,48 +15,58 @@ up to the 42.5 km edge of the corridor. March steps and wall time per
 station are
 plotted on [[numerics/foundations/equilibrium-air|the equilibrium-air page]].
 
-| station | steps | wall (s) | max density ratio | peak p (Pa) | max T (K) |
-|---------|-------|----------|-------------------|-------------|-----------|
-| 30.0 km | 1387  | 110.8    | 27.5              | 6.54e5      | 5149      |
-| 34.6 km | 1976  | 160.7    | 35.7              | 9.63e5      | 7776      |
-| 40.0 km | 2474  | 202.8    | 54.1              | 9.89e5      | 10271     |
-| 42.5 km | 2632  | 219.4    | 67.0              | 1.09e6      | 14031     |
+| station | steps | wall (s) | max density ratio | peak p (Pa) | max T (K) | peak wall flux (MW/m^2) |
+|---------|-------|----------|-------------------|-------------|-----------|---------------------------|
+| 30.0 km | 1398  | 113.2    | 11.26             | 3.58e5      | 5079      | 0.0150                  |
+| 34.6 km | 1999  | 155.2    | 15.79             | 4.81e5      | 7191      | 0.0260                  |
+| 40.0 km | 2488  | 223.6    | 20.62             | 4.52e5      | 11611     | 0.0441                  |
+| 42.5 km | 2647  | 270.8    | 18.94             | 3.68e5      | 14710     | 0.0766                  |
 
 The march length now tracks the shock layer rather than a table ceiling.
-Under the old table the two highest stations clamped at its 1 MPa top;
-with the rebuilt grid (101 pressures to 10.1 MPa, 30 temperatures to
-30000 K, sensible internal energy) the same stations read peak pressures
-up to 1.09 MPa and the shock-layer temperatures rise accordingly. The
-42.5 km station pays the most: its thin, hot shock layer needs the
-smallest time steps, and its density ratio of 67 is the sternest test of
-the march's positivity.
+The rebuilt equilibrium-air grid (101 pressures to 10.1 MPa, 30 temperatures
+to 30000 K, sensible internal energy) carries every station without clamping,
+and the shock-layer temperatures rise with altitude as the thinner air slows
+the deceleration. The 42.5 km station pays the most: its thin, hot shock
+layer needs the smallest time steps, and its 14700 K peak temperature is the
+sternest test of the march's positivity.
 
-Lift-to-drag across the sweep runs 0.55, 0.61, 0.65, 0.72 from sea level
-to 42.5 km: the cleaner freestream at altitude rewards the same 22.5
-degree shell with a better ratio.
+Lift-to-drag across the sweep runs 0.372, 0.391, 0.381, 0.386 from the
+30 km station to the 42.5 km edge: the shell holds its attitude ratio as the
+freestream thins, and the wall heat flux climbs from 15 to 77 kW/m2 as the
+boundary layer heats up.
+
+The wall heat flux is the march's own number. The viscous pass evaluates the
+isothermal wall conduction on the same one-sided quadratic it applies to the
+field, and the run log and the progress heartbeat both read it from that one
+implementation, so the two cannot disagree and no post-hoc recomputation
+invents a second value. The quantities above come from the shipped gate in
+`cases/aeroshell-station`, which re-measures the density ratio, peak
+pressure, maximum temperature and wall flux off the marched field and holds
+them against `reference.json` within 12 %.
 
 ## Stagnation heating gate
 
 The Fay-Riddell case (`cases/cylinder-stagnation-fay`): the Casseau
 Mach-20 nitrogen freestream on a 1 m cylinder nose, 1000 K isothermal
-wall, nose-only domain at global dt, 420k steps.
+wall, nose-only domain at global dt.
 
 | quantity | value |
 |---|---|
 | edge plateau $\rho_e$, $T_e$, $p_e$ | 2.3e-4 kg/m3, 5040 K, 505 Pa |
 | wall conductor, converged (refined 132x98 mesh) | 10.7 to 11.2 W/cm2 |
-| conductor swing on the refined mesh | +-0.5 W/cm2 |
+| spread of the settled band | 0.5 W/cm2 across the band |
 | closed form, pure-N2 Sutherland transport | 8.48 W/cm2 |
 | closed form, CEA mixture transport at the edge state | 10.69 W/cm2 |
-| agreement, converged march vs corrected closed form | 0 to 4% |
+| agreement, converged march vs corrected closed form | within 5%, and the closed form falls inside the measured band |
 
 The 660k-step chain on the original 84x384 grid never settled: the
 conductor held a 7.4-14.0 W/cm2 band indefinitely. The tangential
 direction was the problem: the Hiemenz layer is ~11 mm and the
 uniform 31 mm spacing aliased it to a third of a cell. The refined
 132x98 grid (100 um wall cells, 2 mm at the stagnation line) kills
-the breathing entirely: the conductor converges to 10.7-11.2 W/cm2
-with +-0.5 swing and stays there across the settled window.
+the breathing entirely: the conductor settles into a 10.7-11.2 W/cm2 band
+half a watt per square centimetre wide and stays there across the settled
+window.
 
 The remaining offset against the original closed-form number was
 the closed form's own transport: at the edge state the gas is over
@@ -81,12 +91,24 @@ fields and the stagnation-line profiles are on
 | quantity | run value | published reference |
 |---|---|---|
 | shock standoff | 0.30 m | 0.25 m reacting, 0.29 m non-reacting (NS, 2-T) |
-| stagnation-line peak T | 14.5 kK | 13.5-15 kK (2-T published); one-T ceiling 17.3 kK |
-| stagnation-line N mole fraction at the wall | 0.38 | 0.1-0.25 (2-T published) |
+| stagnation-line peak T | 15.3 kK | 13.5-15 kK (2-T published); one-T ceiling 17.3 kK |
+| stagnation-line N mole fraction at the wall | 0.34 | 0.1-0.25 (2-T published) |
 | peak N mass fraction (near-wall layer) | 0.50 | order 0.1-0.25 mole |
 
+The case names a Mach 20 nitrogen stream at 220 K, and the run flies that
+state: the far field reads 220.0 K, 0.890 Pa, Mach 20.00. The gate in the
+case directory holds it there and fails if the freestream drifts off the
+declared state or the shock-layer scalars move more than a few percent.
+Two faults used to bury that state. The uniform seed carried the air
+mixture's energy into a pure-nitrogen march, and the supersonic inflow
+handed the boundary pressure to the lane's internal-energy slot, which
+pinned the far field to the 50 K floor and the whole family to a stream
+nobody asked for. Both are fixed, and the shock-layer numbers moved less
+than a kilokelvin, which says the enthalpy was always right and the
+thermodynamics was not.
+
 The dissociation is unmistakable: the frozen perfect-gas ceiling at
-Mach 20 is 17.3 kK, and the reacting run peaks 2.8 kK below it with
+Mach 20 is 17.3 kK, and the reacting run peaks 2.0 kK below it with
 the atomic-fraction field rising monotonically through the shock
 layer. The one-temperature lane dissociates faster than Casseau's
 two-temperature runs (their rates see a geometric-mean reaction
@@ -108,9 +130,12 @@ both land in or above their expected bands for the right reason.
 Drag from the pressure integral is not comparable at this resolution:
 at the shoulder the wrapped shock sits on the surface cells, so the
 integral picks up post-shock pressures and reads several times the
-Newtonian 1.33. Cut cells are the honest fix for body-mounted
-shocks, and until then surface-integrated drag from this lane is
-measurement-limited, not citable.
+Newtonian 1.33. Surface-integrated drag from this lane is
+measurement-limited, not citable. A body-fitted wall treatment is the
+open step: the axisymmetric shell case already carries a cut-cell
+implementation, and it tears the field down rather than closing the
+gap, so the next move is a wall-local flux redistribution that keeps
+the shock layer out of the average.
 
 ## Nozzle cold flow
 
@@ -121,18 +146,19 @@ between t = 160 and t = 400).
 
 | case | regime | exit p/pt vs 1d | exit Mach vs 1d | mass flux spread |
 |------|--------|-----------------|-----------------|------------------|
-| pe/pt = 0.89 | subsonic | 0.884 vs 0.890 | 0.414 vs 0.411 | +-5% (still settling) |
-| pe/pt = 0.16 | fully supersonic | 0.192 vs 0.160 | 1.75 mass-avg vs 1.854 (peak 1.837) | 0.06% |
-| pe/pt = 0.75 | normal shock | 0.755 vs 0.750 | shock at x ~ 6 vs 1d 7.56 | post-shock noisy |
+| pe/pt = 0.89 | subsonic | 0.874 vs 0.890 | 0.372 vs 0.411 | 15% plane mass flux spread (still settling) |
+| pe/pt = 0.16 | fully supersonic | 0.197 vs 0.160 | 1.742 mass-avg vs 1.854 | 0.07% |
+| pe/pt = 0.75 | normal shock | 0.729 vs 0.750 | shock at x ~ 6 vs 1d 7.56 | post-shock noisy |
 
-The subsonic case is the cleanest gate (0.7% on both exit
-quantities). The supersonic case chokes at the throat (M = 1.017)
-and conserves mass flux to 0.06% across three planes; its exit
-Mach sits 5.5% under the 1D value because the staircase wall
-pinches the effective throat area ~4% under the analytic contour.
-The shock case captures the shock but stands it early with
-staircase noise downstream: captured, not resolved, the honest
-weak point that cut cells exist to fix.
+The supersonic case is the cleanest gate: 5.8% centerline L2 against
+the 1D profile, 0.07% mass flux spread across three planes, and an
+exit Mach 6% under the 1D value because the staircase wall pinches
+the effective throat area ~4% under the analytic contour. The subsonic
+case holds its back pressure to 1.8% but trails the 1D exit Mach by
+9.5% and still carries transients into its window. The shock case
+captures the shock but stands it early with staircase noise downstream:
+captured, not resolved, and the stair-stepped wall on the nozzle
+remains the piece cut cells are meant to answer.
 
 The continuum probe ships with these runs and every
 other 2D/axisymmetric run: Bird's gradient-length local Knudsen
@@ -145,13 +171,14 @@ conditions, and the figures:
 
 ## The trim anchor
 
-The finest shipped case is the trimmed capsule: 384x192, viscous, a 1600 K
-radiation-equilibrium wall, 1772 steps to t = 2 ms in 239.1 s. Peak surface
-pressure 2.07 MPa at (x=1.622, y=1.219), maximum field temperature 29379 K,
-peak wall heat flux 12.2 MW/m2, C_D 0.501 with L/D 0.335. The peak pressure
-sits far above the old table's ceiling, which used to clamp it at 1 MPa.
-This is the case the wake visualizations come from, including the header
-render on the repository front page.
+The trimmed capsule: 384x192, viscous, a 1600 K radiation-equilibrium wall,
+1804 steps to t = 2 ms in 271.6 s. Peak surface pressure 0.959 MPa at
+(x=1.549, y=1.281), maximum field temperature 25670 K, peak wall heat flux
+0.575 MW/m2, C_D 0.501 with L/D 0.335. The peak pressure stays inside the
+retired table's 1 MPa ceiling, so the march never needed the rebuilt
+equilibrium-air grid to finish. This is the case the wake visualizations come
+from, including the header render on the repository
+front page.
 
 ## MPI scaling
 
@@ -185,27 +212,67 @@ The thread-sharded 2D step, measured in the 1.5.0 era on a 384x384 mesh,
 the plateau tracks memory bandwidth rather than core count. Full table on the
 [[numerics/parallel/threading|threading page]].
 
+## Catalytic wall accommodation
 
-## Catalytic wall bracket
-
-The park5 viscous lane's heating bracket
+The park5 viscous lane's wall-heating series
 (`cases/cylinder-m20-park5-visc`): the same Mach 20 nitrogen
 cylinder with `physics.mu = 1.716e-5` and an isothermal 1000 K
-no-slip wall, run twice with `catalytic_wall = "none"` vs
-`"full"`. Both runs march to t = 3 ms (3237 and 3236 steps) and
-finish clean; the species fields conserve sum-Y to 5e-8.
+no-slip wall, with the wall accommodation stepped from the
+non-catalytic wall to the fully catalytic one. All five runs march to
+t = 3 ms and finish clean.
 
-| quantity | non-catalytic | fully-catalytic |
+| accommodation | peak wall heat flux | against the non-catalytic wall |
 |---|---|---|
-| peak wall heat flux | 0.240 MW/m^2 | 1.216 MW/m^2 |
+| 0, the non-catalytic wall | 3.746 MW/m2 | 1.000 |
+| 0.25 | 3.820 MW/m2 | 1.020 |
+| 0.5 | 3.895 MW/m2 | 1.040 |
+| 0.75 | 4.230 MW/m2 | 1.129 |
+| 1, the fully catalytic wall | 4.893 MW/m2 | 1.306 |
 
-The 5.1x amplification is the catalytic formation-enthalpy term
-at a cold wall: atoms that reach the surface recombine, and each
-recombination deposits its 33.6 MJ/kg formation enthalpy into the
-wall. The field cross-section shows the companion effect: the
-fully-catalytic run's atomic nitrogen collapses toward the wall
-(0.09 vs 0.02 in the first fluid ring) while the hot shock-layer
-core is unchanged.
+Every leg puts the peak on the same face at (0.963, 0.315). The two
+ends reproduce the committed non-catalytic and fully catalytic run logs
+exactly, and the peak grows monotonically with the accommodation; the
+gate in the case directory checks all three.
+
+The absolute numbers stay withheld, because the flux comes from the
+march itself and the flow at the wall is out of the range where a
+continuum solution means anything. The continuum probe fails over the
+stretch of wall that carries the peak, with the gradient length
+Knudsen number up to 1089 and about 10 percent of the cells above the
+breakdown threshold.
+
+The earlier explanation for the gap between the walk-through peak and
+the march's peak is withdrawn. It rested on two claims, and both were
+wrong. The march does not hold a constant conductance of 4.93 W/m.K
+across the field; the species lane mixes the RP-1232 species
+conductivities with the Wilke rule, so its conductance varies with
+temperature and composition. And the walk-through number was never a
+model comparison: 0.240 MW/m2 came from a reporter outside the march,
+on the stream the case never declared, 50 K at Mach 42 with an air
+seed carried into a nitrogen march. Comparing the two was meaningless,
+and the arithmetic that backed the claim is not reproducible.
+
+An earlier note blamed the peak on a boundary cell carrying a whole
+cell's volume across a straddled wall; sampling the row on four rays
+and reading the cells next to the peak shows a smooth region instead,
+16137 K above it and 18791 K below, so that explanation is withdrawn
+too.
+
+The mechanism the series was meant to show is real and visible in the
+composition fields: the fully-catalytic run's atomic nitrogen collapses
+toward the wall (0.09 against 0.02 in the first fluid ring) while the
+hot shock-layer core is unchanged, and the added term
+$$q_{cat} = \sum_s h^0_s \, J_{s,wall}$$
+carries the 33.6 MJ/kg formation enthalpy of recombining nitrogen into
+the wall. The accommodation coefficient spreads the walls that sit
+between those two ends, so a measured surface efficiency maps onto the
+quoted wall heat flux.
+
+The flux comes from the march itself: the viscous pass evaluates the
+wall flux on the same one-sided quadratic it applies to the field, and
+the run log reports that number directly. See
+[[research/claim-register|the claim register]] for the current state of
+these figures.
 
 Details: [[numerics/foundations/catalytic-walls|the catalytic
 walls page]].

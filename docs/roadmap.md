@@ -30,7 +30,9 @@ which carries 3D axisymmetric reality at 2D cost).
   the CDV nozzle cold-flow case (reservoir inflow, subsonic
   back-pressure outflow, restart chaining on the axisymmetric
   runner, three pressure-ratio regimes against the 1D solution);
-  restart chaining, VTK/CSV output, and the live case console.
+  restart chaining, VTK/CSV output, and the live case console; the
+  axisymmetric engine lane with its nine-species H2/O2 closure over CEA
+  anchors, an injector, a choked throat and a bell.
 - Case console: live runs, field figures (schlieren included), forces,
   the standalone report.
 - 3D inviscid Euler: validated, committed.
@@ -84,6 +86,7 @@ flowchart LR
     H --> I["species continuity<br/>(Park 5)"]
 
     I --> K["catalytic walls<br/>AMR, unstructured"]
+    I --> J["engine lane<br/>chamber + nozzle"]
     G --> I
     E --> H
 ```
@@ -141,10 +144,11 @@ flowchart LR
    boundary conditions, the reservoir inflow (stagnation state
    expanding to the local face pressure, the acoustic feedback a
    fixed-state inflow cannot give) and the subsonic back-pressure
-   outflow. Three pressure ratios: the subsonic run matches the
-   1D exit state to 0.7%, the fully supersonic run chokes (M=1
-   at the throat) with mass flux conserved to 0.06% and the
-   exit-plane Mach peaking at 1.837 against the 1D 1.854, and
+   outflow. Three pressure ratios: the subsonic run holds the 1D
+   exit pressure to 1.8% and trails the 1D exit Mach by 9.5%,
+   the fully supersonic run chokes (M=1
+   at the throat) with mass flux conserved to 0.07% and the
+   exit Mach averaging 1.742 against the 1D 1.854, and
    the shock run captures the normal shock (station early, the
    staircase's known weakness, cut cells are the planned answer).
    The axisymmetric runner gained restart chaining alongside.
@@ -163,28 +167,34 @@ flowchart LR
    reject the model loudly until wired. Gates: the equilibrium
    constants against the verified table, the exchange-reaction cycle,
    the source term nulled at the closed-form equilibrium composition,
-   and the Mach 20 nitrogen cylinder (peak T 2.8 kK under the frozen
+   and the Mach 20 nitrogen cylinder (peak T 2.0 kK under the frozen
    ceiling, atomic fraction rising monotonically through the shock
    layer; results on the research page).
-9. **Catalytic wall brackets**: done. Non-catalytic and
-   fully-catalytic wall options on the species viscous lane, with
-   Wilke mixture transport and effective-binary diffusion through
-   the shock layer. The Mach 20 cylinder pair brackets the wall
-   heating between the two conditions; the machinery and numbers
-   are on the catalytic walls page. The Maxwell velocity-slip and
-   Smoluchowski temperature-jump wall conditions from the same body of
+9. **Catalytic wall conditions**: shipped, the numbers still
+   withheld. Non-catalytic, partially accommodating and fully
+   catalytic wall options on the species viscous lane, with Wilke
+   mixture transport and effective-binary diffusion through the shock
+   layer. The wall condition takes an accommodation coefficient, the
+   fraction of arriving atoms the surface recombines, so a measured
+   surface efficiency maps onto a wall heat flux instead of a binary
+   bracket. The Mach 20 cylinder series spans the ladder and the ends
+   reproduce the shipped pair, but the peak stays withheld: the flow
+   at the wall is out of the continuum range. The machinery and the
+   series are on the catalytic walls page. The Maxwell velocity-slip
+   and Smoluchowski temperature-jump wall conditions from the same body of
    work stay research extras: below 43 km the trajectory is continuum
    (Kn << 1), so slip walls are a branch, not a planned step.
-9a. **Combustion chemistry (engine chamber flow)**: finite-rate
-   H2/O2 (and later CH4/O2) chemistry on the species-continuity
-   machinery: a fuel/oxidizer reaction mechanism with
-   its own D0 set routed through the closure, chamber injection as a
-   composition + enthalpy inflow, and a nonreacting path that stays
-   free of the overhead. Gates: adiabatic flame temperature against
-   CEA at chamber conditions, equilibrium composition at fixed
-   (T, p) against CEA, then a subscale chamber-to-throat run matching
-   CEA's equilibrium exit state. This is the step that turns the
-   nozzle cold-flow lane into a live engine simulation.
+9a. **Combustion chemistry (engine chamber flow)**: the first cut is
+   built. Nine species for the H2/O2 lane, advected beside the
+   conserved state with operator-split finite-rate chemistry over
+   NASA-7 thermodynamics, and the face fluxes carry the composition.
+   The chamber injects the burned gas as a composition and enthalpy
+   inflow, the axisymmetric chamber settles with the throat choked
+   and the exit state close to CEA, and three fast gates hold it: the
+   flame temperature at 70 bar, the adiabatic round trip at the flame
+   point, and the chamber sound speed. Open: a CH4/O2 mechanism
+   beside the H2/O2 one, the engine contour's own wall treatment, and
+   the march on more than one core.
 9b. **Engine wall conditions**: cooled-wall and film-cooling
    treatments for the engine lane: isothermal and Bartz-style
    conjugate wall options on the nozzle contour, an injected-wall
@@ -219,14 +229,16 @@ flowchart LR
     exchange, the march) behind one coarse FFI; Rust stays the front
     door (case files, CLI, UI, output) and never calls MPI. Design,
     gates, and measured scaling: [[numerics/parallel/mpi|the MPI page]].
-    Phase F1 parallelizes the euler_2d march (the capsule path) with the
-    np=1 bit-identity anchor; phase F2 adds viscous+SA and is done: the
+    The first phase parallelizes the euler_2d march (the capsule path)
+    with the np=1 bit-identity anchor; the second adds viscous and SA
+    and is done: the
     laminar viscous and SA lanes run the full two-stage Heun in one
-    bridge call and sit at machine roundoff against the serial drivers
-    on all five fields at np=1, 2, and 3, with the CLI routing
-    body-free eqair cases through the Fortran core. Phase F3 lands
-    all new physics (live 2T, species) MPI-native from day one, which
-    pulls the nonequilibrium and species work inside this one.
+    bridge call and sit at roundoff against the serial drivers
+    on all five fields at np=1, 2, and 3 (the worst relative difference
+    is 8.2e-14), with the CLI routing
+    body-free eqair cases through the Fortran core. The third lands all
+    new physics (live 2T, species, combustion) MPI-native from day one,
+    which pulls the nonequilibrium and species work inside this one.
 
 ## What we deliberately do not borrow
 
@@ -295,14 +307,52 @@ report posture: Newtonian numbers stay the design basis, the CFD sweep
 is the confirmatory run with a limitations paragraph, and the
 nonequilibrium and heating upgrades are the path.
 
-## Rocket engine CFD, later
+## Rocket engine CFD
 
-The other thing I eventually want to run with the case workflow. When the
-aeroshell scope closes: nozzle and internal flows over uploaded
-geometry. Combustion chemistry arrives only after the species
-continuity is validated; until then the engine work is the cold-flow
-aerodynamics and the perfect-gas cross-check, the same role nuFor
-plays for the aeroshell.
+This lane is open. It waited on the species and catalytic-wall steps,
+and both are shipped now, so the engine work does not have to sit
+behind the aeroshell scope any more.
+
+Cold flow came first, with the Liou CDV nozzle in three pressure-ratio
+regimes against the 1D solution, behind a gate on the centerline Mach
+and the exit-core state. That is the perfect-gas cross-check this lane
+needs, the same role nuFor plays for the aeroshell.
+
+Behind the cold flow sits the axisymmetric combustion lane: a
+nine-species H2/O2 closure over CEA anchors, an injector feeding a
+chamber of burned gas, a converging section, a throat and a bell. It
+settles, and the settled state agrees with the equilibrium throat
+state closely enough to hang contracts on:
+
+| contract | tolerance | measured |
+| --- | --- | --- |
+| the throat chokes | mach within 0.08 of 1 | 1.0328 |
+| the throat's temperature | within 5 percent of CEA | -0.8 percent |
+| the throat's pressure | within 12 percent of CEA | -11.3 percent |
+| the mass flow is conserved | within 8 percent | 0.5 percent |
+| the chamber runs subsonic | mach below 0.1 | 0.0685 |
+| the exit runs supersonic | mach above 1 | 1.7088 |
+
+The chamber's entropy rise stays under 20 J/(kg K), so the converging
+section is close to isentropic, and the pressure sits under the
+isentrope because the chemistry keeps running in the chamber and
+changes the gas the nozzle sees.
+
+That march takes about thirty minutes, so the gate that drives it runs
+on my desktop. The settled snapshot ships with the case, and a second
+gate recomputes the numbers above from the field in seconds and checks
+that the page publishes them, so the table stays tied to the march in
+the continuous integration. The closure's own gates run there as well:
+the flame temperature at 70 bar against CEA, the adiabatic round trip
+at the flame point, and the chamber sound speed.
+
+What the lane does not have yet: no engine cycle, no turbomachinery, no
+propellant tank model, and nothing running on more than one core. The
+wall treatments an engine report wants (conjugate cooling, film
+cooling, the cold wall against the cooled wall bracket) ride on the
+catalytic wall machinery and are still to come, and moving the lane
+onto the Fortran core is the same work the rest of the new
+physics needs.
 
 ## See also
 

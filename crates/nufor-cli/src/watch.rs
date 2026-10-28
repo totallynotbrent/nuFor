@@ -81,7 +81,13 @@ impl Watch {
             self.name
         );
         for mut stream in listener.incoming().flatten() {
-            let _ = self.serve_one(&mut stream);
+            // one bad request must not take the server down.
+            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = self.serve_one(&mut stream);
+            }));
+            if r.is_err() {
+                eprintln!("viewer: the request failed; the server continues");
+            }
         }
         Ok(())
     }
@@ -224,7 +230,7 @@ impl Watch {
             nufor_config::Eos::Combustion => "combustion",
         };
         let (frho, fu, fp) = match &cfg.initial_condition {
-            nufor_config::InitialCondition::Uniform { rho, u, p } => {
+            nufor_config::InitialCondition::Uniform { rho, u, p, .. } => {
                 (format!("{rho:e}"), format!("{u:e}"), format!("{p:e}"))
             }
             nufor_config::InitialCondition::TwoState { left, .. } => (
@@ -237,6 +243,14 @@ impl Watch {
                 format!("{:e}", ambient.u),
                 format!("{:e}", ambient.p),
             ),
+            nufor_config::InitialCondition::Quasi1d { p0, .. } => {
+                // the chamber stagnation state fronts the quasi-1d field
+                (
+                    format!("{:e}", cfg.physics.gas_constant),
+                    "0".to_owned(),
+                    format!("{:e}", p0),
+                )
+            }
         };
         let mach = {
             // the freestream sound speed through the closure: perfect gas
@@ -245,11 +259,16 @@ impl Watch {
                 nufor_config::InitialCondition::Uniform { rho, p, .. } => (*rho, *p),
                 nufor_config::InitialCondition::TwoState { left, .. } => (left.rho, left.p),
                 nufor_config::InitialCondition::Blast { ambient, .. } => (ambient.rho, ambient.p),
+                nufor_config::InitialCondition::Quasi1d { p0, .. } => {
+                    // the chamber stagnation density from the perfect-gas form
+                    (p0 / (cfg.physics.gas_constant * 3676.53), *p0)
+                }
             };
             let u = match &cfg.initial_condition {
                 nufor_config::InitialCondition::Uniform { u, .. } => *u,
                 nufor_config::InitialCondition::TwoState { left, .. } => left.u,
                 nufor_config::InitialCondition::Blast { ambient, .. } => ambient.u,
+                nufor_config::InitialCondition::Quasi1d { .. } => 0.0,
             };
             match nufor_core::model_from_config(&cfg) {
                 nufor_core::ThermoModel::Perfect { gamma } => {
@@ -524,7 +543,15 @@ pub fn spawn_for_run(case_path: &str) -> Option<u16> {
         if let Ok(listener) = TcpListener::bind(("0.0.0.0", port)) {
             std::thread::spawn(move || {
                 for mut stream in listener.incoming().flatten() {
-                    let _ = w.serve_one(&mut stream);
+                    // the live viewer reads the case's files while the
+                    // march rewrites them, so a bad frame must not take
+                    // the run down with it.
+                    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        let _ = w.serve_one(&mut stream);
+                    }));
+                    if r.is_err() {
+                        eprintln!("viewer: the request failed; the run continues");
+                    }
                 }
             });
             return Some(port);

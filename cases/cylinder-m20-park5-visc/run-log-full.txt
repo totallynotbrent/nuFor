@@ -1,53 +1,54 @@
-case cylinder-m20-park5-visc-full  (cases/cylinder-m20-park5-visc/case-full.toml)
-time 0.003000 s in 3236 steps, wall 1784.9 s
+case cylinder-m20-park5-visc-full  (case.toml)
+time 0.003001 s in 3244 steps, wall 2028.6 s
 grid 400x200, viscous true, eos Park5 { gamma_shaping: 1.4 }
 freestream rho 1.36300e-5 p 0.9 u 6047.0
-max density ratio 291.29
-peak pressure 5328.9 Pa at (x=-0.772, y=0.638), T there 3708 K
-max temperature 19112 K
+max density ratio 290.28
+peak pressure 5275.1 Pa at (x=-0.772, y=0.638), T there 3669 K
+max temperature 18659 K
 wall temperature 1000 K (0 = adiabatic)
 
 noneq indicator (park 2T over body-adjacent probes):
-  n2 tau_vib range 6.48e-10 .. 3.14e-6 s
+  n2 tau_vib range 7.86e-10 .. 2.83e-6 s
   residence time x_len/u 1.12e-3 s
-  tau_vib/tau_flight range 5.76e-7 .. 2.79e-3
+  tau_vib/tau_flight range 6.99e-7 .. 2.51e-3
 
 continuum probe (bird gradient-length knudsen):
-  kn_inf (lambda_inf/l_ref) 3.567e-4
-  max kn_gll(rho) 9.784e2 at (0.844, 0.570)
-  max kn_gll(t) 2.110e1
-  cells above breakdown threshold 10.2 pct
+  kn_inf (lambda_inf/l_ref) 7.620e-4
+  max kn_gll(rho) 9.366e2 at (0.844, 0.570)
+  max kn_gll(t) 9.699e0
+  cells above breakdown threshold 10.1 pct
 
-peak wall heat flux 1.2161 MW/m^2 at surface point (0.963, 0.315)
-wall heat flux vs surface x (MW/m^2):
-  -1.010  0.0768
-  -1.010  0.0912
-  -0.992  0.0622
-  -0.976  0.0652
-  -0.942  0.0836
-  -0.907  0.0858
-  -0.857  0.0239
-  -0.805  0.0947
-  -0.737  0.0197
-  -0.635  0.0122
-  -0.516  0.0154
-  -0.346  0.1001
-  0.215  0.5120
-  0.453  0.4266
-  0.606  0.8029
-  0.708  0.7882
-  0.776  0.7508
-  0.844  0.7613
-  0.895  0.3433
-  0.929  0.7883
-  0.963  1.1750
-  0.980  0.8378
-  0.997  0.7304
-  1.014  0.6896
+peak wall heat flux 4.8931 MW/m^2 at surface point (0.963, 0.315)
+wall heat flux by surface point (MW/m^2):
+  -1.010  0.009  0.8127
+  -0.992  0.162  0.6615
+  -0.959  0.298  0.6438
+  -0.907  0.434  0.8451
+  -0.856  0.536  0.8968
+  -0.772  0.638  0.2851
+  -0.704  0.723  0.2137
+  -0.601  0.808  0.1973
+  -0.500  0.876  0.2021
+  -0.380  0.927  0.3990
+  -0.261  0.978  0.9088
+  -0.108  0.995  1.0181
+  0.044  1.012  0.6935
+  0.198  0.995  0.8370
+  0.334  0.944  1.2176
+  0.452  0.893  0.7457
+  0.555  0.842  1.2252
+  0.657  0.757  1.3589
+  0.742  0.672  1.2059
+  0.827  0.570  1.1356
+  0.878  0.502  0.8755
+  0.946  0.332  3.0701
+  0.963  0.315  4.8931
+  0.980  0.230  2.1389
+  0.996  0.196  1.6149
 
 
 aero coefficients (pressure only):
-  C_D 0.1334
-  C_L -0.0994
-  L/D -0.7450
+  C_D 0.1300
+  C_L -0.0981
+  L/D -0.7544
   (band cells 278, q_inf 249.2 Pa, A_ref 17.57, L_ref 4.73)

@@ -204,3 +204,91 @@ fields = ["rho"]
         other => panic!("expected a validation error, got {other:?}"),
     }
 }
+
+/// a case that carries only the back pressure.
+fn outflow_case(state: &str) -> String {
+    format!(
+        r#"
+schema_version = 1
+[metadata]
+name = "outflow-state"
+[physics]
+equations = "euler_2d"
+gamma = 1.4
+gas_constant = 287.0
+[mesh]
+nx = 10
+ny = 10
+x0 = 0.0
+x1 = 1.0
+y0 = 0.0
+y1 = 1.0
+[initial_condition]
+type = "uniform"
+rho = 1.0
+u = 0.0
+p = 1.0
+[boundaries]
+left = "wall"
+right = "subsonic_outflow"
+[boundaries.outflow_state]
+{state}
+[numerics]
+flux = "hll"
+reconstruction = "first_order"
+cfl = 0.5
+[time]
+final_time = 0.1
+[output]
+interval_steps = 100
+formats = ["vtk"]
+fields = ["rho"]
+"#
+    )
+}
+
+/// the outflow's table carries only the back pressure, so the minimal
+/// spelling must parse.
+#[test]
+fn an_outflow_state_needs_only_its_pressure() {
+    let cfg = nufor_config::parse_case_toml(&outflow_case("p = 7.0e6"))
+        .expect("a back pressure alone must parse");
+    let state = cfg
+        .boundaries
+        .outflow_state
+        .expect("the outflow state must be present");
+    assert_eq!(state.p, 7.0e6);
+    assert!(state.rho.is_none(), "no density was given");
+    assert!(state.u.is_none(), "no velocity was given");
+}
+
+/// a case that spells out a full state still loads: the extras are
+/// accepted and ignored.
+#[test]
+fn an_outflow_state_accepts_a_full_state() {
+    let cfg =
+        nufor_config::parse_case_toml(&outflow_case("rho = 0.01\nu = 0.0\nv = 0.0\np = 7.0e6"))
+            .expect("a full state must still parse");
+    let state = cfg
+        .boundaries
+        .outflow_state
+        .expect("the outflow state must be present");
+    assert_eq!(state.p, 7.0e6);
+    assert_eq!(state.rho, Some(0.01));
+}
+
+/// the back pressure is the only field the outflow reads, so it is the
+/// only one the validator checks.
+#[test]
+fn an_outflow_state_with_a_nonpositive_pressure_is_rejected() {
+    let cfg = nufor_config::parse_case_toml(&outflow_case("p = 0.0"));
+    match cfg {
+        Err(nufor_config::ConfigError::Invalid { problems }) => assert!(
+            problems
+                .iter()
+                .any(|p| p.contains("outflow_state") && p.contains("p")),
+            "expected a back-pressure complaint, got {problems:?}"
+        ),
+        other => panic!("expected a validation error, got {other:?}"),
+    }
+}

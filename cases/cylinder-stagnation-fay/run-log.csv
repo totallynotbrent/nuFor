@@ -1,0 +1,24 @@
+case,steps,time,nx,wall_s,viscous,tw,eos,rho_ratio,p_peak_pa,t_at_peak_k,t_max_k
+cylinder-stagnation-fay,60,0.001179,84,3.5,true,1000,EqAir { r_gas: 296.8 },8.56607e1,5.592e2,3031,5073
+cylinder-stagnation-fay,60000,qw_peak_mwm2,0.143560,x,2.000,y,-0.016
+cylinder-stagnation-fay,60000,0.000153,84,3425.3,true,1000,EqAir { r_gas: 296.8 },9.42251e1,6.395e2,2390,5148
+cylinder-stagnation-fay,60000,qw_peak_mwm2,0.106285,x,2.000,y,-0.016
+cylinder-stagnation-fay,60000,0.000276,84,3754.9,true,1000,EqAir { r_gas: 296.8 },9.40352e1,5.930e2,2961,5136
+cylinder-stagnation-fay,60000,qw_peak_mwm2,0.088405,x,2.001,y,-0.047
+cylinder-stagnation-fay,60000,0.000415,84,3801.4,true,1000,EqAir { r_gas: 296.8 },9.54857e1,5.669e2,3064,5109
+cylinder-stagnation-fay,60000,qw_peak_mwm2,0.074442,x,2.000,y,-0.016
+cylinder-stagnation-fay,60000,0.000570,84,3821.5,true,1000,EqAir { r_gas: 296.8 },1.00984e2,5.653e2,2849,5116
+cylinder-stagnation-fay,60000,qw_peak_mwm2,0.081283,x,2.000,y,-0.016
+cylinder-stagnation-fay,60000,0.000741,84,3888.8,true,1000,EqAir { r_gas: 296.8 },9.65807e1,5.715e2,3052,5113
+cylinder-stagnation-fay,60000,qw_peak_mwm2,0.096694,x,2.000,y,-0.016
+cylinder-stagnation-fay,60000,0.000934,84,3897.4,true,1000,EqAir { r_gas: 296.8 },8.61314e1,5.405e2,2842,5082
+cylinder-stagnation-fay,60000,qw_peak_mwm2,0.108734,x,2.000,y,-0.016
+cylinder-stagnation-fay,60000,0.001147,84,3941.2,true,1000,EqAir { r_gas: 296.8 },8.74173e1,5.698e2,3047,5086
+cylinder-stagnation-fay,60000,qw_peak_mwm2,0.121010,x,2.000,y,0.016
+cylinder-stagnation-fay,60000,0.001378,84,3957.9,true,1000,EqAir { r_gas: 296.8 },8.81647e1,5.828e2,4342,5082
+cylinder-stagnation-fay,60000,qw_peak_mwm2,0.140130,x,2.000,y,0.016
+cylinder-stagnation-fay,60000,0.001615,84,3934.1,true,1000,EqAir { r_gas: 296.8 },9.52863e1,6.466e2,2367,5073
+cylinder-stagnation-fay,60000,qw_peak_mwm2,0.102215,x,2.000,y,0.016
+cylinder-stagnation-fay,60000,0.001859,84,3879.4,true,1000,EqAir { r_gas: 296.8 },8.57497e1,5.463e2,2891,5067
+cylinder-stagnation-fay,60000,qw_peak_mwm2,0.096124,x,2.000,y,0.016
+cylinder-stagnation-fay,60000,0.002114,84,3929.5,true,1000,EqAir { r_gas: 296.8 },8.80947e1,5.607e2,3808,5084

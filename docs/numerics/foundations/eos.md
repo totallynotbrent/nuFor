@@ -6,8 +6,8 @@ The thermodynamic model for the 1D Euler milestone is a calorically perfect
 ideal gas: constant ratio of specific heats `gamma`, constant specific gas
 constant `R`, and the linear thermal law `p = rho*R*T`. Both constants come
 from the `[physics]` section of the [[formats/case-toml|case definition]], and all
-of the recovery paths below live in the Fortran kernel layer behind the
-, wrapped in `nufor-core` as `eos_pressure`,
+of the recovery paths below live in the Fortran kernel layer, wrapped
+in `nufor-core` as `eos_pressure`,
 `eos_sound_speed`, `eos_mach`, and `eos_temperature`.
 
 ## Relations

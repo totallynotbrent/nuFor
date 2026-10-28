@@ -53,8 +53,7 @@ kinetic part and hands the internal energy and the nine mass
 fractions to the closure. The closure answers the three quantities
 every face needs:
 
-$$p = \rho R_{mix} T, \qquad a = \sqrt{\gamma_s p / \rho}, \qquad
-\gamma_s = c_p / (c_p - R_{mix})$$
+$$p = \rho R_{mix} T, \qquad a = \sqrt{\gamma_s p / \rho}, \qquad \gamma_s = c_p / (c_p - R_{mix})$$
 
 with $R_{mix}$ the mass-weighted mixture gas constant and $c_p$ the
 mass-weighted NASA-7 specific heat, both evaluated at the temperature
@@ -74,6 +73,19 @@ heat: burning the mix at fixed energy converts the offset into
 temperature, and nothing else in the march needs to know a flame
 exists.
 
+The offset also sets the floor a cell may fall to. The march's
+positivity guard compares the cell's internal energy against the
+composition's energy at the fits' lower temperature bound, not against
+zero: a burned gas sits millions of joules per kilogram below zero
+before it does anything wrong, and a guard that tests it against zero
+brakes the flow on every step. The floor moves with the composition,
+so a cell that dissociates as it cools keeps its own bound.
+
+Only the reacting lane has such a floor. A hypersonic flow's internal
+energy is negative by construction, because the kinetic energy dwarfs
+the thermal energy, and a floor of zero would stop such a flow dead on
+the first step. The other lanes carry no guard at all.
+
 ## The march
 
 The step mirrors the park5 lane: a Heun two-stage update of the
@@ -85,10 +97,14 @@ chemistry substep adapts its internal substep to the fastest reaction
 timescale and caps the substep count per step, which keeps the stiff
 ignition transient inside the step budget.
 
-The transport is honest about one limitation: the inflow composition
-follows the near-face cell. A dedicated inflow-composition boundary
-is future work; for the combustor cases the near-face cell is the
-injectant itself, so the gate cases run correctly without it.
+The transport is honest about one limitation: the near-face cell feeds
+itself back through an inflow unless the case says otherwise. The
+`[physics.injection]` block names the species mass fractions the case
+injects, and an inflow face carries those fractions instead of the
+near-face cell. The block also sets the initial state, so a chamber
+running on burned gas starts at that composition's own energy rather
+than the premix's. A case with no injection block runs the
+stoichiometric unburned fill.
 
 ## Verification
 
@@ -99,9 +115,9 @@ mol O2 at 70 bar):
 1. The flame point. Seeded with CEA's equilibrium composition at its
    adiabatic flame temperature (3676.53 K at 70 bar), a short reaction
    burst barely moves the composition and the closure round-trips the
-   flame energy to the anchor temperature within 15 K. An explicit
-   cold-start induction at 800 K cannot be resolved in test time, so
-   the equilibrium-hold form is the honest gate.
+   flame energy to the anchor temperature within 15 K. A cold start
+   from a chamber-temperature premix is a separate question, answered
+   by the induction measurement below.
 2. The equilibrium composition at fixed (T, p). From the unburned
    fill at 70 bar, the mechanism relaxes to its fixed point and the
    mass fractions compare against CEA's at 3000 K and 3400 K. The
@@ -115,9 +131,65 @@ mol O2 at 70 bar):
    1480.49 m/s, which is what a throat expansion consumes downstream.
 
 The case-level gate is the combustor duct: a planar constant-area
-channel with the unburned mix entering at chamber conditions (70 bar,
-800 K), reacting through its own heat release, and the steady exit
-state compared against the CEA equilibrium at the same station.
+channel with the unburned mix entering at chamber pressure (70 bar)
+and a stated inlet temperature, reacting through its own heat release,
+and the steady exit state compared against the CEA equilibrium at the
+same station. The duct's exit holds a back pressure, and the exit
+state lands where CEA's equilibrium sits:
+
+| exit state | measured | CEA at 70 bar | difference |
+| --- | --- | --- | --- |
+| temperature | 3803 K | 3676.53 K | +3.4% |
+| water fraction | 0.719 | 0.7086 | +1.5% |
+| hydrogen fraction | 0.024 | 0.1149 | -79% |
+
+The hydrogen reads low because the mix has nearly finished burning by
+the exit, while CEA's throat composition still holds hydrogen at the
+burned state. The oxygen reads high for the same reason. The
+temperature and the water fraction are the two that matter, and both
+sit inside the mechanism's tolerance.
+
+## The induction limit
+
+A premix's chain reaction has a temperature floor, and it is a sharp
+one. Measured on the mechanism in this repo, integrating the
+composition alone at 70 bar:
+
+| inlet temperature | induction | state after 20 ms |
+| --- | --- | --- |
+| 800 K | no ignition in 20 s | frozen, 0% burned |
+| 1000 K | no ignition in 0.2 s | frozen, 0.001% burned |
+| 1200 K | 10.0 ms | 99.9% burned |
+| 1600 K | 272 us | 99.9% burned |
+| 2000 K | 7.6 us | 99.9% burned |
+
+The hydrogen's consumption rate climbs by five orders of magnitude
+between 800 K and 1200 K, so the premix's own gas constant puts an
+unburned fill at 70 bar right on the wrong side of the floor. A case
+that wants the mix to burn therefore states the temperature it starts
+at, on both the fill and the inflow:
+
+```toml
+[initial_condition]
+type = "uniform"
+rho = 12.64
+u = 100.0
+p = 7.0e6
+t = 1600.0
+
+[boundaries.inflow_state]
+rho = 12.64
+u = 100.0
+v = 0.0
+p = 7.0e6
+t = 1600.0
+```
+
+A real chamber carries a pilot or a spark for the same reason. This
+solver has neither, so the stated temperature stands in for the
+ignition source. Leave it out and the mix sits frozen at its own
+temperature however long the march runs, which looks like a working
+case and measures nothing.
 
 ## Walls and transport
 

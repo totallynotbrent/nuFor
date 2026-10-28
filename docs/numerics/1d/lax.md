@@ -24,11 +24,13 @@ flowchart LR
 
 ## Verification
 
-Density stays positive and momentum finite through the strong wave, and the
-numerical density is compared against the exact 1D Riemann solution. The error
-norm shrinks as the mesh refines, the same first-order convergence seen on the
-Sod case. Together with the Sod case this forms the core of the shock-tube
-verification ladder.
+The density is compared against the exact 1D Riemann solution, and the gate
+holds three things (`crates/nufor-core/tests/lax.rs`): the density stays
+positive through the strong wave, the momentum stays finite, and the density's
+L1 error against the exact solution stays under 0.06 on a 200-cell mesh. A
+second test marches 200 and 400 cells and requires the error to shrink, the
+same first-order convergence the Sod case shows. Together with the Sod case
+this forms the core of the shock-tube verification ladder.
 
 ## See also
 

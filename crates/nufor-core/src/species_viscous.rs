@@ -27,7 +27,7 @@
 //! sources: plans/catalytic_research/wilke_transport.md (RP-1232
 //! tables, LAURA TM-4674 / DPLR wall definitions).
 
-use crate::catalytic::{catalytic_surface_flux, equilibrium_wall_composition, CatalyticWall};
+use crate::catalytic::{catalytic_surface_flux, wall_composition, CatalyticWall};
 use crate::error::Error;
 use crate::grid2d::Grid2d;
 use crate::park::NS;
@@ -228,15 +228,16 @@ pub(crate) fn add_species_viscous(
                             c1,
                         );
                 }
-                if wall_opts.catalytic == CatalyticWall::FullyCatalytic {
+                if wall_opts.catalytic.accommodates() {
                     let mut y0 = [0.0f64; NS];
                     let mut y1v = [0.0f64; NS];
                     for s in 0..NS {
                         y0[s] = species.y[s][a];
                         y1v[s] = species.y[s][b];
                     }
-                    let y_wall = crate::catalytic::equilibrium_wall_composition(
-                        wall_opts.temperature.max(200.0),
+                    let y_wall = crate::catalytic::wall_composition(
+                        wall_opts.catalytic,
+                        wall_opts.temperature,
                         state.rho[a],
                         &y0,
                     )
@@ -276,21 +277,20 @@ pub(crate) fn add_species_viscous(
                 // zero-gradient, so the plain central difference
                 // between the cells gives zero net flux through the
                 // wall face into the ghost-free boundary).
-                let y_face_wall: Option<[f64; NS]> =
-                    if wall_opts.catalytic == CatalyticWall::FullyCatalytic {
-                        let mut y0 = [0.0f64; NS];
-                        for (ys, ysrc) in y0.iter_mut().zip(species.y.iter()) {
-                            *ys = ysrc[a];
-                        }
-                        crate::catalytic::equilibrium_wall_composition(
-                            wall_opts.temperature.max(200.0),
-                            state.rho[a],
-                            &y0,
-                        )
-                        .ok()
-                    } else {
-                        None
-                    };
+                let y_face_wall: Option<[f64; NS]> = if wall_opts.catalytic.accommodates() {
+                    let mut y0 = [0.0f64; NS];
+                    for (ys, ysrc) in y0.iter_mut().zip(species.y.iter()) {
+                        *ys = ysrc[a];
+                    }
+                    crate::catalytic::wall_composition(
+                        wall_opts.catalytic,
+                        wall_opts.temperature,
+                        state.rho[a],
+                        &y0,
+                    )
+                } else {
+                    None
+                };
                 let mut q_enth = 0.0;
                 for s in 0..NS {
                     let js = match &y_face_wall {
@@ -454,7 +454,7 @@ pub(crate) fn add_species_viscous(
 /// the wall value and the first two fluid cells, exact for
 /// quadratics.
 #[allow(clippy::too_many_arguments)]
-fn wall_face_x(
+pub(crate) fn wall_face_x(
     left_solid: bool,
     f: usize,
     j: usize,
@@ -497,7 +497,7 @@ fn wall_face_x(
     // LEAVING the fluid, so the rhs flux stores its negative.
     let (q_cat, j_wall) = match wall_opts.catalytic {
         CatalyticWall::NonCatalytic => (0.0, 0.0),
-        CatalyticWall::FullyCatalytic => {
+        CatalyticWall::FullyCatalytic | CatalyticWall::Partial { .. } => {
             let mut y0 = [0.0f64; NS];
             let mut y1 = [0.0f64; NS];
             for (ys0, ys_src) in y0.iter_mut().zip(species.y.iter()) {
@@ -506,9 +506,8 @@ fn wall_face_x(
             for (ys1, ys_src) in y1.iter_mut().zip(species.y.iter()) {
                 *ys1 = ys_src[b];
             }
-            let y_wall =
-                equilibrium_wall_composition(wall_opts.temperature.max(200.0), rho[a], &y0)
-                    .unwrap_or(y0);
+            let y_wall = wall_composition(wall_opts.catalytic, wall_opts.temperature, rho[a], &y0)
+                .unwrap_or(y0);
             // positions ascend away from the wall into the fluid
             let d0 = (c0 - face_x).abs();
             let d1 = (c1 - face_x).abs();
@@ -525,7 +524,7 @@ fn wall_face_x(
 
 /// mirror of wall_face_x along y.
 #[allow(clippy::too_many_arguments)]
-fn wall_face_y(
+pub(crate) fn wall_face_y(
     below_solid: bool,
     i: usize,
     f: usize,
@@ -563,7 +562,7 @@ fn wall_face_y(
     }
     let (q_cat, j_wall) = match wall_opts.catalytic {
         CatalyticWall::NonCatalytic => (0.0, 0.0),
-        CatalyticWall::FullyCatalytic => {
+        CatalyticWall::FullyCatalytic | CatalyticWall::Partial { .. } => {
             let mut y0 = [0.0f64; NS];
             let mut y1 = [0.0f64; NS];
             for (ys0, ys_src) in y0.iter_mut().zip(species.y.iter()) {
@@ -572,9 +571,8 @@ fn wall_face_y(
             for (ys1, ys_src) in y1.iter_mut().zip(species.y.iter()) {
                 *ys1 = ys_src[b];
             }
-            let y_wall =
-                equilibrium_wall_composition(wall_opts.temperature.max(200.0), rho[a], &y0)
-                    .unwrap_or(y0);
+            let y_wall = wall_composition(wall_opts.catalytic, wall_opts.temperature, rho[a], &y0)
+                .unwrap_or(y0);
             // positions ascend away from the wall into the fluid
             let d0 = (c0 - face_y).abs();
             let d1 = (c1 - face_y).abs();

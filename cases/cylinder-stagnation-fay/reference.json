@@ -1,0 +1,21 @@
+[
+ {
+  "tag": "stagnation-fay",
+  "chunks": 11,
+  "settled_chunks": 7,
+  "settled_mean_wcm2": 10.87,
+  "settled_stdev_wcm2": 1.65,
+  "settled_low_wcm2": 9.61,
+  "settled_high_wcm2": 14.01,
+  "series_low_wcm2": 7.44,
+  "series_high_wcm2": 14.01,
+  "closed_form_wcm2": 8.48,
+  "ratio": 1.28,
+  "refined_chunks": 10,
+  "refined_mean_wcm2": 10.99,
+  "refined_stdev_wcm2": 0.49,
+  "edge_density": 2.3e-4,
+  "edge_temperature_k": 5040.0,
+  "edge_pressure_pa": 505.0
+ }
+]

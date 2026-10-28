@@ -11,6 +11,8 @@ mod blasius;
 mod body;
 pub mod catalytic;
 mod cfl;
+#[cfg(test)]
+mod closure_tests;
 pub mod combustion;
 pub mod combustion_cea_gates;
 pub mod combustion_closure;
@@ -71,15 +73,18 @@ mod viscous2d;
 mod viscous2d_par;
 mod viscous3d;
 mod wall_dist;
+pub mod wall_flux;
 
 pub use axi::{
     advance2d_axi, advance2d_axi_lts, advance2d_axi_rk2, advance2d_model, advance2d_model_rk2,
-    advance2d_model_visc_lts, advance2d_model_visc_rk2, advance2d_sa_model_rk2, model_local_dts,
+    advance2d_model_visc_lts, advance2d_model_visc_rk2, advance2d_sa_model_rk2, face_flow_area,
+    injector_mass_flow, internal_energy_floor, model_local_dts, reservoir_real_gas,
+    reservoir_real_gas_at,
 };
 pub use blasius::{BlasiusProfile, BlasiusTable, CF_CONST};
 pub use body::{
-    apply_solid, apply_solid_fn, apply_solid_ref, body_cache, solid_mask, BodyCache, SolidBody,
-    SolidPolygon, SolidShape,
+    apply_solid, apply_solid_combustion, apply_solid_fn, apply_solid_ref, body_cache, solid_mask,
+    BodyCache, SolidBody, SolidPolygon, SolidShape,
 };
 pub use cfl::{cfl_dt, CflStep};
 pub use cutcell::{cut_fractions, cut_fractions_corner, CutFractions};

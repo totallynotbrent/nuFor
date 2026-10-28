@@ -1,0 +1,11 @@
+{
+ "non_catalytic": {
+  "peak_q_mwm2": 3.7461,
+  "tol_pct": 1.0
+ },
+ "fully_catalytic": {
+  "peak_q_mwm2": 4.8931,
+  "tol_pct": 1.0
+ },
+ "amplification_band": [1.0, 3.0]
+}

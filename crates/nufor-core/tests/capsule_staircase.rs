@@ -91,6 +91,7 @@ fn aeroshell_peak_q_fine_grid_cp_extraction() {
             u: u1,
             v: 0.0,
             p: 1.0,
+            t: None,
         },
         east: Bc2d::SupersonicOutflow,
         south: Bc2d::SlipWall,

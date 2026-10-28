@@ -5,8 +5,7 @@ title: CFL time-step control
 The 1D Euler solver advances explicitly, so every step must obey the
 Courant-Friedrichs-Lewy (CFL) condition: the numerical domain of dependence
 has to contain the physical one, otherwise the explicit update is unstable
-(Courant, Friedrichs & Lewy 1928; see the
- for sources).
+(Courant, Friedrichs & Lewy 1928).
 
 ## Global step
 

@@ -1,0 +1,54 @@
+[
+ {
+  "time_s": 0.015001,
+  "steps": 1398,
+  "wall_s": 113.2,
+  "density_ratio": 11.26,
+  "peak_pressure_pa": 357703.4,
+  "max_temperature_k": 5079.0,
+  "wall_flux_mwm2": 0.015,
+  "C_D": 0.2363,
+  "C_L": 0.0879,
+  "tag": "h30.0",
+  "L/D": 0.37198476512907325
+ },
+ {
+  "time_s": 0.015004,
+  "steps": 1999,
+  "wall_s": 155.2,
+  "density_ratio": 15.79,
+  "peak_pressure_pa": 480861.3,
+  "max_temperature_k": 7191.0,
+  "wall_flux_mwm2": 0.026,
+  "C_D": 0.2271,
+  "C_L": 0.0888,
+  "tag": "h34.6",
+  "L/D": 0.3910171730515192
+ },
+ {
+  "time_s": 0.015002,
+  "steps": 2488,
+  "wall_s": 223.6,
+  "density_ratio": 20.62,
+  "peak_pressure_pa": 452026.5,
+  "max_temperature_k": 11611.0,
+  "wall_flux_mwm2": 0.0441,
+  "C_D": 0.2559,
+  "C_L": 0.0974,
+  "tag": "h40.0",
+  "L/D": 0.3806174286830793
+ },
+ {
+  "time_s": 0.015004,
+  "steps": 2647,
+  "wall_s": 270.8,
+  "density_ratio": 18.94,
+  "peak_pressure_pa": 368419.1,
+  "max_temperature_k": 14710.0,
+  "wall_flux_mwm2": 0.0766,
+  "C_D": 0.2516,
+  "C_L": 0.0971,
+  "tag": "h42.5",
+  "L/D": 0.38593004769475364
+ }
+]

@@ -62,10 +62,12 @@ band excludes them, as in the laminar hold.
 Validated: the SA transport sustains a turbulent layer with the published
 constants and closures, the wall treatment holds up at `y+` near 1, and
 the reported `cf` is the shear the solver actually applied at every
-station.
+station. The grid convergence came with it: the 320 by 120 refinement
+moves the mid-band skin friction 4.1 percent on average, so the
+discrete solution is converged in the engineering sense (see
+[[verification/grid-convergence|the grid convergence study]]).
 
-Not validated: grid convergence of the turbulent solution (one grid, not
-a family), the log-law `u+` profile in inner scaling (the TMR data for it
+Not validated: the log-law `u+` profile in inner scaling (the TMR data for it
 is banked, the comparison is future work), and Reynolds numbers above
 about 5e5 where this grid loses resolution and the march becomes too
 expensive to iterate on. Local time stepping does not yet converge on

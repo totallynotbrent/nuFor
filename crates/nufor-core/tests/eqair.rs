@@ -77,6 +77,7 @@ fn eqair_mach22_shock_beats_perfect_gas_cap() {
     }
     let rho2 = 0.5 * (lo + hi);
     let jump = rho2 / rho1;
+    println!("the mach 22 normal shock's density jump is {jump:.2}");
     assert!(jump > 10.0, "jump = {jump}, perfect-gas cap is 6");
     assert!(
         jump < 25.0,

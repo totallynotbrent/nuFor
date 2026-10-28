@@ -1,0 +1,33 @@
+[
+ {
+  "tag": "stagnation-fay",
+  "chunks": 11,
+  "settled_chunks": 7,
+  "settled_mean_wcm2": 10.870000000000001,
+  "settled_stdev_wcm2": 1.6537936187243356,
+  "settled_low_wcm2": 9.61,
+  "settled_high_wcm2": 14.01,
+  "series_low_wcm2": 7.44,
+  "series_high_wcm2": 14.01,
+  "closed_form_wcm2": 8.48,
+  "ratio": 1.2818396226415094,
+  "edge_density": 0.00023,
+  "edge_temperature_k": 5040.0,
+  "edge_pressure_pa": 505.0,
+  "series_points": 11,
+  "series_cross_checks": 10,
+  "series_worst_drift_pct": 0.05645161290321361,
+  "refined_chunks": 10,
+  "refined_mean_wcm2": 10.99184,
+  "refined_stdev_wcm2": 0.4860325919570054,
+  "settled_mean_pct_drift_pct": 1.6341829249312334e-14,
+  "settled_stdev_pct_drift_pct": 0.22991628632337582,
+  "settled_low_pct_drift_pct": 0.0,
+  "settled_high_pct_drift_pct": 0.0,
+  "closed_form_pct_drift_pct": 0.0,
+  "ratio_pct_drift_pct": 0.1437205188679208,
+  "refined_mean_pct_drift_pct": 0.01674249317561073,
+  "refined_stdev_pct_drift_pct": 0.8096751108152273,
+  "logged_ratio_drift_pct": 0.1437205188679208
+ }
+]

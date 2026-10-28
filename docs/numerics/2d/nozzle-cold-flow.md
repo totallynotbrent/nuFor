@@ -93,22 +93,25 @@ past the startup transient; the supersonic run's exit Mach is
 identical between t = 160 and t = 400, so the steady state is
 reached).
 
-**p_e/p_t = 0.89 (subsonic).** The cleanest gate. Exit
-centerline p/pt = 0.884 against the 0.890 back pressure (0.7%),
-exit Mach 0.414 against the 1D 0.411 (0.7%), and the exit-core
-mass flux within 3.6% of the 1D value. The centerline Mach
-peaks at 0.51 at the throat and decelerates smoothly; the flow
-never chokes, matching the regime call.
+**p_e/p_t = 0.89 (subsonic).** The flow never chokes and the
+far-field pressure holds: exit centerline p/pt = 0.874 against the
+0.890 back pressure (1.8%). The exit Mach sits further under the 1D
+value though, 0.372 against 0.411 on the centerline and 0.336
+mass-averaged, and the exit-core mass flux runs 7.5% under the 1D
+figure. The plane mass flux spread is 15% across the inlet, throat
+and exit planes, so this case is the one still carrying transients
+into its window. The centerline Mach peaks at 0.49 at the throat and
+decelerates smoothly, matching the regime call.
 
 **p_e/p_t = 0.16 (fully supersonic).** The throat chokes
 (centerline M = 1.017 at x = 5) and the expansion runs to the
-exit with mass flux conserved to 0.06% across the inlet, throat
+exit with mass flux conserved to 0.07% across the inlet, throat
 and exit planes, the tightest statement of steady state the case
 produces. The exit plane shows the expected axisymmetric
-profile: M lowest on the axis (1.731, where the pressure is
-highest), peaking mid-radius at 1.837 against the 1D 1.854, and
-dropping in the wall-adjacent rim. Mass-averaged exit Mach 1.75,
-about 5.5% below the 1D value. The shortfall is geometric: the
+profile: M lowest on the axis (1.714, where the pressure is
+highest), peaking mid-radius against the 1D 1.854, and dropping
+in the wall-adjacent rim. Mass-averaged exit Mach 1.742, about 6 %
+below the 1D value. The shortfall is geometric: the
 staircase wall passes an effective throat area about 4% under
 the analytic one (0.957 against 1.0), and the whole solution
 shifts with it.
@@ -118,7 +121,7 @@ to M ~ 1.6 just past the throat, and a normal shock stands near
 x = 5.75 to 6.2. The 1D prediction puts the shock at x = 7.56:
 the 2D shock sits early, and the post-shock region carries
 staircase-induced oscillation that the other two cases do not
-show. The exit pressure still matches the back value (0.755
+show. The exit pressure still matches the back value (0.729
 against 0.750), so the far field is right, but the shock station
 and the post-shock wall pressure are the weakest part of this
 part of the case, and the honest verdict is: captured, not yet resolved.
@@ -144,11 +147,12 @@ as-is with that caveat attached.
 
 - Throat: the choked runs reach M = 1 at x = 5; the subsonic
   run stays below 1 everywhere.
-- Exit state vs 1D: subsonic 0.7% on p and M; supersonic
-  mass-averaged M within 5.5% with the peak tracking the 1D
-  value; shock case exit pressure within 0.7% but the shock
+- Exit state vs 1D: subsonic 1.8% on p and 9.5% on M; supersonic
+  mass-averaged M within 6% with the peak tracking the 1D
+  value; shock case exit pressure within 2.8% but the shock
   station early.
-- Mass flux: 0.06% spread across planes on the supersonic run.
+- Mass flux: 0.07% spread across planes on the supersonic run,
+  15% on the subsonic run.
 - Figures: `docs/research/nozzle-cdv-mach.png`,
   `nozzle-cdv-wallp.png`; gate numbers in
   `cases/nozzle-cdv/gates.json`.

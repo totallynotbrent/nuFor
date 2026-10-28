@@ -151,15 +151,6 @@ pub fn advance2d_park5_rk2(
     Ok((dt, oversub))
 }
 
-/// internal energy per mass for a standard-air park5 initial
-/// condition at (rho, p): T from the mixture gas constant, then the
-/// closure energy (sensible plus formation offset).
-pub fn air_ic_energy(rho: f64, p: f64) -> f64 {
-    let y = [0.767f64, 0.233, 0.0, 0.0, 0.0];
-    let t = p / (rho * closure5::mix_gas_constant(&y));
-    closure5::internal_energy_at(t, &y)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -419,6 +410,7 @@ mod visc_tests {
                 u: 6047.0,
                 v: 0.0,
                 p: 0.89,
+                t: None,
             },
             east: crate::solver2d::Bc2d::Transmissive,
             south: crate::solver2d::Bc2d::NoSlipWall,
@@ -442,6 +434,53 @@ mod visc_tests {
         for k in 0..nx * ny {
             let s: f64 = (0..crate::park::NS).map(|q| sp.y[q][k]).sum();
             assert!((s - 1.0).abs() < 1e-9);
+        }
+    }
+    /// a uniform field seeded at the case state and met by a matching
+    /// inflow must hold that state. the inflow hands the boundary
+    /// pressure to the lane's internal-energy slot, so the upstream
+    /// column starts collapsing to the temperature floor.
+    #[test]
+    fn supersonic_inflow_holds_the_requested_freestream() {
+        let (nx, ny) = (12, 8);
+        let g = crate::grid2d::grid2d(nx, ny, 0.0, 0.12, 0.0, 0.08).unwrap();
+        let y = [1.0f64, 0.0, 0.0, 0.0, 0.0];
+        let (rho, p, u) = (1.363e-5, 0.89, 6047.0);
+        let t_expect = p / (rho * closure5::mix_gas_constant(&y));
+        let mut st = ConservedState2d {
+            rho: vec![rho; nx * ny],
+            mx: vec![rho * u; nx * ny],
+            my: vec![0.0; nx * ny],
+            e: vec![0.0; nx * ny],
+        };
+        for k in 0..nx * ny {
+            // the conserved energy holds the total energy per volume.
+            st.e[k] = rho * (closure5::internal_energy_at(t_expect, &y) + 0.5 * u * u);
+        }
+        let mut sp = crate::species::SpeciesState::uniform(nx * ny, &y).unwrap();
+        let bc = crate::solver2d::Boundaries2d {
+            west: crate::solver2d::Bc2d::SupersonicInflow {
+                rho,
+                u,
+                v: 0.0,
+                p,
+                t: None,
+            },
+            east: crate::solver2d::Bc2d::Transmissive,
+            south: crate::solver2d::Bc2d::Transmissive,
+            north: crate::solver2d::Bc2d::Transmissive,
+        };
+        advance2d_park5(&mut st, &mut sp, &g, 0.4, false, &bc, 1, None).unwrap();
+        for j in 0..ny {
+            let k = j * nx;
+            let vel = st.mx[k] / st.rho[k];
+            let e_int = st.e[k] / st.rho[k] - 0.5 * vel * vel;
+            let y_cell: Vec<f64> = (0..crate::park::NS).map(|s| sp.y[s][k]).collect();
+            let t = closure5::temperature_at(e_int, &y_cell);
+            assert!(
+                (t - t_expect).abs() / t_expect < 0.01,
+                "freestream temperature {t} against {t_expect}"
+            );
         }
     }
     /// bit-identical after the step.

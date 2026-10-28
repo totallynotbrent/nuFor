@@ -45,8 +45,19 @@ cases/**/run-log.txt
 cases/**/run-log.csv
 cases/**/run-log-refined.csv
 cases/**/march-stdout.txt
+cases/**/progress.json
+cases/**/*-report.html
+cases/**/__pycache__/
+# the stagnation gate audits the committed record of its own run, so
+# that record stays in the tree.
+!cases/cylinder-stagnation-fay/run-log.txt
+!cases/cylinder-stagnation-fay/run-log.csv
+!cases/cylinder-stagnation-fay/run-log-refined.csv
 # generated mesh files (rebuild with each case's mesh_gen.py)
 cases/**/mesh_faces.txt
+cases/**/mesh_faces_refined.txt
+# 1d reference solutions the nozzle case regenerates from analytic_1d.py
+cases/**/analytic_*.csv
 
 # HDF5 / restart files produced by runs
 *.h5

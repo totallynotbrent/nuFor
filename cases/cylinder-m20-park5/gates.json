@@ -1,0 +1,19 @@
+[
+ {
+  "tag": "park5",
+  "freestream_temperature_k": 220.022,
+  "freestream_pressure_pa": 0.89,
+  "freestream_mach": 19.9999,
+  "shock_standoff_m": 0.2985,
+  "stagnation_peak_temperature_k": 15265.8,
+  "wall_n_mole_fraction": 0.3413084578791804,
+  "peak_n_mass_fraction": 0.496633,
+  "freestream_temperature_pct_drift_pct": 0.004215121655213633,
+  "freestream_pressure_pct_drift_pct": 0.0002852272911238844,
+  "freestream_mach_pct_drift_pct": 0.01694088169549276,
+  "shock_standoff_pct_drift_pct": 0.14258229222269903,
+  "stagnation_peak_temperature_pct_drift_pct": 0.0006879290964755459,
+  "wall_n_mole_fraction_pct_drift_pct": 0.17990225928362796,
+  "peak_n_mass_fraction_pct_drift_pct": 0.01703671676159972
+ }
+]

@@ -45,9 +45,10 @@ viscous add keeps the next stage's neighbors current at slab seams.
 
 ![viscous lane timing on the trim capsule](mpi-viscous-timing.png)
 
-On the body-free class the Euler and viscous lanes are both bit-exact against
-the serial Rust marches at np=1 and np=2 (the gates below); each bridge runs
-the full two-stage Heun in one call. Masked body cases keep a single-stage
+On the body-free class the Euler and viscous lanes both sit at roundoff
+against the serial Rust marches at np=1 and np=2 (the gates below): the two
+Euler gates are exact-zero, and the viscous gate's worst relative difference
+is 4.1e-15. Each bridge runs the full two-stage Heun in one call. Masked body cases keep a single-stage
 Euler pack: a naive second stage diverges at wall-band cells because the
 stage-2 reconstruction next to reference-state solid cells amplifies through
 the y sweep, and porting the staging needs its own body-case gate before it
@@ -78,23 +79,26 @@ viscosity read the pre-stage density, and the ghost columns went stale
 after each Euler stage because the serial lane re-derives its pads from
 the current state on every kernel call while the Fortran slab ghosts
 carried the scatter-time values. After fixing those, all five fields
-(density, both momenta, energy, nu_tilde) sit at machine roundoff against
-the serial driver at np=1, 2, and 3.
+(density, both momenta, energy, nu_tilde) sit at roundoff against
+the serial driver at np=1, 2, and 3: the worst relative difference is
+8.2e-14, on the transverse momentum of a cell whose value is near zero.
 
 ## The parity gates
 
-Four tests in `crates/nufor-core/tests/mpi_parity.rs` lock the Fortran march
+Five tests in `crates/nufor-core/tests/mpi_parity.rs` lock the Fortran march
 to the serial Rust march:
 
 - sod 2D shock tube, exact-zero parity
 - a uniform equilibrium-air field, exact-zero parity
 - a laminar viscous uniform field (Sutherland transport, CEA closure
-  temperature), exact-zero parity at np=1 and np=2
+  temperature), worst relative difference 4.1e-15 at np=1, 2, and 3
 - an SA capsule-regime field with a wall-adjacent perturbation (shear,
-  vorticity, and transport all live), machine roundoff on all five fields
-  at np=1, 2, and 3
+  vorticity, and transport all live), the five fields agree to roundoff
+  at np=1, 2, and 3: the worst relative difference is 8.2e-14 on the
+  transverse momentum of a cell whose value is near zero, and the worst
+  absolute difference is 7.3e-11 on the energy
 - a capsule body at 22.5 degrees angle of attack, worst relative difference
-  4e-15 (machine roundoff; the wall faces churn every step)
+  3.8e-15 (roundoff; the wall faces churn every step)
 
 Each runs at np=1 and np=2 in CI. np=1 is the anchor: it runs the same MPI
 code path with a single rank and must reproduce the serial result exactly, so

@@ -17,19 +17,21 @@ use nufor_core::ffi_mpi::{
 use nufor_core::{
     advance2d_axi_lts, advance2d_axi_rk2, advance2d_model_rk2, advance2d_model_visc_lts,
     advance2d_model_visc_rk2, advance2d_sa_lts, advance2d_sa_model_rk2, advance3d_rk2,
-    advance_ugrid, advance_ugrid_recon, apply_solid_fn, apply_solid_ref, body_cache,
-    cons_to_prim2d, eos_pressure2d, euler_solve, grid1d, grid2d, grid3d, prim_to_cons,
-    prim_to_cons2d, prim_to_cons3d, read_restart, read_restart2d, render_png, wall_distance2d,
-    write_csv, write_h5, write_restart, write_restart2d, write_vtk, write_vtk2d_combustion,
-    write_vtk2d_model, write_vtk2d_park5, write_vtk3d, Bc2d, Boundaries2d, Boundary, Bounds3d,
-    ConservedState, ConservedState2d, ConservedState3d, Error, EulerConfig, Grid1d, Grid2d, Grid3d,
-    OutputState, SaParams, SolidPolygon, SolidShape, SphereCone, SphereConeSdf, TurbState, Ugrid,
+    advance_ugrid, advance_ugrid_recon, apply_solid_combustion, apply_solid_fn, apply_solid_ref,
+    body_cache, cons_to_prim2d, eos_pressure2d, euler_solve, face_flow_area, grid1d, grid2d,
+    grid3d, prim_to_cons, prim_to_cons2d, prim_to_cons3d, read_restart, read_restart2d, render_png,
+    wall_distance2d, write_csv, write_h5, write_restart, write_restart2d, write_vtk,
+    write_vtk2d_combustion, write_vtk2d_model, write_vtk2d_park5, write_vtk3d, Bc2d, Boundaries2d,
+    Boundary, Bounds3d, ConservedState, ConservedState2d, ConservedState3d, Error, EulerConfig,
+    Grid1d, Grid2d, Grid3d, OutputState, SaParams, SolidPolygon, SolidShape, SphereCone,
+    SphereConeSdf, TurbState, Ugrid,
 };
 use nufor_core::{model_from_config, park2t, ThermoModel};
 
 mod casework;
 mod mesh_io;
 mod progress;
+mod quasi1d;
 mod stlcut;
 mod watch;
 
@@ -835,7 +837,10 @@ pub fn ic_from_case(ic: &InitialCondition, n: usize, gamma: f64) -> Result<Conse
         ConservedState { rho, m, e }
     };
     match ic {
-        InitialCondition::Uniform { rho, u, p } => Ok(fill(*rho, *u, *p)),
+        InitialCondition::Uniform { rho, u, p, .. } => Ok(fill(*rho, *u, *p)),
+        InitialCondition::Quasi1d { .. } => {
+            Err("the quasi1d initial condition is 2d only".to_owned())
+        }
         InitialCondition::TwoState { left, right } => {
             let mut st = fill(right.rho, right.u, right.p);
             let mid = n / 2;
@@ -929,6 +934,44 @@ pub type CaseBodyFns = (
     std::sync::Arc<dyn Fn(f64, f64) -> (f64, f64)>,
 );
 
+/// the transport and wall numbers the shared wall-flux estimator needs.
+fn wall_flux_setup(
+    cfg: &CaseConfig,
+    model: ThermoModel,
+    cat_wall: nufor_core::catalytic::CatalyticWall,
+) -> nufor_core::wall_flux::WallFluxSetup {
+    nufor_core::wall_flux::WallFluxSetup {
+        model,
+        mu0: cfg.physics.mu.unwrap_or(0.0),
+        t0_ref: 273.15,
+        s_param: 110.4,
+        pr: cfg.physics.pr,
+        wall_temperature: cfg.physics.wall_temperature.unwrap_or(0.0),
+        catalytic: cat_wall,
+    }
+}
+
+/// the catalytic wall treatment the case asks for.
+fn catalytic_wall_choice(cfg: &CaseConfig) -> Result<nufor_core::catalytic::CatalyticWall, String> {
+    use nufor_core::catalytic::CatalyticWall;
+    match cfg.physics.catalytic_wall.as_deref() {
+        None | Some("none") => Ok(CatalyticWall::NonCatalytic),
+        Some("full") | Some("fully") | Some("fully_catalytic") => Ok(CatalyticWall::FullyCatalytic),
+        Some("partial") => {
+            let eta = cfg.physics.catalytic_efficiency.ok_or_else(|| {
+                "catalytic_wall = \"partial\" needs physics.catalytic_efficiency".to_string()
+            })?;
+            if !eta.is_finite() || !(0.0..=1.0).contains(&eta) {
+                return Err(format!("catalytic_efficiency {eta} is outside [0, 1]"));
+            }
+            Ok(CatalyticWall::Partial { efficiency: eta })
+        }
+        Some(other) => Err(format!(
+            "unknown catalytic_wall '{other}' (use none, partial or full)"
+        )),
+    }
+}
+
 /// the case body section as (dist, normal) closures the mask machinery
 /// already takes. absent body: None.
 pub fn case_body_fns(body: &Option<nufor_config::BodySection>) -> Option<CaseBodyFns> {
@@ -985,7 +1028,7 @@ pub fn case_body_fns(body: &Option<nufor_config::BodySection>) -> Option<CaseBod
 /// falling back to the uniform freestream.
 pub fn case_side_bc_euler(
     k: BoundaryKind,
-    inflow: Option<(f64, f64, f64, f64)>,
+    inflow: Option<(f64, f64, f64, f64, Option<f64>)>,
     gas_const: f64,
     gamma: f64,
     p_back: Option<f64>,
@@ -995,14 +1038,14 @@ pub fn case_side_bc_euler(
         BoundaryKind::SlipWall => Bc2d::SlipWall,
         BoundaryKind::SupersonicOutflow => Bc2d::SupersonicOutflow,
         BoundaryKind::SupersonicInflow | BoundaryKind::Inflow => match inflow {
-            Some((rho, u, v, p)) => Bc2d::SupersonicInflow { rho, u, v, p },
+            Some((rho, u, v, p, t)) => Bc2d::SupersonicInflow { rho, u, v, p, t },
             None => Bc2d::Transmissive,
         },
         // the reservoir inflow reads its stagnation state from
         // inflow_state: pt = the state's p, tt from rho/p through the
         // case gas constant.
         BoundaryKind::ReservoirInflow => match inflow {
-            Some((rho, _u, _v, p)) if rho > 0.0 && p > 0.0 => Bc2d::ReservoirInflow {
+            Some((rho, _u, _v, p, _t)) if rho > 0.0 && p > 0.0 => Bc2d::ReservoirInflow {
                 pt: p,
                 tt: p / (rho * gas_const),
                 gas_const,
@@ -1022,20 +1065,28 @@ pub fn case_side_bc_euler(
 
 /// the inflow state a supersonic_inflow side carries: the explicit
 /// boundaries.inflow_state when present, else the uniform freestream.
-pub fn case_inflow_state(cfg: &CaseConfig) -> Option<(f64, f64, f64, f64)> {
+pub fn case_inflow_state(cfg: &CaseConfig) -> Option<(f64, f64, f64, f64, Option<f64>)> {
     match &cfg.boundaries.inflow_state {
-        Some(s) => Some((s.rho, s.u, s.v, s.p)),
+        Some(s) => Some((s.rho, s.u, s.v, s.p, s.t)),
         None => Some(freestream(cfg)),
     }
 }
 
 /// the uniform freestream state the inflow sides use, taken from the
 /// initial condition.
-fn freestream(cfg: &CaseConfig) -> (f64, f64, f64, f64) {
+fn freestream(cfg: &CaseConfig) -> (f64, f64, f64, f64, Option<f64>) {
     match &cfg.initial_condition {
-        InitialCondition::Uniform { rho, u, p } => (*rho, *u, 0.0, *p),
-        InitialCondition::TwoState { left, .. } => (left.rho, left.u, 0.0, left.p),
-        InitialCondition::Blast { ambient, .. } => (ambient.rho, ambient.u, 0.0, ambient.p),
+        InitialCondition::Uniform { rho, u, p, t } => (*rho, *u, 0.0, *p, *t),
+        InitialCondition::TwoState { left, .. } => (left.rho, left.u, 0.0, left.p, left.t),
+        InitialCondition::Blast { ambient, .. } => {
+            (ambient.rho, ambient.u, 0.0, ambient.p, ambient.t)
+        }
+        // a quasi-1d case's reservoir state fronts the field; the
+        // inflow sides carry their own ghost states.
+        InitialCondition::Quasi1d { p0, t0 } => {
+            let r = cfg.physics.gas_constant;
+            (p0 / (r * t0), 0.0, 0.0, *p0, Some(*t0))
+        }
     }
 }
 
@@ -1070,6 +1121,37 @@ pub fn case_boundaries(cfg: &CaseConfig) -> Boundaries2d {
 /// the axisymmetric euler run: planar fluxes with the annular update,
 /// optional immersed body via the solid mask, slip-wall south boundary
 /// as the symmetry axis.
+/// the injection composition a combustion case asks for: the mass
+/// fractions by species name, normalized to one. omitted means the
+/// stoichiometric unburned h2/o2 fill.
+fn combustion_fill(cfg: &CaseConfig) -> Result<[f64; nufor_core::combustion_thermo::NS], String> {
+    use nufor_core::combustion_thermo as ct;
+    let mut y = [0.0f64; ct::NS];
+    match &cfg.physics.injection {
+        None => {
+            y[ct::IH2] = 2.016 / 18.016;
+            y[ct::IO2] = 16.0 / 18.016;
+        }
+        Some(map) => {
+            for (name, frac) in map {
+                let idx = ct::SPECIES_NAMES
+                    .iter()
+                    .position(|n| n.eq_ignore_ascii_case(name))
+                    .ok_or_else(|| format!("unknown species {name:?} in the injection block"))?;
+                y[idx] = *frac;
+            }
+            let sum: f64 = y.iter().sum();
+            if sum <= 0.0 {
+                return Err("the injection composition sums to zero".into());
+            }
+            for v in y.iter_mut() {
+                *v /= sum;
+            }
+        }
+    }
+    Ok(y)
+}
+
 fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
     let g = match build_2d_mesh_in(&cfg.mesh, Some(&case_dir(path))) {
         Ok(g) => g,
@@ -1104,7 +1186,7 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
                 return 2;
             }
         },
-        None => match ic2d_from_case_model(&cfg.initial_condition, &g, gamma, model) {
+        None => match ic2d_from_case_model(&cfg.initial_condition, &g, gamma, model, cfg) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("initial condition error: {e}");
@@ -1113,9 +1195,77 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
         },
     };
     let body = case_body_fns(&cfg.body);
+    // the per-step solid restore for the combustion lane: the case's
+    // fill state, hoisted out of the loop.
+    let mut solid_fill_cache: Option<[f64; nufor_core::combustion_thermo::NS]> = None;
+    let solid_rho_p: (f64, f64) = match &cfg.initial_condition {
+        nufor_config::InitialCondition::Uniform { rho, u: _, p, .. } => (*rho, *p),
+        nufor_config::InitialCondition::Quasi1d { p0, t0 } => {
+            (p0 / (cfg.physics.gas_constant * t0), *p0)
+        }
+        _ => (1.0, 1.0e5),
+    };
     if let Some((dist, normal)) = &body {
-        apply_solid_fn(&mut st, &g, dist.as_ref(), normal.as_ref(), gamma);
+        if matches!(model, ThermoModel::Combustion9 { .. }) {
+            // the combustion closure reads the scalar inert reference
+            // as unburned gas at an absurd temperature; fill the solid
+            // with the case's own fill state instead.
+            let fill = combustion_fill(cfg).unwrap_or_else(|e| {
+                eprintln!("injection composition error: {e}");
+                [0.0; nufor_core::combustion_thermo::NS]
+            });
+            // the solid cells take the case's own fill state at rest:
+            // the uniform case's (rho, p), or the quasi-1d case's
+            // chamber stagnation state.
+            let (rho_f, u_f, p_f) = match &cfg.initial_condition {
+                nufor_config::InitialCondition::Uniform { rho, u, p, .. } => (*rho, *u, *p),
+                nufor_config::InitialCondition::Quasi1d { p0, t0 } => {
+                    (p0 / (cfg.physics.gas_constant * t0), 0.0, *p0)
+                }
+                _ => (1.0, 0.0, 1.0e5),
+            };
+            if std::env::var("NUFOR_TRACE_SOLID").is_ok() {
+                eprintln!("trace: apply_solid_combustion rho_f {rho_f} p_f {p_f}");
+            }
+            nufor_core::apply_solid_combustion(
+                &mut st,
+                &g,
+                dist.as_ref(),
+                normal.as_ref(),
+                rho_f,
+                u_f,
+                p_f,
+                &fill,
+            );
+        } else {
+            apply_solid_fn(&mut st, &g, dist.as_ref(), normal.as_ref(), gamma);
+        }
     }
+    // the combustion lane carries its own nine-species state beside
+    // the flow state: the fill composition, then the march.
+    let mut combustion_state = if matches!(model, ThermoModel::Combustion9 { .. }) {
+        let fill = match combustion_fill(cfg) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("injection composition error: {e}");
+                return 2;
+            }
+        };
+        Some(nufor_core::combustion_march::CombustionState::with_fill(
+            g.nx * g.ny,
+            &fill,
+        ))
+    } else {
+        None
+    };
+    let combustion_react = match cfg.physics.chemistry.as_deref() {
+        Some("on") | Some("equilibrium") => true,
+        Some("off") | Some("frozen") | None => false,
+        other => {
+            eprintln!("unknown chemistry setting {other:?}");
+            return 2;
+        }
+    };
     let mut bc = case_boundaries(cfg);
     // the axisymmetric defaults: the south side is the symmetry axis
     // (slip wall) and the north side vents unless the case says more.
@@ -1124,6 +1274,37 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
     }
     if cfg.boundaries.top.is_none() {
         bc.north = Bc2d::SupersonicOutflow;
+    }
+    // the combustion lane's chamber inflow: a real-gas reservoir that
+    // expands to the local face pressure, so the chamber holds its
+    // pressure while the throat chokes. the perfect-gas reservoir
+    // ghost cannot answer a real-gas closure.
+    if matches!(model, ThermoModel::Combustion9 { .. }) {
+        if let Some((rho, _u, _v, p, _t)) = case_inflow_state(cfg) {
+            let fill = match combustion_fill(cfg) {
+                Ok(f) => f.to_vec(),
+                Err(e) => {
+                    eprintln!("injection composition error: {e}");
+                    return 2;
+                }
+            };
+            let fill_arr: [f64; nufor_core::combustion_thermo::NS] = fill
+                .as_slice()
+                .try_into()
+                .unwrap_or([0.0; nufor_core::combustion_thermo::NS]);
+            let tt = p / (rho * nufor_core::combustion_closure::mix_gas_constant(&fill_arr));
+            let real_gas = Bc2d::ReservoirInflowRealGas {
+                pt: p,
+                tt,
+                rho_t: rho,
+                fill,
+                n_species: nufor_core::combustion_thermo::NS,
+                injector_area: cfg.boundaries.injector_area,
+            };
+            if cfg.boundaries.left == nufor_config::BoundaryKind::ReservoirInflow {
+                bc.west = real_gas;
+            }
+        }
     }
     let cfl = cfg.numerics.cfl;
     let t_end = cfg.time.final_time;
@@ -1140,7 +1321,20 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
     let mut ok = true;
     let mut prog = progress::Progress::new(path, "2d-axi");
     while t < t_end && steps < max_steps {
-        let stepped_axi = if cfg.numerics.local_time_stepping {
+        let stepped_axi = if let Some(sp) = combustion_state.as_mut() {
+            nufor_core::combustion_march::advance2d_combustion_axi_rk2(
+                &mut st,
+                sp,
+                &g,
+                cfl,
+                true,
+                &bc,
+                cfg.numerics.threads,
+                body.as_ref()
+                    .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
+                combustion_react,
+            )
+        } else if cfg.numerics.local_time_stepping {
             advance2d_axi_lts(
                 &mut st,
                 &g,
@@ -1174,7 +1368,28 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
             }
         };
         if let Some((dist, normal)) = &body {
-            apply_solid_fn(&mut st, &g, dist.as_ref(), normal.as_ref(), gamma);
+            if matches!(model, ThermoModel::Combustion9 { .. }) {
+                // the combustion closure reads the perfect-gas inert
+                // reference as burned gas at an absurd temperature; the
+                // solid cells keep the case's own fill state instead.
+                if std::env::var("NUFOR_TRACE_SOLID").is_ok() {
+                    eprintln!("trace: per-step solid restore (combustion fill)");
+                }
+                let fill = solid_fill_cache
+                    .get_or_insert_with(|| combustion_fill(cfg).unwrap_or_default());
+                apply_solid_combustion(
+                    &mut st,
+                    &g,
+                    dist.as_ref(),
+                    normal.as_ref(),
+                    solid_rho_p.0,
+                    0.0,
+                    solid_rho_p.1,
+                    fill,
+                );
+            } else {
+                apply_solid_fn(&mut st, &g, dist.as_ref(), normal.as_ref(), gamma);
+            }
         }
         steps += 1;
         if let Some(p) = prog.as_mut() {
@@ -1182,19 +1397,68 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
                 Ok((dt, _)) => dt,
                 Err(_) => 0.0,
             };
-            p.tick(
-                steps as u64,
-                t,
-                dt_last,
-                &st,
-                progress::SampleExtra::default(),
-            );
+            // the readout comes from the lane's own closure: the
+            // perfect-gas form misreads the combustion and equilibrium
+            // air lanes. the field scan is the expensive part, so it
+            // rides the kept-sample cadence.
+            let extra = if steps % 50 == 1 {
+                progress_readout(
+                    cfg,
+                    &g,
+                    &st,
+                    &body,
+                    model,
+                    None,
+                    combustion_state.as_ref(),
+                    false,
+                )
+            } else {
+                progress::SampleExtra::default()
+            };
+            p.tick(steps as u64, t, dt_last, &st, extra);
         }
         if steps % 200 == 0 {
             println!(
                 "step {steps} t={t:.4} wall={:.1}s",
                 t0.elapsed().as_secs_f64()
             );
+        }
+        // interval snapshots: a long march should not lose everything
+        // when a late step goes bad; the interval vtk keeps the last
+        // checkpoint on disk (same name as the final write).
+        let iv = cfg.output.interval_steps as usize;
+        if iv > 0 && steps % iv == 0 {
+            let rc = write_case_vtk2d_model(
+                path,
+                &cfg.metadata.name,
+                &g,
+                &st,
+                model,
+                None,
+                combustion_state.as_ref(),
+            );
+            if rc != 0 {
+                eprintln!("interval output failed at step {steps}");
+            }
+            // the run-log ride-along is the expensive half of the
+            // interval write (it walks the field again); keep it on
+            // the 200-step cadence even when the vtk writes faster.
+            if steps % 200 == 0 {
+                write_run_log_2d(
+                    cfg,
+                    path,
+                    &g,
+                    &st,
+                    model,
+                    None,
+                    combustion_state.as_ref(),
+                    steps,
+                    t,
+                    t0.elapsed().as_secs_f64(),
+                );
+                let dst = case_dir(path).join("run-log-last.txt");
+                let _ = std::fs::rename(case_dir(path).join("run-log.txt"), dst);
+            }
         }
     }
     if ok {
@@ -1211,7 +1475,15 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
             t,
             t0.elapsed().as_secs_f64()
         );
-        let rc = write_case_vtk2d_model(path, &cfg.metadata.name, &g, &st, model, None, None);
+        let rc = write_case_vtk2d_model(
+            path,
+            &cfg.metadata.name,
+            &g,
+            &st,
+            model,
+            None,
+            combustion_state.as_ref(),
+        );
         if rc == 0 {
             write_run_log_2d(
                 cfg,
@@ -1220,7 +1492,7 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
                 &st,
                 model,
                 None,
-                None,
+                combustion_state.as_ref(),
                 steps,
                 t,
                 t0.elapsed().as_secs_f64(),
@@ -1367,7 +1639,7 @@ fn run_case_axi_curv(cfg: &CaseConfig, path: &str) -> i32 {
     let g = CurvGrid::over_sphere_cone(&sc, cfg.mesh.nx as usize, ny, 6.0, 2.0);
     let model = model_from_config(cfg);
     let (rho0, u0, p0) = match &cfg.initial_condition {
-        nufor_config::InitialCondition::Uniform { rho, u, p } => (*rho, *u, *p),
+        nufor_config::InitialCondition::Uniform { rho, u, p, .. } => (*rho, *u, *p),
         _ => {
             eprintln!("o-grid runner needs a uniform initial condition");
             return 2;
@@ -1611,7 +1883,6 @@ fn progress_readout(
             .map(|k| {
                 let mut y = [0.0f64; nufor_core::combustion_thermo::NS];
                 #[allow(clippy::needless_range_loop)]
-                #[allow(clippy::needless_range_loop)]
                 for s in 0..nufor_core::combustion_thermo::NS {
                     y[s] = sp.y[s][k];
                 }
@@ -1638,6 +1909,7 @@ fn progress_readout(
         nufor_config::InitialCondition::Uniform { rho, .. } => *rho,
         nufor_config::InitialCondition::TwoState { left, .. } => left.rho,
         nufor_config::InitialCondition::Blast { ambient, .. } => ambient.rho,
+        nufor_config::InitialCondition::Quasi1d { p0, t0 } => p0 / (cfg.physics.gas_constant * t0),
     };
     let mut residual = 0.0f64;
     for k in 0..n {
@@ -1648,7 +1920,6 @@ fn progress_readout(
         (_, Some(sp)) => (0..n)
             .map(|k| {
                 let mut y = [0.0f64; nufor_core::combustion_thermo::NS];
-                #[allow(clippy::needless_range_loop)]
                 #[allow(clippy::needless_range_loop)]
                 for s in 0..nufor_core::combustion_thermo::NS {
                     y[s] = sp.y[s][k];
@@ -1672,9 +1943,19 @@ fn progress_readout(
                 })
             }),
     };
+    // the peak pressure through the run's own closure, so the tick's
+    // readout agrees with the march (the perfect-gas form misreads the
+    // eqair and combustion lanes).
+    let p_peak = p.iter().copied().filter(|v| *v > 0.0).fold(None, |a, v| {
+        Some(match a {
+            Some(m) if m >= v => m,
+            _ => v,
+        })
+    });
     let mut extra = progress::SampleExtra {
         residual,
         t_max,
+        p_peak,
         ..Default::default()
     };
     let Some((dist, normal)) = body else {
@@ -1685,6 +1966,9 @@ fn progress_readout(
         nufor_config::InitialCondition::Uniform { rho, u, .. } => (*rho, *u),
         nufor_config::InitialCondition::TwoState { left, .. } => (left.rho, left.u),
         nufor_config::InitialCondition::Blast { ambient, .. } => (ambient.rho, ambient.u),
+        // a chamber case has no freestream dynamic pressure to
+        // normalize against; force coefficients off there.
+        nufor_config::InitialCondition::Quasi1d { .. } => return extra,
     };
     let q_inf = 0.5 * rho_fs * u_fs * u_fs;
     if q_inf <= 0.0 {
@@ -1704,22 +1988,26 @@ fn progress_readout(
                 fx -= p[k] * nx * ds;
                 fy -= p[k] * ny * ds;
                 hits += 1;
-                // wall heat flux when a wall temperature is set: the
-                // band cell's radial gradient toward the surface gives
-                // q = k * dT/dn with k from the sutherland law at the
-                // near-wall state.
-                if viscous {
-                    let tw = cfg.physics.wall_temperature.unwrap_or(0.0);
-                    if tw > 0.0 {
-                        let mu = cfg.physics.mu.unwrap_or(0.0);
-                        let pr = 0.71;
-                        let k_th = mu * 1005.0 / pr;
-                        let dtdn =
-                            ((e_int[k] + p[k] / st.rho[k].max(1e-12)) / 718.0 - tw) / d.max(1e-9);
-                        q_max = q_max.max(k_th * dtdn.abs());
-                    }
-                }
+                // the wall heat flux comes from the shared estimator
+                // after this sweep, so the heartbeat and the run log
+                // report the same flux the march applies.
             }
+        }
+    }
+    // the shared wall-flux estimator: the march's own stencil and
+    // transport, so the heartbeat and the run log carry the same flux.
+    if viscous && cfg.physics.wall_temperature.unwrap_or(0.0) > 0.0 {
+        let mask = nufor_core::solid_mask(g, dist.as_ref());
+        let cat = catalytic_wall_choice(cfg)
+            .unwrap_or(nufor_core::catalytic::CatalyticWall::NonCatalytic);
+        if let Ok(rep) = nufor_core::wall_flux::wall_flux(
+            st,
+            g,
+            &wall_flux_setup(cfg, model, cat),
+            species,
+            mask.as_slice(),
+        ) {
+            q_max = rep.peak_w_m2;
         }
     }
     if hits > 0 {
@@ -1777,7 +2065,7 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
             restart_time = rd.time;
             rd.state
         }
-        None => match ic2d_from_case_model(&cfg.initial_condition, &g, gamma, model) {
+        None => match ic2d_from_case_model(&cfg.initial_condition, &g, gamma, model, cfg) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("initial condition error: {e}");
@@ -1792,7 +2080,7 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     // no-slip wall fluxes do the braking.
     let visc_no_slip = cfg.physics.mu.is_some_and(|m| m > 0.0);
     let fs_ref = match (&cfg.initial_condition, model) {
-        (nufor_config::InitialCondition::Uniform { rho, u, p }, ThermoModel::EqAir { .. }) => {
+        (nufor_config::InitialCondition::Uniform { rho, u, p, .. }, ThermoModel::EqAir { .. }) => {
             Some((*rho, *p, *u))
         }
         _ => None,
@@ -1809,6 +2097,29 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
                 visc_no_slip,
             );
             let _ = u_fs;
+        } else if matches!(model, ThermoModel::Combustion9 { .. }) {
+            // the combustion closure reads the scalar inert reference
+            // (rho 1, e 2.5) as unburned gas at an absurd temperature;
+            // fill the solid with the case's own fill state instead.
+            match &cfg.initial_condition {
+                nufor_config::InitialCondition::Uniform { rho, u, p, .. } => {
+                    let fill = combustion_fill(cfg).unwrap_or_else(|e| {
+                        eprintln!("injection composition error: {e}");
+                        [0.0; nufor_core::combustion_thermo::NS]
+                    });
+                    apply_solid_combustion(
+                        &mut st,
+                        &g,
+                        dist.as_ref(),
+                        normal.as_ref(),
+                        *rho,
+                        *u,
+                        *p,
+                        &fill,
+                    );
+                }
+                _ => apply_solid_fn(&mut st, &g, dist.as_ref(), normal.as_ref(), gamma),
+            }
         } else {
             apply_solid_fn(&mut st, &g, dist.as_ref(), normal.as_ref(), gamma);
         }
@@ -1817,11 +2128,11 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     // park5 cases carry the composition beside the flow state: pure
     // nitrogen for the dissociation gates, standard air otherwise.
     let mut park5_species = if matches!(model, ThermoModel::Park5 { .. }) {
-        let built = match cfg.physics.gas.as_str() {
-            "n2" => {
-                nufor_core::species::SpeciesState::uniform(g.nx * g.ny, &[1.0, 0.0, 0.0, 0.0, 0.0])
-            }
-            _ => Ok(nufor_core::species::SpeciesState::air(g.nx * g.ny)),
+        let y0 = park5_start_composition(cfg);
+        let built = if cfg.physics.gas.as_str() == "n2" {
+            nufor_core::species::SpeciesState::uniform(g.nx * g.ny, &y0)
+        } else {
+            Ok(nufor_core::species::SpeciesState::air(g.nx * g.ny))
         };
         Some(match built {
             Ok(s) => s,
@@ -1837,8 +2148,16 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     // stoichiometric unburned fill (a chamber case reseeds through
     // the inflow boundary). chemistry off freezes the composition.
     let mut combustion_state = if matches!(model, ThermoModel::Combustion9 { .. }) {
-        Some(nufor_core::combustion_march::CombustionState::stoich_h2o2(
+        let fill = match combustion_fill(cfg) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("injection composition error: {e}");
+                return 2;
+            }
+        };
+        Some(nufor_core::combustion_march::CombustionState::with_fill(
             g.nx * g.ny,
+            &fill,
         ))
     } else {
         None
@@ -2137,13 +2456,10 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
             let mu_case = cfg.physics.mu.unwrap_or(0.0);
             if mu_case > 0.0 {
                 let tw = cfg.physics.wall_temperature.unwrap_or(0.0);
-                let cat = match cfg.physics.catalytic_wall.as_deref() {
-                    Some("full") | Some("fully") | Some("fully_catalytic") => {
-                        nufor_core::catalytic::CatalyticWall::FullyCatalytic
-                    }
-                    Some("none") | None => nufor_core::catalytic::CatalyticWall::NonCatalytic,
-                    Some(other) => {
-                        eprintln!("unknown catalytic_wall '{other}' (use none or full)");
+                let cat = match catalytic_wall_choice(cfg) {
+                    Ok(cat) => cat,
+                    Err(msg) => {
+                        eprintln!("{msg}");
                         ok = false;
                         break;
                     }
@@ -2515,6 +2831,11 @@ fn write_run_log_2d(
         nufor_config::InitialCondition::Blast { ambient, .. } => {
             (ambient.rho, ambient.p, ambient.u)
         }
+        // the chamber's stagnation state is the reference a
+        // quasi-1d case normalizes against.
+        nufor_config::InitialCondition::Quasi1d { p0, t0 } => {
+            (p0 / (cfg.physics.gas_constant * t0), *p0, 0.0)
+        }
     };
     let rho_ratio = flow.iter().map(|&k| rho[k]).fold(0.0f64, f64::max) / rho_ref.max(1e-30);
     let p_pk = p[i_pk];
@@ -2534,157 +2855,35 @@ fn write_run_log_2d(
     let csv_path = dir.join("run-log.csv");
     let visc = cfg.physics.mu.map(|m| m > 0.0).unwrap_or(false);
     let tw = cfg.physics.wall_temperature.unwrap_or(0.0);
-    let cat_wall = match cfg.physics.catalytic_wall.as_deref() {
-        Some("full") | Some("fully") | Some("fully_catalytic") => {
-            nufor_core::catalytic::CatalyticWall::FullyCatalytic
+    let cat_wall = match catalytic_wall_choice(cfg) {
+        Ok(cat) => cat,
+        Err(msg) => {
+            eprintln!("{msg}");
+            nufor_core::catalytic::CatalyticWall::NonCatalytic
         }
-        _ => nufor_core::catalytic::CatalyticWall::NonCatalytic,
     };
-    // wall heat flux report along body-mask faces: q_w from a one-sided
-    // temperature gradient on the fluid side of the mask, scaled by the
-    // sutherland conductivity at the wall temperature. only emitted for
-    // viscous runs with a finite wall temperature.
+    // wall heat flux report along body-mask faces: q from the same
+    // one-sided quadratic the march's conductor applies, scaled by the
+    // same per-cell viscosity the march uses. only emitted for viscous
+    // runs with a finite wall temperature.
     let mut qwall_s = String::new();
     if visc && tw > 0.0 {
         let cb = case_body_fns(&cfg.body);
         if let Some((dist, _normal)) = cb {
-            let cs: Vec<(f64, f64)> = (0..g.nx * g.ny)
-                .map(|k| {
-                    let i = k % g.nx;
-                    let j = k / g.nx;
-                    (
-                        0.5 * (g.faces_x[i] + g.faces_x[i + 1]),
-                        0.5 * (g.faces_y[j] + g.faces_y[j + 1]),
-                    )
-                })
-                .collect();
-            let mut q_rows: Vec<(f64, f64, f64)> = Vec::new();
-            // fourier conductivity from prandtl: k = mu * cp / pr with
-            // cp = R*gamma/(gamma-1) and the case gas constant. park5
-            // cases use the wilke mixture conductivity at the near-wall
-            // composition instead, so the log matches the march.
-            let kf_suth = |t: f64| {
-                nufor_core::sutherland_mu(1.716e-5, t, 273.15, 110.4)
-                    * cfg.physics.gamma
-                    * cfg.physics.gas_constant
-                    / ((cfg.physics.gamma - 1.0) * cfg.physics.pr)
-            };
-            let kf = |t: f64, k: usize| {
-                if let Some(sp) = species {
-                    let mut y = [0.0f64; 5];
-                    for (ys, ysrc) in y.iter_mut().zip(sp.y.iter()) {
-                        *ys = ysrc[k];
-                    }
-                    nufor_core::species_props::mixture_conductivity(&y, t)
-                } else {
-                    kf_suth(t)
-                }
-            };
-            // the solid mask the march itself used: a wall face is a fluid
-            // cell with a solid neighbor. the flux is the same one-sided
-            // quadratic through the pinned wall temperature and the first
-            // two fluid cells the solver's conductor evaluates, so the log
-            // matches the wall energy budget the march actually applied.
+            // the shared estimator: the march's own wall stencil and
+            // transport, so the run log and the heartbeat report the same
+            // flux from one implementation.
             let mask = nufor_core::solid_mask(g, dist.as_ref());
-            let solid = |i: usize, j: usize| -> bool { i < g.nx && j < g.ny && mask[j * g.nx + i] };
-            let temp_at = |k: usize| temp.get(k).copied().unwrap_or(tw);
-            for j in 0..g.ny {
-                for i in 0..g.nx {
-                    let k = j * g.nx + i;
-                    if solid(i, j) {
-                        continue;
-                    }
-                    // wall faces on x: fluid cell with an east or west solid
-                    let (a, m, face_x) = if i + 1 < g.nx && solid(i + 1, j) {
-                        if i < 2 {
-                            continue;
-                        }
-                        (i, i - 1, g.faces_x[i + 1])
-                    } else if i > 0 && solid(i - 1, j) {
-                        if i + 2 >= g.nx {
-                            continue;
-                        }
-                        (i, i + 1, g.faces_x[i])
-                    } else {
-                        continue;
-                    };
-                    let ka = j * g.nx + a;
-                    let km = j * g.nx + m;
-                    // lagrange derivative at the face through (tw@face,
-                    // T_a, T_m) on true centers
-                    let (y0, y1, y2) = (
-                        face_x,
-                        0.5 * (g.faces_x[a] + g.faces_x[a + 1]),
-                        0.5 * (g.faces_x[m] + g.faces_x[m + 1]),
-                    );
-                    let w0 = (2.0 * y0 - y1 - y2) / ((y0 - y1) * (y0 - y2));
-                    let w1 = (2.0 * y0 - y0 - y2) / ((y1 - y0) * (y1 - y2));
-                    let w2 = (2.0 * y0 - y0 - y1) / ((y2 - y0) * (y2 - y1));
-                    let dtdn = tw * w0 + temp_at(ka) * w1 + temp_at(km) * w2;
-                    let mut q = (kf(tw, ka) * dtdn).abs();
-                    // park5 fully-catalytic: add the formation-enthalpy
-                    // flux the atoms carry into the wall. the same
-                    // one-sided composition stencil the march applies;
-                    // non-catalytic adds exactly zero.
-                    if let Some(sp) = species {
-                        if cat_wall == nufor_core::catalytic::CatalyticWall::FullyCatalytic {
-                            let mut y0 = [0.0f64; 5];
-                            let mut y1v = [0.0f64; 5];
-                            for s in 0..5 {
-                                y0[s] = sp.y[s][ka];
-                                y1v[s] = sp.y[s][km];
-                            }
-                            let y_wall = nufor_core::catalytic::equilibrium_wall_composition(
-                                tw.max(200.0),
-                                rho[ka],
-                                &y0,
-                            )
-                            .unwrap_or(y0);
-                            // positions along x: wall face, then the two
-                            // fluid-cell centers (the same ascending triple
-                            // the march's wall stencil evaluates)
-                            let d_eff = {
-                                let mut y = [0.0f64; 5];
-                                for (ys, ysrc) in y.iter_mut().zip(sp.y.iter()) {
-                                    *ys = ysrc[ka];
-                                }
-                                let t_a = temp_at(ka);
-                                let p_a = nufor_core::species_closure::pressure_at(
-                                    rho[ka], e_int[ka], &y,
-                                );
-                                nufor_core::species_props::effective_diffusivity(
-                                    &y,
-                                    t_a,
-                                    p_a.max(1.0),
-                                )
-                            };
-                            // wallward = toward the solid: the derivative
-                            // the surface flux evaluates is along +x, so an
-                            // east-wall face (solid at i+1, wallward = -x)
-                            // negates it; west-wall faces keep it.
-                            let wallward_sign = if m == a - 1 { -1.0 } else { 1.0 };
-                            q += wallward_sign
-                                * nufor_core::catalytic::catalytic_surface_flux(
-                                    &y_wall,
-                                    &y0,
-                                    &y1v,
-                                    rho[ka],
-                                    d_eff,
-                                    [
-                                        face_x,
-                                        0.5 * (g.faces_x[a] + g.faces_x[a + 1]),
-                                        0.5 * (g.faces_x[m] + g.faces_x[m + 1]),
-                                    ],
-                                )
-                                .max(0.0);
-                        }
-                    }
-                    if q.is_finite() && q > 0.0 {
-                        let c = cs[k];
-                        q_rows.push((c.0, c.1, q));
-                    }
-                }
-            }
+            let q_rows: Vec<(f64, f64, f64)> = nufor_core::wall_flux::wall_flux(
+                st,
+                g,
+                &wall_flux_setup(cfg, model, cat_wall),
+                species,
+                mask.as_slice(),
+            )
+            .map(|rep| rep.faces.iter().map(|f| (f.x, f.y, f.q_w_m2)).collect())
+            .unwrap_or_else(|_| Vec::new());
+
             if !q_rows.is_empty() {
                 let mut cleaned: Vec<(f64, f64, f64)> = q_rows
                     .iter()
@@ -2705,15 +2904,24 @@ fn write_run_log_2d(
                     qx,
                     qy
                 ));
-                qwall_s.push_str("wall heat flux vs surface x (MW/m^2):\n");
-                let mut s_lp: Vec<String> = cleaned
-                    .iter()
-                    .map(|(x, _, q)| format!("  {:.3}  {:.4}", x, q / 1e6))
-                    .collect();
-                if s_lp.len() > 24 {
-                    let step = s_lp.len() / 24 + 1;
-                    s_lp = s_lp.iter().step_by(step).cloned().collect();
+                qwall_s.push_str("wall heat flux by surface point (MW/m^2):\n");
+                let step = cleaned.len() / 24 + 1;
+                let mut idx: Vec<usize> = (0..cleaned.len()).step_by(step).collect();
+                if !idx.contains(&imax) {
+                    idx.push(imax);
+                    idx.sort_unstable();
                 }
+                let s_lp: Vec<String> = idx
+                    .iter()
+                    .map(|&i| {
+                        format!(
+                            "  {:.3}  {:.3}  {:.4}",
+                            cleaned[i].0,
+                            cleaned[i].1,
+                            cleaned[i].2 / 1e6
+                        )
+                    })
+                    .collect();
                 qwall_s.push_str(&s_lp.join("\n"));
                 qwall_s.push('\n');
                 use std::io::Write as _;
@@ -2953,7 +3161,7 @@ fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
         }
     };
     let gamma = cfg.physics.gamma;
-    let mut st = match ic2d_from_case_model(&cfg.initial_condition, &g, gamma, model) {
+    let mut st = match ic2d_from_case_model(&cfg.initial_condition, &g, gamma, model, cfg) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("initial condition error: {e}");
@@ -2973,11 +3181,13 @@ fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
                 InitialCondition::Uniform { rho, .. } => *rho,
                 InitialCondition::TwoState { left, .. } => left.rho,
                 InitialCondition::Blast { ambient, .. } => ambient.rho,
+                InitialCondition::Quasi1d { p0, t0 } => p0 / (cfg.physics.gas_constant * t0),
             };
             let u_inf = match &cfg.initial_condition {
                 InitialCondition::Uniform { u, .. } => *u,
                 InitialCondition::TwoState { left, .. } => left.u,
                 InitialCondition::Blast { .. } => 0.0,
+                InitialCondition::Quasi1d { .. } => 0.0,
             };
             match nufor_core::BlasiusProfile::new(u_inf, mu / rho_inf.max(1e-12), *leading_edge) {
                 Ok(b) => {
@@ -3017,17 +3227,26 @@ fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
                 InitialCondition::Uniform { rho, .. } => *rho,
                 InitialCondition::TwoState { left, .. } => left.rho,
                 InitialCondition::Blast { ambient, .. } => ambient.rho,
+                InitialCondition::Quasi1d { p0, t0 } => p0 / (cfg.physics.gas_constant * t0),
             },
             u: match &cfg.initial_condition {
                 InitialCondition::Uniform { u, .. } => *u,
                 InitialCondition::TwoState { left, .. } => left.u,
                 InitialCondition::Blast { .. } => 0.0,
+                InitialCondition::Quasi1d { .. } => 0.0,
             },
             v: 0.0,
             p: match &cfg.initial_condition {
                 InitialCondition::Uniform { p, .. } => *p,
                 InitialCondition::TwoState { left, .. } => left.p,
                 InitialCondition::Blast { ambient, .. } => ambient.p,
+                InitialCondition::Quasi1d { p0, .. } => *p0,
+            },
+            t: match &cfg.initial_condition {
+                InitialCondition::Uniform { t, .. } => *t,
+                InitialCondition::TwoState { left, .. } => left.t,
+                InitialCondition::Blast { ambient, .. } => ambient.t,
+                InitialCondition::Quasi1d { t0, .. } => Some(*t0),
             },
         },
         // the reservoir inflow and subsonic back-pressure outflow are
@@ -3041,11 +3260,13 @@ fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
                     InitialCondition::Uniform { rho, .. } => *rho,
                     InitialCondition::TwoState { left, .. } => left.rho,
                     InitialCondition::Blast { ambient, .. } => ambient.rho,
+                    InitialCondition::Quasi1d { p0, t0 } => p0 / (cfg.physics.gas_constant * t0),
                 },
                 p: match &cfg.initial_condition {
                     InitialCondition::Uniform { p, .. } => *p,
                     InitialCondition::TwoState { left, .. } => left.p,
                     InitialCondition::Blast { ambient, .. } => ambient.p,
+                    InitialCondition::Quasi1d { p0, .. } => *p0,
                 },
             },
             None => Bc2d::Transmissive,
@@ -3162,11 +3383,13 @@ fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
                 InitialCondition::Uniform { rho, .. } => *rho,
                 InitialCondition::TwoState { left, .. } => left.rho,
                 InitialCondition::Blast { ambient, .. } => ambient.rho,
+                InitialCondition::Quasi1d { p0, t0 } => p0 / (cfg.physics.gas_constant * t0),
             };
             let u_inf = match &cfg.initial_condition {
                 InitialCondition::Uniform { u, .. } => *u,
                 InitialCondition::TwoState { left, .. } => left.u,
                 InitialCondition::Blast { .. } => 0.0,
+                InitialCondition::Quasi1d { .. } => 0.0,
             };
             if u_inf <= 0.0 || rho_inf <= 0.0 {
                 return;
@@ -3223,7 +3446,7 @@ fn run_case_2d_msh(cfg: &CaseConfig, path: &str, msh_path: &str) -> i32 {
     // a uniform IC seeds every cell with the freestream state and
     // matches the inflow boundary to it; the blast IC keeps its demo
     // path below.
-    if let nufor_config::InitialCondition::Uniform { rho, u, p } = &cfg.initial_condition {
+    if let nufor_config::InitialCondition::Uniform { rho, u, p, .. } = &cfg.initial_condition {
         ug.freestream = [*rho, *u, 0.0, *p];
         // total specific energy = internal + kinetic; prim_to_cons2d
         // stores e = rho * et verbatim.
@@ -3451,24 +3674,56 @@ fn run_case_3d(cfg: &CaseConfig, path: &str) -> i32 {
     }
 }
 
+/// the composition a park5 case starts in: pure nitrogen for the
+/// dissociation gates, standard air otherwise.
+fn park5_start_composition(cfg: &CaseConfig) -> [f64; 5] {
+    match cfg.physics.gas.as_str() {
+        "n2" => [1.0, 0.0, 0.0, 0.0, 0.0],
+        _ => [0.767, 0.233, 0.0, 0.0, 0.0],
+    }
+}
+
 /// 2d initial condition: uniform field or an over-pressured fireball.
 /// the uniform IC under either closure: perfect gas inverts p directly,
 /// equilibrium air bisects the fits for e.
-fn ic_uniform_energy(rho: f64, p: f64, model: ThermoModel) -> Result<f64, String> {
+fn ic_uniform_energy(
+    rho: f64,
+    p: f64,
+    t_fill: Option<f64>,
+    model: ThermoModel,
+    cfg: &CaseConfig,
+) -> Result<f64, String> {
     match model {
         ThermoModel::Perfect { gamma } => Ok(p / ((gamma - 1.0) * rho)),
         ThermoModel::EqAir { .. } => nufor_core::eqair_energy(&[rho], &[p])
             .map(|v| v[0])
             .map_err(|e| e.to_string()),
         ThermoModel::Park5 { .. } => {
-            // uniform park5 ICs start as standard air; e_int carries the
-            // formation offset through the mixture closure.
-            Ok(nufor_core::species_march::air_ic_energy(rho, p))
+            // the seed carries the composition the march will evolve: a
+            // nitrogen case seeded with air's energy reads below the
+            // formation floor and the temperature clamps.
+            let y = park5_start_composition(cfg);
+            let t = p / (rho * nufor_core::species_closure::mix_gas_constant(&y));
+            Ok(nufor_core::species_closure::internal_energy_at(t, &y))
         }
         ThermoModel::Combustion9 { .. } => {
-            // uniform combustion ICs start as the stoichiometric
-            // unburned fill; e_int carries the formation offset.
-            Ok(nufor_core::combustion_march::h2o2_ic_energy(rho, p))
+            // uniform combustion ICs start as the injection
+            // composition's energy, not the stoich premix's: a
+            // chamber case fills with the burned gas.
+            let mut y = [0.0f64; nufor_core::combustion_thermo::NS];
+            y[nufor_core::combustion_thermo::IH2] = 2.016 / 18.016;
+            y[nufor_core::combustion_thermo::IO2] = 16.0 / 18.016;
+            let fill = match &cfg.physics.injection {
+                None => y,
+                Some(_) => combustion_fill(cfg)?,
+            };
+            // a stated temperature wins over the one the mixture's own
+            // gas constant implies: a premix below its ignition limit
+            // stays cold however long the march runs.
+            Ok(match t_fill {
+                Some(t) => nufor_core::combustion_march::h2o2_ic_energy_at_temp(&fill, t),
+                None => nufor_core::combustion_march::h2o2_ic_energy_at(rho, p, &fill),
+            })
         }
     }
 }
@@ -3478,10 +3733,11 @@ fn ic2d_from_case_model(
     g: &Grid2d,
     gamma: f64,
     model: ThermoModel,
+    cfg: &CaseConfig,
 ) -> Result<ConservedState2d, String> {
     match ic {
-        InitialCondition::Uniform { rho, u, p } => {
-            let e_int = ic_uniform_energy(*rho, *p, model)?;
+        InitialCondition::Uniform { rho, u, p, t } => {
+            let e_int = ic_uniform_energy(*rho, *p, *t, model, cfg)?;
             let n = g.nx * g.ny;
             let et = e_int + 0.5 * u * u;
             let rhost = vec![*rho; n];
@@ -3495,6 +3751,105 @@ fn ic2d_from_case_model(
                 my,
                 e,
             })
+        }
+        InitialCondition::Quasi1d { p0, t0 } => {
+            // the contour comes from the case's own polygon: the gas
+            // side of the wall. each column takes its station's
+            // isentropic state.
+            let verts = match &cfg.body {
+                Some(nufor_config::BodySection::Polygon { verts }) => verts.clone(),
+                _ => return Err("the quasi1d initial condition needs a polygon body".to_owned()),
+            };
+            let gas_const = cfg.physics.gas_constant;
+            let contour = quasi1d::contour_from_polygon(&verts, 4 * g.nx);
+            // the solve uses the lane's own frozen gamma at the
+            // stagnation state, not the shaping constant: the isentropic
+            // p*/p0 depends on it and the shaping value is 6 percent
+            // off the mixture's.
+            let gamma_eff = match model {
+                ThermoModel::Combustion9 { gamma_shaping } => {
+                    let y_case = combustion_fill(cfg)?;
+                    let rmix = nufor_core::combustion_closure::mix_gas_constant(&y_case);
+                    let cp = nufor_core::combustion_thermo::mix_cp_mass(&y_case, *t0);
+                    if cp > rmix {
+                        (cp / (cp - rmix)).max(1.01)
+                    } else {
+                        gamma_shaping
+                    }
+                }
+                _ => gamma,
+            };
+            // the axisymmetric lane marches the mesh's annular areas:
+            // the staircase is the capacity the flow really has, so
+            // the seed is built on it and the seeded mass flux is what
+            // the mesh can pass. the planar lane keeps the contour's
+            // smooth area.
+            let stations = if cfg.physics.equations == Equations::EulerAxi {
+                let mask = case_body_fns(&cfg.body).map(|b| {
+                    let band = 1.5 * g.dx.min(g.dy);
+                    body_cache(g, b.0.as_ref() as &dyn Fn(f64, f64) -> f64, band)
+                        .mask
+                        .clone()
+                });
+                let xs: Vec<f64> = (0..g.nx).map(|i| g.centers_x[i]).collect();
+                let areas: Vec<f64> = (0..g.nx)
+                    .map(|i| face_flow_area(g, mask.as_deref(), i))
+                    .collect();
+                quasi1d::quasi1d_solve_areas(&xs, &areas, gamma_eff, *p0, *t0, gas_const)
+            } else {
+                quasi1d::quasi1d_solve(&contour, gamma_eff, *p0, *t0, gas_const)
+            };
+            if stations.is_empty() {
+                return Err("the quasi1d contour came out empty".to_owned());
+            }
+            let n = g.nx * g.ny;
+            let mut rho = vec![0.0f64; n];
+            let mut u = vec![0.0f64; n];
+            let mut v = vec![0.0f64; n];
+            let mut e = vec![0.0f64; n];
+            for j in 0..g.ny {
+                for i in 0..g.nx {
+                    let k = j * g.nx + i;
+                    let x = g.centers_x[k];
+                    let r = quasi1d::contour_radius(&contour, x);
+                    let y = g.centers_y[k];
+                    // the station's own state, and the solid stays out.
+                    let st_i = stations
+                        .iter()
+                        .enumerate()
+                        .min_by(|a, b| {
+                            (a.1.x - x)
+                                .abs()
+                                .partial_cmp(&(b.1.x - x).abs())
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                        })
+                        .map(|(_, s)| *s)
+                        .unwrap_or(stations[0]);
+                    if y > r {
+                        // inside the wall: the station's state with no
+                        // motion, which the solid mask overrides anyway.
+                        rho[k] = st_i.rho;
+                        u[k] = 0.0;
+                        let e_int = ic_uniform_energy(st_i.rho, st_i.p, None, model, cfg)?;
+                        e[k] = e_int;
+                        continue;
+                    }
+                    rho[k] = st_i.rho;
+                    u[k] = st_i.u;
+                    // the streamlines of a converging duct converge
+                    // inward: continuity for the axisymmetric tube
+                    // demands v_r = u * (r/R) * dR/dx. a seed with
+                    // v = 0 violates continuity by the factor R', and
+                    // the march spends its first steps correcting that
+                    // into a violent radial transient.
+                    let slope = quasi1d::contour_slope(&contour, x);
+                    v[k] = st_i.u * (y / r.max(1e-12)) * slope;
+                    let e_int = ic_uniform_energy(st_i.rho, st_i.p, None, model, cfg)?;
+                    e[k] = e_int + 0.5 * (st_i.u * st_i.u + v[k] * v[k]);
+                }
+            }
+            let (mx, my, ee) = prim_to_cons2d(&rho, &u, &v, &e).map_err(|er| er.to_string())?;
+            Ok(ConservedState2d { rho, mx, my, e: ee })
         }
         _ => ic2d_from_case(ic, g, gamma),
     }
@@ -3511,7 +3866,10 @@ fn ic2d_from_case(
         0.5 * (g.ymin + g.ymax),
     );
     match ic {
-        InitialCondition::Uniform { rho, u, p } => fill2d(*rho, *u, 0.0, *p, n, gamma),
+        InitialCondition::Uniform { rho, u, p, .. } => fill2d(*rho, *u, 0.0, *p, n, gamma),
+        InitialCondition::Quasi1d { .. } => {
+            Err("the quasi1d initial condition needs the model-aware path".to_owned())
+        }
         InitialCondition::Blast {
             radius,
             ambient,
@@ -3553,7 +3911,10 @@ fn ic3d_from_case(
         0.5 * (g.zmin + g.zmax),
     );
     match ic {
-        InitialCondition::Uniform { rho, u, p } => fill3d(*rho, *u, 0.0, 0.0, *p, n, gamma),
+        InitialCondition::Uniform { rho, u, p, .. } => fill3d(*rho, *u, 0.0, 0.0, *p, n, gamma),
+        InitialCondition::Quasi1d { .. } => {
+            Err("the quasi1d initial condition is 2d only".to_owned())
+        }
         InitialCondition::Blast {
             radius,
             ambient,
@@ -3767,4 +4128,222 @@ fn min_of(v: &[f64]) -> f64 {
 }
 fn max_of(v: &[f64]) -> f64 {
     v.iter().cloned().fold(f64::NEG_INFINITY, f64::max)
+}
+
+#[cfg(test)]
+mod combustion_report_tests {
+    use super::*;
+    use nufor_core::combustion_march::CombustionState;
+
+    /// an axisymmetric duct with a wall parallel to the flow: the
+    /// march must keep the wall cells as scaffolding and must not brake
+    /// the axial flow. a slip wall reflects the normal velocity and
+    /// keeps the tangential one, so a duct carrying axial flow keeps
+    /// its momentum.
+    #[test]
+    fn axi_wall_keeps_the_axial_flow() {
+        let (nx, ny) = (40, 16);
+        let g = nufor_core::grid2d(nx, ny, 0.0, 0.04, 0.0, 0.02).unwrap();
+        let n = nx * ny;
+        let rho = 1.0f64;
+        let gamma = 1.4f64;
+        let u = 100.0f64;
+        // the wall: a plate along the top of the duct at y = 0.015, so
+        // the flow runs along it instead of into it.
+        let dist = |_x: f64, y: f64| 0.015 - y;
+        let mut st = nufor_core::ConservedState2d {
+            rho: vec![rho; n],
+            mx: vec![rho * u; n],
+            my: vec![0.0; n],
+            e: vec![rho * (1.0 / (gamma - 1.0) + 0.5 * u * u); n],
+        };
+        // the solid cells take the case's fill state at rest, the way
+        // the solid fill writes them.
+        let cache0 = nufor_core::body_cache(&g, &dist, 1.5 * g.dx.min(g.dy));
+        for &k in &cache0.solid_cells {
+            st.mx[k] = 0.0;
+        }
+        let bc = nufor_core::Boundaries2d {
+            west: nufor_core::Bc2d::Transmissive,
+            east: nufor_core::Bc2d::Transmissive,
+            south: nufor_core::Bc2d::SlipWall,
+            north: nufor_core::Bc2d::SlipWall,
+        };
+        for _ in 0..20 {
+            nufor_core::advance2d_axi_rk2(
+                &mut st,
+                &g,
+                nufor_core::ThermoModel::Perfect { gamma },
+                0.3,
+                false,
+                &bc,
+                1,
+                Some(&dist),
+            )
+            .unwrap();
+        }
+        // the solid cells keep their entry state. the mask is the
+        // lane's own: a cell within half a cell of the surface counts
+        // as solid.
+        let cache = nufor_core::body_cache(&g, &dist, 1.5 * g.dx.min(g.dy));
+        for &k in &cache.solid_cells {
+            assert!(
+                (st.rho[k] - rho).abs() < 1e-12,
+                "the solid cell {k} changed its density to {}",
+                st.rho[k]
+            );
+            assert_eq!(st.mx[k], 0.0, "the solid cell {k} carries momentum");
+        }
+        assert!(!cache.solid_cells.is_empty(), "the case has solid cells");
+        // the fluid cells keep their axial speed: a slip wall does not
+        // brake the flow.
+        let fluid: Vec<f64> = (0..n)
+            .filter(|k| !cache.solid_cells.contains(k))
+            .map(|k| st.mx[k] / st.rho[k])
+            .collect();
+        let mean = fluid.iter().sum::<f64>() / fluid.len() as f64;
+        assert!(
+            (mean - u).abs() < 0.02 * u,
+            "the axial flow must survive the wall: {mean} against {u}"
+        );
+    }
+
+    /// a wall face across the flow: the mirror reflects the normal
+    /// velocity component and keeps the tangential one. a wall that
+    /// also flips the tangential component is a brake, and a nozzle
+    /// wall that brakes the axial flow loses the momentum the whole
+    /// duct depends on.
+    #[test]
+    fn axi_wall_keeps_the_tangential_velocity() {
+        let (nx, ny) = (40, 16);
+        let g = nufor_core::grid2d(nx, ny, 0.0, 0.04, 0.0, 0.02).unwrap();
+        let n = nx * ny;
+        let rho = 1.0f64;
+        let gamma = 1.4f64;
+        let u = 100.0f64;
+        let v = 30.0f64;
+        // the wall: a vertical plate at x = 0.02. the flow runs into
+        // it, so the face's normal is the axial direction and the
+        // radial velocity is the tangential one.
+        let dist = |x: f64, _y: f64| x - 0.02;
+        let mut st = nufor_core::ConservedState2d {
+            rho: vec![rho; n],
+            mx: vec![rho * u; n],
+            my: vec![rho * v; n],
+            e: vec![rho * (1.0 / (gamma - 1.0) + 0.5 * (u * u + v * v)); n],
+        };
+        let cache0 = nufor_core::body_cache(&g, &dist, 1.5 * g.dx.min(g.dy));
+        for &k in &cache0.solid_cells {
+            st.mx[k] = 0.0;
+            st.my[k] = 0.0;
+        }
+        let bc = nufor_core::Boundaries2d {
+            west: nufor_core::Bc2d::Transmissive,
+            east: nufor_core::Bc2d::Transmissive,
+            south: nufor_core::Bc2d::SlipWall,
+            north: nufor_core::Bc2d::SlipWall,
+        };
+        for _ in 0..10 {
+            nufor_core::advance2d_axi_rk2(
+                &mut st,
+                &g,
+                nufor_core::ThermoModel::Perfect { gamma },
+                0.3,
+                false,
+                &bc,
+                1,
+                Some(&dist),
+            )
+            .unwrap();
+        }
+        // the radial velocity survives the wall: a slip wall keeps the
+        // tangential component. the reference is the same march without
+        // the wall, so the comparison isolates what the wall does.
+        let mut free = nufor_core::ConservedState2d {
+            rho: vec![rho; n],
+            mx: vec![rho * u; n],
+            my: vec![rho * v; n],
+            e: vec![rho * (1.0 / (gamma - 1.0) + 0.5 * (u * u + v * v)); n],
+        };
+        for _ in 0..10 {
+            nufor_core::advance2d_axi_rk2(
+                &mut free,
+                &g,
+                nufor_core::ThermoModel::Perfect { gamma },
+                0.3,
+                false,
+                &bc,
+                1,
+                None,
+            )
+            .unwrap();
+        }
+        let walled: Vec<f64> = (0..n)
+            .filter(|k| !cache0.solid_cells.contains(k))
+            .map(|k| st.my[k] / st.rho[k])
+            .collect();
+        let open: Vec<f64> = (0..n).map(|k| free.my[k] / free.rho[k]).collect();
+        let wm = walled.iter().sum::<f64>() / walled.len() as f64;
+        let om = open.iter().sum::<f64>() / open.len() as f64;
+        assert!(
+            (wm - om).abs() < 0.01 * v,
+            "the wall must not brake the tangential velocity: {wm} with the wall against {om} without"
+        );
+    }
+
+    /// the viewer's render path on a combustion vtk: the species lanes
+    /// cannot recompute pressure or temperature from (rho, e) alone, so
+    /// the renderer reads them from the file. this is the path that
+    /// panicked on the chamber case (an empty temperature field feeding
+    /// the cell loop).
+    #[test]
+    fn combustion_vtk_renders_every_field() {
+        let g = grid2d(12, 8, 0.0, 0.08, 0.0, 0.08).unwrap();
+        let n = g.nx * g.ny;
+        let rho = 3.6116f64;
+        let p = 7.0e6;
+        let sp = CombustionState::stoich_h2o2(n);
+        let e_int = nufor_core::combustion_march::h2o2_ic_energy(rho, p);
+        let (mx, my, e) =
+            prim_to_cons2d(&vec![rho; n], &vec![0.0; n], &vec![0.0; n], &vec![e_int; n]).unwrap();
+        let st = ConservedState2d {
+            rho: vec![rho; n],
+            mx,
+            my,
+            e,
+        };
+        let dir = std::env::temp_dir().join("nufor-combustion-render");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let vtk = dir.join("chamber.vtk");
+        nufor_core::write_vtk2d_combustion(&vtk, &g, &st, &sp).unwrap();
+        // the read-back must carry the closure's own pressure and
+        // temperature, not recompute them through the perfect-gas form.
+        let fields = casework::case_vtk_read(&vtk, ThermoModel::Combustion9 { gamma_shaping: 1.2 });
+        let fields = fields.expect("the combustion vtk reads back");
+        let fp = fields
+            .pressure
+            .as_ref()
+            .expect("pressure in the vtk")
+            .clone();
+        let ft = fields
+            .temperature
+            .as_ref()
+            .expect("temperature in the vtk")
+            .clone();
+        assert_eq!(fp.len(), n, "the pressure field is per cell");
+        assert_eq!(ft.len(), n, "the temperature field is per cell");
+        assert!(
+            fp.iter().all(|x| (x - p).abs() / p < 1e-3),
+            "the vtk pressure round-trips the fill state"
+        );
+        // every named field must render without panicking.
+        let body = None;
+        let model = ThermoModel::Combustion9 { gamma_shaping: 1.2 };
+        for name in ["rho", "p", "t", "mach", "schlieren"] {
+            let (png, _, _) = casework::render_with_body_ranged(&g, &fields, name, &body, model);
+            assert!(!png.is_empty(), "the {name} render produced no png");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

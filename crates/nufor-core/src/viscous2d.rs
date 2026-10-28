@@ -18,6 +18,21 @@ pub fn sutherland_mu(mu0: f64, t: f64, t0: f64, s: f64) -> f64 {
     mu0 * (t / t0).powf(1.5) * (t0 + s) / (t + s)
 }
 
+/// the conduction coefficient the conductor pairs with the viscosity:
+/// cp/pr for the dimensional equilibrium-air closure, the r-free form
+/// for the perfect-gas closure. the wall-flux estimator reads it from
+/// here so a reported flux cannot use a different one than the march.
+pub(crate) fn conduction_coeff(
+    closure: Option<crate::thermo::ThermoModel>,
+    gamma: f64,
+    pr: f64,
+) -> f64 {
+    match closure {
+        Some(crate::thermo::ThermoModel::EqAir { r_gas }) => gamma * r_gas / ((gamma - 1.0) * pr),
+        _ => gamma / ((gamma - 1.0) * pr),
+    }
+}
+
 /// mirror the interior field with one ghost layer so centred differences work.
 pub(crate) fn pad2d(f: &[f64], nx: usize, ny: usize) -> Vec<f64> {
     let w = nx + 2;
@@ -471,7 +486,7 @@ pub(crate) fn wall_shear_flux(
 /// high side) stores the positive entries the low-face update
 /// subtracts; right_solid mirrors the north-wall negation.
 #[allow(clippy::too_many_arguments)]
-fn body_wall_x(
+pub(crate) fn body_wall_x(
     left_solid: bool,
     f: usize,
     j: usize,
@@ -528,7 +543,7 @@ fn body_wall_x(
 /// conduction. below_solid stores the positive low-face entries;
 /// above_solid mirrors the north-wall negation.
 #[allow(clippy::too_many_arguments)]
-fn body_wall_y(
+pub(crate) fn body_wall_y(
     below_solid: bool,
     i: usize,
     f: usize,
@@ -881,10 +896,7 @@ pub fn add_viscous_cells_mu(
     // conduction coefficient is the physical k = mu*cp/pr with
     // cp = gamma*r_gas/(gamma-1). the perfect lane keeps the r-free form
     // because its temperature carries velocity-squared units.
-    let kappa = match closure {
-        Some(crate::thermo::ThermoModel::EqAir { r_gas }) => gamma * r_gas / ((gamma - 1.0) * pr),
-        _ => gamma / ((gamma - 1.0) * pr),
-    };
+    let kappa = conduction_coeff(closure, gamma, pr);
     let kappa_t = if turb {
         gamma / ((gamma - 1.0) * pr_t)
     } else {

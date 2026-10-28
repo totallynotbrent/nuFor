@@ -182,6 +182,60 @@ impl Default for SolidRef {
     }
 }
 
+/// the combustion-aware solid fill: the same body treatment as
+/// apply_solid_ref, with the reference state read through the
+/// combustion closure at the case's fill composition. the scalar
+/// inert reference (rho 1, e 2.5) reads as unburned gas at an absurd
+/// temperature under the species closure, and the muscl stencil feeds
+/// that state to the band cells.
+#[allow(clippy::too_many_arguments)]
+pub fn apply_solid_combustion(
+    state: &mut ConservedState2d,
+    g: &Grid2d,
+    dist: &dyn Fn(f64, f64) -> f64,
+    normal: &dyn Fn(f64, f64) -> (f64, f64),
+    rho_fs: f64,
+    u_fs: f64,
+    p_fs: f64,
+    fill: &[f64; crate::combustion_thermo::NS],
+) {
+    // e is per volume: quiescent freestream internal energy at the
+    // fill composition, no kinetic term.
+    let mut y = [0.0f64; crate::combustion_thermo::NS];
+    for (dst, src) in y.iter_mut().zip(fill.iter()) {
+        *dst = *src;
+    }
+    let t_fs = p_fs / (rho_fs * crate::combustion_closure::mix_gas_constant(&y));
+    let e_int = crate::combustion_closure::internal_energy_at(t_fs, &y);
+    let band = 1.5 * g.dx.min(g.dy);
+    let cache = body_cache(g, dist, band);
+    for k in &cache.solid_cells {
+        state.rho[*k] = rho_fs;
+        state.mx[*k] = 0.0;
+        state.my[*k] = 0.0;
+        state.e[*k] = e_int * rho_fs;
+    }
+    for k in &cache.pocket_cells {
+        state.rho[*k] = rho_fs;
+        state.mx[*k] = 0.0;
+        state.my[*k] = 0.0;
+        state.e[*k] = e_int * rho_fs;
+    }
+    // the band projection is composition-agnostic: the tangency
+    // condition only touches the momentum.
+    let _ = (u_fs, normal);
+    for k in &cache.band_cells {
+        let (nx, ny) = normal(g.centers_x[*k], g.centers_y[*k]);
+        let u = state.mx[*k] / state.rho[*k];
+        let v = state.my[*k] / state.rho[*k];
+        let un = u * nx + v * ny;
+        if un > 0.0 {
+            state.mx[*k] -= rho_fs * un * nx;
+            state.my[*k] -= rho_fs * un * ny;
+        }
+    }
+}
+
 /// impose the solid body on the state after each step.
 ///
 /// cells strictly inside the body are held at the inert reference; fluid cells
@@ -346,24 +400,27 @@ pub fn apply_solid_ref(
         state.my[*k] = 0.0;
         state.e[*k] = e_ref;
     }
-    // a no-slip viscous wall owns its band: the slip projection would
-    // convert the normal kinetic energy into internal energy at t=0 and
-    // pre-heat the first fluid row before any wall flux ever runs.
-    if no_slip {
-        return;
-    }
+    // the band projection runs in both modes. the slip wall bounces the
+    // normal component (an incoming normal velocity leaves reversed), the
+    // no-slip wall removes it: the wall absorbs the normal momentum
+    // instead of returning it, which is what a no-slip surface does to
+    // the first fluid row. skipping the projection entirely left that row
+    // driving its full freestream speed into the wall, and the wall-pass
+    // flux then drained the row's density to zero.
     for k in &cache.band_cells {
         let (nx, ny) = normal(g.centers_x[*k], g.centers_y[*k]);
         let u = state.mx[*k] / state.rho[*k];
         let v = state.my[*k] / state.rho[*k];
         let un = u * nx + v * ny;
-        if un > 0.0 {
-            state.mx[*k] -= 2.0 * un * nx * state.rho[*k];
-            state.my[*k] -= 2.0 * un * ny * state.rho[*k];
+        let factor = if no_slip {
+            1.0
+        } else if un > 0.0 {
+            2.0
         } else {
-            state.mx[*k] -= un * nx * state.rho[*k];
-            state.my[*k] -= un * ny * state.rho[*k];
-        }
+            1.0
+        };
+        state.mx[*k] -= factor * un * nx * state.rho[*k];
+        state.my[*k] -= factor * un * ny * state.rho[*k];
     }
 }
 
@@ -443,19 +500,18 @@ pub fn body_cache(
     let mut solid = Vec::new();
     let mut bandc = Vec::new();
     let mut mask = vec![false; g.nx * g.ny];
-    // sliver shell: a fluid cell whose center sits within 0.45 min(dx,dy)
-    // of the surface can be over half covered by the body while still
-    // classifying fluid (its center is outside). marching it as a full
-    // fluid cell lets the wall faces starve it of mass and the freestream
-    // interior faces pump it to NaN at high mach. treat it solid: the
-    // body fattens by up to half a cell (an immersed-boundary staircase
-    // quantization) and every sliver cavity closes.
-    let h = g.dx.min(g.dy);
+    // the solid mask follows the geometry: a cell belongs to the body
+    // when its centre lies inside it. a wall that also swallowed the
+    // near-wall fluid cells thickened the passage by half a cell and
+    // moved the effective throat and exit area, which walked every
+    // nozzle gate off its 1d yardstick. the wedges that leak through a
+    // centre-on-centre staircase are closed by the crossed-face pass
+    // below and the sub-resolution pockets by the pocket list.
     for j in 0..g.ny {
         for i in 0..g.nx {
             let k = j * g.nx + i;
             let d = dist(g.centers_x[k], g.centers_y[k]);
-            if d <= 0.45 * h {
+            if d <= 0.0 {
                 solid.push(k);
                 mask[k] = true;
             } else if d < band {

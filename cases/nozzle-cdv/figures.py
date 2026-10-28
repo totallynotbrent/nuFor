@@ -44,17 +44,13 @@ def read_1d():
 
 
 def vtk_path(name):
-    here = os.path.dirname(os.path.abspath(__file__))
-    p = os.path.join(here, name)
-    if not os.path.exists(p):
-        p = os.path.join("/tmp/noz_runs", name)
-    return p
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
 
 
 cases = [
-    ("089", "p89_deep.vtk", GREEN, "pe/pt = 0.89 (subsonic)"),
-    ("075", "p75_deep.vtk", ORANGE, "pe/pt = 0.75 (normal shock)"),
-    ("016", "p16_deep.vtk", RED, "pe/pt = 0.16 (supersonic)"),
+    ("089", "nozzle-cdv-p89.vtk", GREEN, "pe/pt = 0.89 (subsonic)"),
+    ("075", "nozzle-cdv-p75.vtk", ORANGE, "pe/pt = 0.75 (normal shock)"),
+    ("016", "nozzle-cdv-p16.vtk", RED, "pe/pt = 0.16 (supersonic)"),
 ]
 
 one_d = read_1d()

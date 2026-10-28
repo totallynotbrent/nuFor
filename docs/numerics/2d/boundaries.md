@@ -34,6 +34,72 @@ unchanged.
   that answers with a denser, slower state, the acoustic feedback a
   supersonic-inflow ghost cannot give. The tangential velocity is zero.
   This is the chamber-inflow condition the nozzle case runs on.
+- ReservoirInflowRealGas: the same idea for a real-gas lane, where the
+  stagnation state is a composition rather than a temperature. The ghost
+  takes the interior cell's own pressure and temperature, the state the
+  face sees, and the velocity that follows from the reservoir's expansion
+  to that pressure. The mixture's own gamma comes from the closure at the
+  reservoir temperature, not from the shaping constant. A combustion case
+  selects it by asking for a `reservoir_inflow` on the left side; the
+  composition and the reservoir state come from the case's injection block.
+
+  The ghost's temperature is the chamber's, not the reservoir's. The gas
+  leaving a reservoir has expanded and mixed into the chamber by the time
+  it reaches the face, and the reservoir's own expansion runs colder than
+  the chamber's gas. That difference is not a rounding error: the
+  combustion closure's internal energy carries the formation offset, so a
+  temperature difference between the ghost and the cell is a megajoule
+  scale enthalpy difference. The face's energy flux would carry that
+  difference into the first column, the column would cool, its pressure
+  would fall, the ghost would thin, and the feed would run away.
+- An injector area: a chamber is fed through an injector at its head, not
+  across its whole face, so the reservoir inflow takes an optional
+  `injector_area` in square metres. Set it in the case:
+
+        [boundaries]
+        left = "reservoir_inflow"
+        injector_area = 7.2e-4
+
+  An injector is a converging nozzle, and that shapes the whole feed. The
+  mass flux through it follows the nozzle relation between the tank state
+  and the chamber's pressure. Once the chamber sits below the tank by more
+  than the critical pressure ratio, the flow reaches a sonic exit and
+  chokes: the mass flow then follows the tank state and the injector's
+  area alone, and the chamber's pressure can no longer slow it down. Below
+  the critical ratio the injector runs unchoked and its flow follows the
+  chamber's pressure.
+
+  The feed's mass flow is the injector's area times the mass flux, spread
+  over the face the injector enters, so the chamber balances the throat
+  instead of either stalling or flooding. Nothing about the geometry is
+  assumed: the critical ratio and the choked flux come from the mixture's
+  own gamma and the tank's own state.
+
+  The injector sets the mass flow and leaves the ghost's state alone. A
+  ghost carrying the injector's own exit state would sit at the sound
+  speed against a slow chamber, and the cells next to the face would pile
+  up mass and drain their energy trying to match it. The injector's flow
+  reaches the chamber through the face, and the ghost's velocity is what
+  carries that flow.
+
+  The face's flow area counts the fluid rows only. A chamber's wall
+  covers the rows above it, and those rows carry no flow, so counting
+  them would spread the injector's flow over a face the gas never sees
+  and quietly starve the chamber.
+
+  The tank's density has to match its pressure and temperature. A tank at
+  120 bar and 3677 kelvin with a mixture constant of 527 j per kilogram
+  kelvin holds about 6.19 kilograms per cubic metre, and a tank density
+  that belongs to a different pressure quietly starves the chamber.
+
+  A chamber that runs on this holds its pressure. On a 240 by 60 grid
+  with a chamber, a throat and a bell, marched 3000 steps at a Courant
+  number of 0.05, the chamber sits at 66.1 bar against the 70 bar its
+  seed carried, the throat sits at 40.5 bar against the 40.54 bar an
+  equilibrium calculation gives for the same mixture, and no cell in
+  the domain falls below 2000 kelvin. That run's injector was 7.2
+  square millimetres, which passes the 4.01 kilograms per second a
+  choked throat of that mixture swallows.
 - SubsonicOutflow: the ghost copies the interior but pins the ghost
   pressure to a fixed back value, the standard subsonic exit for the
   pressure-ratio nozzle studies. The config surface is

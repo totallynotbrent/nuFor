@@ -964,7 +964,7 @@ end subroutine
     kap = gamma * r_gas / ((gamma - 1.0_DP) * pr)
 
     allocate(u(nx_l+4, ny_), v(nx_l+4, ny_), tt(nx_l+4, ny_), mu(nx_l+4, ny_))
-    allocate(fxv(4, 0:nx_l+2, ny_), fyv(3, 0:nx_l-1, 0:ny_+1))
+    allocate(fxv(4, 0:nx_l+2, ny_), fyv(3, 0:nx_l, 0:ny_+1))
     allocate(gu(6, nx_l+4, ny_))
 
     ! primitives + closure temperature + sutherland mu per padded cell
@@ -1160,8 +1160,6 @@ end subroutine
         call cea_t_at(r, best_e, tt)
         tt = max(tt, 1.0_DP)
         mu_out(i,j) = mu0 * (tt / t0_ref)**1.5_DP * (t0_ref + s_par) / (tt + s_par)
-        if (i == 4 .and. j == 1) then
-        end if
       end do
     end do
   end subroutine
@@ -1324,8 +1322,6 @@ end subroutine
         call sa_source_closure(nt_c, s_vort, dd(c-2,j), nu_c, &
                                s_tilde, rr, prod, destr, src)
         rhs = rhs + cb2_term + src
-        if ((c == 3 .or. c == 26) .and. j == 1) then
-        end if
         nt(c,j) = nt_c + dt * rhs
       end do
     end do
@@ -1397,7 +1393,7 @@ end subroutine
 
     allocate(u(nx_l+4, ny_), v(nx_l+4, ny_), tt(nx_l+4, ny_))
     allocate(u2(nx_l+4, ny_+2), v2(nx_l+4, ny_+2), t2(nx_l+4, ny_+2))
-    allocate(fxv(4, 0:nx_l+2, ny_), fyv(3, 0:nx_l-1, 0:ny_+1))
+    allocate(fxv(4, 0:nx_l+2, ny_), fyv(3, 0:nx_l, 0:ny_+1))
     allocate(gu(6, nx_l+4, ny_))
 
     ! primitives + closure temperature per padded cell
@@ -1520,8 +1516,6 @@ end subroutine
         fyv(1,i-2,f) = txy
         fyv(2,i-2,f) = tyy
         fyv(3,i-2,f) = uf * txy + vf * tyy + q
-        if (i == 3 .and. f == 2) then
-        end if
       end do
       if (bc_s == 4) then
         if (has_turb) then

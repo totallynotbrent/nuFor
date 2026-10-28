@@ -74,9 +74,9 @@ silently change a run.
 | `metadata.name` | string | yes | non-empty | Case name, used in logs and results. |
 | `metadata.description` | string | no | | Free text: goal, expected result. |
 | `metadata.case_revision` | int | no (default 1) | >= 1 | Revision counter for the case definition. |
-| `physics.equations` | string | yes | `euler_1d` \| `euler_2d` \| `euler_3d` \| `euler_axi` \| `rans_2d_sa` | Equation set; the case-run wiring (`nufor run`) chooses the solver by this. `euler_axi` is axisymmetric Euler (see [[formats/case-body]]), `rans_2d_sa` the 2D Reynolds-averaged Navier-Stokes with Spalart-Allmaras. |
+| `physics.equations` | string | yes | `euler_1d` \| `euler_2d` \| `euler_3d` \| `euler_axi` \| `rans_2d_sa` | Equation set; the case-run wiring (`nufor run`) chooses the solver by this. `euler_axi` is axisymmetric Euler (see [[formats/case-body|the body section]]), `rans_2d_sa` the 2D Reynolds-averaged Navier-Stokes with Spalart-Allmaras. |
 | `physics.gamma` | float | yes | > 1 | Ratio of specific heats; with `eos = "eqair"` this is the fallback for degenerate cells only. |
-| `physics.eos` | string | no (default `perfect`) | `perfect` \| `eqair` \| `park2t` \| `park5` | Thermodynamic closure: constant-gamma perfect gas, equilibrium air via the CEA grid (see [[numerics/foundations/equilibrium-air]]), two-temperature nitrogen with a live vibrational field (see [[numerics/foundations/two-temperature]]), or five-species finite-rate chemistry (see [[numerics/foundations/five-species]]). |
+| `physics.eos` | string | no (default `perfect`) | `perfect` \| `eqair` \| `park2t` \| `park5` | Thermodynamic closure: constant-gamma perfect gas, equilibrium air via the CEA grid (see [[numerics/foundations/equilibrium-air|equilibrium air]]), two-temperature nitrogen with a live vibrational field (see [[numerics/foundations/two-temperature|two-temperature]]), or five-species finite-rate chemistry (see [[numerics/foundations/five-species|five species]]). |
 | `physics.gas` | string | no (default `air`) | `air` \| `n2` | Freestream composition for `eos = "park5"`: standard air (0.767 N2 / 0.233 O2 by mass) or pure nitrogen for the dissociation gates. |
 | `physics.gas_constant` | float | yes | > 0 | Specific gas constant, J/(kg K) in SI. |
 | `physics.unit_system` | string | no (default `si`) | `si` \| `nondim` | Unit convention for reported fields. |
@@ -102,10 +102,10 @@ silently change a run.
 | `mesh.growth` | float | no (default `1.15`) | > 1 | Geometric growth ratio of successive cells on a clustered axis. |
 | `mesh.cluster` | string | no (default `wall`) | `wall` \| `channel` \| `top` | Which side a clustered mesh refines: the bottom wall, both walls symmetric (needs an even `ny`), or the top wall. |
 | `initial_condition.type` | string | yes | `uniform` \| `two_state` \| `blast` | IC shape. |
-| `initial_condition` (uniform) | rho, u, p | yes | rho, p > 0 | Constant state. |
-| `initial_condition` (two_state) | left, right | yes | rho, p > 0 per side | Left/right constant states, e.g. a shock tube (1D). |
+| `initial_condition` (uniform) | rho, u, p | yes | rho, p > 0 | Constant state. `t` is optional and gives the state its temperature in kelvin; the reacting lane reads it, and a premix left at the temperature its own gas constant implies sits below the chain's ignition floor. |
+| `initial_condition` (two_state) | left, right | yes | rho, p > 0 per side | Left/right constant states, e.g. a shock tube (1D). Each side takes an optional `t`. |
 | `initial_condition` (blast) | radius, ambient, fireball | yes | radius > 0; rho, p > 0 | Over-pressured fireball in ambient surroundings; the natural 2D/3D shock-tube. |
-| `boundaries.left` | string | yes | `wall` \| `inflow` \| `outflow` \| `periodic` \| `profile_inflow` \| `slip_wall` \| `supersonic_inflow` \| `supersonic_outflow` | Left boundary condition. `profile_inflow` needs `[boundaries.inflow_profile]`; `supersonic_inflow` needs `[boundaries.inflow_state]`; the full kind list lives in [[formats/case-body]]. |
+| `boundaries.left` | string | yes | `wall` \| `inflow` \| `outflow` \| `periodic` \| `profile_inflow` \| `slip_wall` \| `supersonic_inflow` \| `supersonic_outflow` \| `subsonic_outflow` \| `reservoir_inflow` | Left boundary condition. `profile_inflow` needs `[boundaries.inflow_profile]`; `supersonic_inflow` needs `[boundaries.inflow_state]`; `subsonic_outflow` needs `[boundaries.outflow_state]` for its back pressure; the full kind list lives in [[formats/case-body|the body section]]. |
 | `boundaries.right` | string | yes | same set | Right boundary condition. |
 | `boundaries.top` | string | no | same set | Top boundary, honored by the 2D solvers (default `outflow`). |
 | `boundaries.bottom` | string | no | same set | Bottom boundary, honored by the 2D solvers (default `outflow`). A `wall` side is no-slip, which is what the SA model expects at a solid surface. |
@@ -121,8 +121,9 @@ silently change a run.
 | `time.residual_target` | float | no | > 0 | Early stop when the residual drops below this. |
 | `time.restart_in` | string | no | | Seed the 2D run from this restart file instead of the initial condition; the file's mesh must match the case grid, and the run resumes at the file's time. |
 | `time.restart_out` | string | no | | Write a restart file to this path when the run ends (serial and MPI paths). |
-| `body` | table | no | | Optional immersed body; the shape set (`sphere_cone`, `sphere`, `polygon`) and keys live in [[formats/case-body]]. |
-| `boundaries.inflow_state` | table | with a `supersonic_inflow` side | rho, p > 0 | The fixed state a supersonic inflow side carries (`v` optional, default 0). |
+| `body` | table | no | | Optional immersed body; the shape set (`sphere_cone`, `sphere`, `polygon`) and keys live in [[formats/case-body|the body section]]. |
+| `boundaries.inflow_state` | table | with a `supersonic_inflow` side | rho, p > 0 | The fixed state a supersonic inflow side carries (`v` optional, default 0; `t` optional, the inlet temperature in kelvin). |
+| `boundaries.outflow_state` | table | with a `subsonic_outflow` side | p > 0 | The back pressure a subsonic outflow holds. Only the pressure field is read; a density or velocity in the table is ignored. |
 | `output.interval_steps` | int | yes | >= 1 | Write cadence in solver steps. |
 | `output.formats` | string list | yes | non-empty, `csv` \| `vtk` \| `hdf5` | Writers to run. |
 | `output.fields` | string list | yes | non-empty | Fields written, e.g. `rho`, `u`, `p`. |

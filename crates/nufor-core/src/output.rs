@@ -178,6 +178,10 @@ pub fn write_vtk2d_model(
     append_scalar(&mut s, "energy", &st.e);
     append_scalar(&mut s, "mach", &mach);
     append_scalar(&mut s, "temperature", &temp);
+    // the velocity components: a reader that wants the mass flow needs
+    // the axial velocity, and the mach number alone does not carry it.
+    append_scalar(&mut s, "velocity_x", &u);
+    append_scalar(&mut s, "velocity_y", &v);
     write_all(path, &s)
 }
 
@@ -227,6 +231,8 @@ pub fn write_vtk2d_park5(
     append_scalar(&mut s, "energy", &st.e);
     append_scalar(&mut s, "mach", &mach);
     append_scalar(&mut s, "temperature", &temp);
+    append_scalar(&mut s, "velocity_x", &u);
+    append_scalar(&mut s, "velocity_y", &v);
     const NAMES: [&str; crate::park::NS] = ["y_N2", "y_O2", "y_NO", "y_N", "y_O"];
     for (i, name) in NAMES.iter().enumerate() {
         append_scalar(&mut s, name, &species.y[i]);
@@ -277,6 +283,8 @@ pub fn write_vtk2d_combustion(
     append_scalar(&mut s, "energy", &st.e);
     append_scalar(&mut s, "mach", &mach);
     append_scalar(&mut s, "temperature", &temp);
+    append_scalar(&mut s, "velocity_x", &u);
+    append_scalar(&mut s, "velocity_y", &v);
     const NAMES: [&str; crate::combustion_thermo::NS] = [
         "y_H2", "y_O2", "y_H2O", "y_OH", "y_H", "y_O", "y_HO2", "y_H2O2", "y_N2",
     ];

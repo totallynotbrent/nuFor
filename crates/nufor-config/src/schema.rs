@@ -1,5 +1,7 @@
 //! typed case.toml schema; strict structs reject unknown keys.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 /// top-level case file.
@@ -90,12 +92,27 @@ pub struct Physics {
     /// options (LAURA jtype 0 / fully-catalytic; DPLR icatmd 0 / 2).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub catalytic_wall: Option<String>,
+    /// the accommodation coefficient of a partially catalytic wall:
+    /// the fraction of the atoms that reach the wall and recombine
+    /// there, in [0, 1]. only read when `catalytic_wall = "partial"`,
+    /// where the wall composition blends the near-wall composition with
+    /// the equilibrium one at this fraction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catalytic_efficiency: Option<f64>,
     /// combustion chemistry toggle: "on" (the default) runs the
     /// operator-split reaction substep each step; "off" freezes the
     /// composition so a cold-flow case pays nothing for the mechanism.
     /// only read when `eos = "combustion"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chemistry: Option<String>,
+    /// the composition the case injects, as mass fractions by species
+    /// name ("H2", "O2", "H2O", "OH", "H", "O", "HO2", "H2O2", "N2").
+    /// omitted means the stoichiometric unburned h2/o2 fill. a
+    /// chamber case injects the burned composition here, so the
+    /// injection face carries the equilibrium gas rather than the
+    /// premix.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub injection: Option<HashMap<String, f64>>,
 }
 
 /// the sa turbulence block of a rans_2d_sa case.
@@ -266,12 +283,15 @@ pub enum InitialCondition {
         rho: f64,
         u: f64,
         p: f64,
+        /// the fill's temperature, in kelvin. the reacting lane reads it
+        /// when it is set: a premix below its ignition limit stays cold
+        /// however long the march runs, so a case that wants the mix to
+        /// burn says how hot it starts.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        t: Option<f64>,
     },
     /// left/right constant states, e.g. a shock tube.
-    TwoState {
-        left: State,
-        right: State,
-    },
+    TwoState { left: State, right: State },
     /// an over-pressured sphere in ambient surroundings (the classic blast);
     /// natural for the 2D and 3D equations.
     Blast {
@@ -281,6 +301,15 @@ pub enum InitialCondition {
         ambient: State,
         /// high-pressure fireball state.
         fireball: State,
+    },
+    /// the isentropic area-mach solution of the case's own contour, seeded
+    /// per column from a stagnation state. a chamber-throat case starts at
+    /// the choked quasi-1d steady state instead of slamming it from rest.
+    Quasi1d {
+        /// stagnation pressure.
+        p0: f64,
+        /// stagnation temperature.
+        t0: f64,
     },
 }
 
@@ -294,10 +323,37 @@ pub struct State {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub v: f64,
     pub p: f64,
+    /// the state's temperature, in kelvin. a reacting lane needs it:
+    /// a premix's temperature decides whether its chain reaction runs
+    /// at all, and a uniform fill cannot carry one otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub t: Option<f64>,
 }
 
 fn is_zero(v: &f64) -> bool {
     *v == 0.0
+}
+
+/// the state a `subsonic_outflow` side carries. only the back pressure
+/// matters there: the ghost copies the interior and pins the pressure.
+/// the density and velocity are accepted and ignored, so a case that
+/// spells out a full state still loads.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct OutflowState {
+    /// the back pressure the exit holds.
+    pub p: f64,
+    /// ignored: the outflow takes its density from the interior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rho: Option<f64>,
+    /// ignored: the outflow takes its velocity from the interior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub u: Option<f64>,
+    /// ignored: the outflow takes its velocity from the interior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub v: Option<f64>,
+    /// ignored: the outflow takes its temperature from the interior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub t: Option<f64>,
 }
 
 /// an immersed analytic body. the meridian is evaluated per cell; the
@@ -351,7 +407,15 @@ pub struct Boundaries {
     /// the back pressure a `subsonic_outflow` side holds; only the
     /// pressure field is read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub outflow_state: Option<State>,
+    pub outflow_state: Option<OutflowState>,
+    /// the injector area a `reservoir_inflow` side feeds through, in
+    /// square metres. a rocket chamber is fed through an injector at
+    /// its head, not across its whole face: the feed has to supply the
+    /// throat's mass flow, and the throat passes a small fraction of
+    /// the chamber's flow area. without the area the feed either
+    /// stalls or floods.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub injector_area: Option<f64>,
 }
 
 /// how a profile-inflow side prescribes its boundary layer.

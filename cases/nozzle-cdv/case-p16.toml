@@ -47,8 +47,8 @@ cfl = 0.4
 local_time_stepping = false
 
 [time]
-final_time = 40.0
-max_steps = 60000
+final_time = 160.0
+max_steps = 240000
 
 [output]
 interval_steps = 5000

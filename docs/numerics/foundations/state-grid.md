@@ -4,8 +4,8 @@ title: 1D state and uniform grid
 
 The 1D Euler milestone builds on a fixed state layout and a uniform
 control-volume geometry. Both live in the Fortran kernel layer
-(`fortran/api/nuforkernels.f90`) behind the ,
-wrapped in `nufor-core` as `grid1d`, `prim_to_cons`, and `cons_to_prim`.
+(`fortran/api/nuforkernels.f90`), wrapped in `nufor-core` as
+`grid1d`, `prim_to_cons`, and `cons_to_prim`.
 
 ## State variables
 

@@ -39,6 +39,13 @@ impl CombustionState {
         }
     }
 
+    /// the state whose field and injection composition are the given
+    /// mass fractions: the chamber case injects the burned gas, the
+    /// premix case the unburned one.
+    pub fn with_fill(n: usize, fill: &[f64; ct::NS]) -> Self {
+        CombustionState::uniform(n, fill)
+    }
+
     /// stoichiometric unburned h2/o2: 1 mol H2 + 0.5 mol O2, mass
     /// fractions 2.016/18.016 and 16.0/18.016.
     pub fn stoich_h2o2(n: usize) -> Self {
@@ -134,6 +141,18 @@ pub fn advance2d_combustion(
         smax = smax.max(u[k].abs().max(v[k].abs()) + a[k]);
     }
     let dt = cfl * g.dx.min(g.dy) / smax.max(1e-12);
+    // the closure's internal-energy floor per cell: the composition's
+    // energy at the fits' lower temperature bound. the nasa-7
+    // formation enthalpy puts a burned gas's internal energy at a
+    // large negative value, so zero is not the floor.
+    let mut e_floor = vec![0.0f64; n];
+    for (k, floor) in e_floor.iter_mut().enumerate() {
+        let mut y_cell = [0.0f64; ct::NS];
+        for (s, dst) in y_cell.iter_mut().enumerate() {
+            *dst = species.y[s][k];
+        }
+        *floor = closure9::internal_energy_at(200.0, &y_cell);
+    }
 
     let model = ThermoModel::Combustion9 { gamma_shaping: 1.2 };
     let (fx, fy) = compute_axi_fluxes(
@@ -167,6 +186,27 @@ pub fn advance2d_combustion(
             state.mx[k] += dmx;
             state.my[k] += dmy;
             state.e[k] += de;
+            // positivity guard: a step that overshoots can drive the
+            // internal energy below the closure's floor, and the
+            // closure then reads the cell at its temperature floor.
+            // the floor is the composition's internal energy at the
+            // fits' lower temperature bound, not zero: the nasa-7
+            // formation enthalpy puts the internal energy of a burned
+            // gas at a large negative value, and a healthy cell sits
+            // above that floor by megajoules.
+            let ke = 0.5 * (state.mx[k] * state.mx[k] + state.my[k] * state.my[k])
+                / state.rho[k].max(1e-12);
+            let e_int = state.e[k] - ke;
+            if !state.e[k].is_finite()
+                || !state.rho[k].is_finite()
+                || state.rho[k] <= 0.0
+                || e_int < e_floor[k]
+            {
+                state.rho[k] = state.rho[k].max(1e-10);
+                state.mx[k] = 0.0;
+                state.my[k] = 0.0;
+                state.e[k] = ke + e_floor[k] * state.rho[k] + 1e-6;
+            }
             resid = resid
                 .max(drho.abs())
                 .max(dmx.abs())
@@ -185,6 +225,7 @@ pub fn advance2d_combustion(
         &g.dys,
         &fx_mass,
         &fy_mass,
+        None,
     )?;
     for k in 0..n {
         species.renorm(k);
@@ -229,6 +270,215 @@ pub fn advance2d_combustion_rk2(
     // dt for the chemistry substep comes from the pre-step state,
     // the same probe the park lane uses; the march itself never
     // advances a third time.
+    let (dt, _) = {
+        let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
+        let n = g.nx * g.ny;
+        let mut smax = 0.0f64;
+        for k in 0..n {
+            let e_int = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
+            let mut y_cell = [0.0f64; ct::NS];
+            #[allow(clippy::needless_range_loop)]
+            for s in 0..ct::NS {
+                y_cell[s] = species.y[s][k];
+            }
+            let a = closure9::sound_speed_at(state.rho[k], e_int, &y_cell);
+            smax = smax.max(u[k].abs().max(v[k].abs()) + a);
+        }
+        (cfl * g.dx.min(g.dy) / smax.max(1e-12), 0.0)
+    };
+    let mut oversub = 0.0f64;
+    if react {
+        oversub = chemistry_substep9(state, species, g, dt, nthreads)?;
+    }
+    Ok((dt, oversub))
+}
+
+/// one axisymmetric euler step with the nine-species combustion
+/// closure: the same face machinery the park lane rides, with the
+/// annular update (r-weighted radial faces plus the p/r source).
+#[allow(clippy::too_many_arguments)]
+pub fn advance2d_combustion_axi(
+    state: &mut ConservedState2d,
+    species: &mut CombustionState,
+    g: &Grid2d,
+    cfl: f64,
+    muscl: bool,
+    bc: &crate::Boundaries2d,
+    nthreads: usize,
+    wall: Option<&dyn Fn(f64, f64) -> f64>,
+) -> Result<(f64, f64), Error> {
+    let (nx, ny) = (g.nx, g.ny);
+    let idx = |i: usize, j: usize| j * nx + i;
+    let n = nx * ny;
+    let (u, v, et) = crate::state2d::cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
+    let mut e_int = vec![0.0f64; n];
+    let mut p = vec![0.0f64; n];
+    let mut a = vec![0.0f64; n];
+    for k in 0..n {
+        e_int[k] = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
+        let mut y_cell = [0.0f64; ct::NS];
+        #[allow(clippy::needless_range_loop)]
+        for s in 0..ct::NS {
+            y_cell[s] = species.y[s][k];
+        }
+        p[k] = closure9::pressure_at(state.rho[k], e_int[k], &y_cell);
+        a[k] = closure9::sound_speed_at(state.rho[k], e_int[k], &y_cell);
+    }
+    let mut smax = 0.0f64;
+    for k in 0..n {
+        smax = smax.max(u[k].abs().max(v[k].abs()) + a[k]);
+    }
+    let dt = cfl * g.dx.min(g.dy) / smax.max(1e-12);
+    // the closure's internal-energy floor per cell: the composition's
+    // energy at the fits' lower temperature bound. the nasa-7
+    // formation enthalpy puts a burned gas's internal energy at a
+    // large negative value, so zero is not the floor.
+    let mut e_floor = vec![0.0f64; n];
+    for (k, floor) in e_floor.iter_mut().enumerate() {
+        let mut y_cell = [0.0f64; ct::NS];
+        for (s, dst) in y_cell.iter_mut().enumerate() {
+            *dst = species.y[s][k];
+        }
+        *floor = closure9::internal_energy_at(200.0, &y_cell);
+    }
+    let model = ThermoModel::Combustion9 { gamma_shaping: 1.2 };
+    let (fx, fy) = crate::axi::compute_axi_fluxes(
+        model,
+        state,
+        g,
+        muscl,
+        bc,
+        &p,
+        &e_int,
+        Some(crate::axi::SpeciesField::Combustion9(species)),
+        nthreads,
+        wall,
+    )?;
+
+    // the annular update: r-weighted radial flux difference plus the
+    // radial pressure source, mirroring the park lane.
+    // the entry state, so the solid interior can be restored after the
+    // update: the masked cells are scaffolding, not flow.
+    let entry_rho = state.rho.clone();
+    let entry_e = state.e.clone();
+
+    let mut resid = 0.0f64;
+    for j in 0..ny {
+        let (rm, rp) = (g.faces_y[j], g.faces_y[j + 1]);
+        let rc = 0.5 * (rm + rp);
+        let dr = g.dys[j];
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..nx {
+            let k = idx(i, j);
+            let dxi = dt / g.dxs[i];
+            let radial = |f: &Vec<f64>| (rp * f[j + 1] - rm * f[j]) / (rc * dr);
+            let drho = -(dxi * (fx[j].mass[i + 1] - fx[j].mass[i]) + dt * radial(&fy[i].mass));
+            let dmx = -(dxi * (fx[j].mx[i + 1] - fx[j].mx[i]) + dt * radial(&fy[i].mx));
+            let dmy =
+                -(dxi * (fx[j].my[i + 1] - fx[j].my[i]) + dt * radial(&fy[i].my)) + dt * p[k] / rc;
+            let de = -(dxi * (fx[j].e[i + 1] - fx[j].e[i]) + dt * radial(&fy[i].e));
+            state.rho[k] += drho;
+            state.mx[k] += dmx;
+            state.my[k] += dmy;
+            state.e[k] += de;
+            // positivity guard: a step that overshoots can drive the
+            // internal energy below the closure's floor, and the
+            // closure then reads the cell at its temperature floor.
+            // the floor is the composition's internal energy at the
+            // fits' lower temperature bound, not zero: the nasa-7
+            // formation enthalpy puts the internal energy of a burned
+            // gas at a large negative value, and a healthy cell sits
+            // above that floor by megajoules.
+            let ke = 0.5 * (state.mx[k] * state.mx[k] + state.my[k] * state.my[k])
+                / state.rho[k].max(1e-12);
+            let e_int = state.e[k] - ke;
+            if !state.e[k].is_finite()
+                || !state.rho[k].is_finite()
+                || state.rho[k] <= 0.0
+                || e_int < e_floor[k]
+            {
+                state.rho[k] = state.rho[k].max(1e-10);
+                state.mx[k] = 0.0;
+                state.my[k] = 0.0;
+                state.e[k] = ke + e_floor[k] * state.rho[k] + 1e-6;
+            }
+            resid = resid
+                .max(drho.abs())
+                .max(dmx.abs())
+                .max(dmy.abs())
+                .max(de.abs());
+        }
+    }
+
+    // restore the solid interior after the update: the wall faces
+    // carry no flux, but the solid-solid mirror pairs still ratchet
+    // their dummy velocity stage, and left alone that momentum leaks
+    // into the band. the solid state is scaffolding, not flow.
+    if let Some(dist) = wall {
+        let band = 1.5 * g.dx.min(g.dy);
+        let cache = crate::body::body_cache(g, dist, band);
+        for &k in &cache.solid_cells {
+            state.rho[k] = entry_rho[k];
+            state.mx[k] = 0.0;
+            state.my[k] = 0.0;
+            state.e[k] = entry_e[k];
+        }
+    }
+
+    // species advection on the same face mass fluxes, carrying rho*Y.
+    let fx_mass: Vec<Vec<f64>> = fx.iter().map(|s| s.mass.clone()).collect();
+    let fy_mass: Vec<Vec<f64>> = fy.iter().map(|s| s.mass.clone()).collect();
+    let resid_y = crate::species_transport::transport_species_generic(
+        &mut species.y,
+        &state.rho,
+        dt,
+        &g.dxs,
+        &g.dys,
+        &fx_mass,
+        &fy_mass,
+        Some(&g.faces_y),
+    )?;
+    for k in 0..n {
+        species.renorm(k);
+    }
+    Ok((dt, resid.max(resid_y)))
+}
+
+/// heun (rk2) wrapper around the axisymmetric combustion step with
+/// the operator-split chemistry at the post-step state.
+#[allow(clippy::too_many_arguments)]
+pub fn advance2d_combustion_axi_rk2(
+    state: &mut ConservedState2d,
+    species: &mut CombustionState,
+    g: &Grid2d,
+    cfl: f64,
+    muscl: bool,
+    bc: &crate::Boundaries2d,
+    nthreads: usize,
+    wall: Option<&dyn Fn(f64, f64) -> f64>,
+    react: bool,
+) -> Result<(f64, f64), Error> {
+    let mut s1 = state.clone();
+    let mut y1 = species.clone();
+    advance2d_combustion_axi(&mut s1, &mut y1, g, cfl, muscl, bc, nthreads, wall)?;
+    advance2d_combustion_axi(&mut s1, &mut y1, g, cfl, muscl, bc, nthreads, wall)?;
+    let n = g.nx * g.ny;
+    for k in 0..n {
+        state.rho[k] = 0.5 * state.rho[k] + 0.5 * s1.rho[k];
+        state.mx[k] = 0.5 * state.mx[k] + 0.5 * s1.mx[k];
+        state.my[k] = 0.5 * state.my[k] + 0.5 * s1.my[k];
+        state.e[k] = 0.5 * state.e[k] + 0.5 * s1.e[k];
+    }
+    for s in 0..ct::NS {
+        for k in 0..n {
+            species.y[s][k] = 0.5 * species.y[s][k] + 0.5 * y1.y[s][k];
+        }
+    }
+    for k in 0..n {
+        species.renorm(k);
+    }
+    // dt for the chemistry substep comes from the post-step state,
+    // the same probe the planar lane uses.
     let (dt, _) = {
         let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
         let n = g.nx * g.ny;
@@ -401,12 +651,150 @@ pub fn h2o2_ic_energy(rho: f64, p: f64) -> f64 {
     let mut y = [0.0f64; ct::NS];
     y[ct::IH2] = 2.016 / 18.016;
     y[ct::IO2] = 16.0 / 18.016;
-    let t = p / (rho * closure9::mix_gas_constant(&y));
-    closure9::internal_energy_at(t, &y)
+    h2o2_ic_energy_at(rho, p, &y)
+}
+
+/// the closure energy of a uniform fill at (rho, p): the temperature
+/// from the fill's own mixture gas constant, then the closure energy
+/// at that composition. a burned-injection case (the chamber) needs
+/// the energy of the burned gas, not the premix's.
+pub fn h2o2_ic_energy_at(rho: f64, p: f64, fill: &[f64; ct::NS]) -> f64 {
+    let t = p / (rho * closure9::mix_gas_constant(fill));
+    closure9::internal_energy_at(t, fill)
+}
+
+/// the closure energy of a uniform fill held at a stated temperature.
+/// a premix's temperature decides whether its chain reaction runs: the
+/// mixture's own gas constant puts an unburned h2/o2 fill near 800 K at
+/// 70 bar, where the chain is frozen and nothing burns however long the
+/// march runs. a case that wants the mix to burn states the temperature
+/// it starts at, and the fill's energy follows from it.
+pub fn h2o2_ic_energy_at_temp(fill: &[f64; ct::NS], t_fill: f64) -> f64 {
+    closure9::internal_energy_at(t_fill, fill)
 }
 
 #[cfg(test)]
 mod tests {
+    use super::{
+        advance2d_combustion, advance2d_combustion_axi, advance2d_combustion_rk2, closure9, ct,
+        h2o2_ic_energy, react_cell, Boundaries2d, CombustionState, ConservedState2d,
+    };
+
+    #[test]
+    fn axi_combustion_holds_uniform_equilibrium() {
+        use crate::grid2d::grid2d;
+        use crate::state2d::prim_to_cons2d;
+        // a uniform field at chamber conditions on a small grid: the
+        // march must hold it steady (slip walls, no body).
+        let g = grid2d(8, 8, 0.0, 0.08, 0.0, 0.08).unwrap();
+        let n = g.nx * g.ny;
+        let rho = 6.7412f64;
+        let p = 7.0e6;
+        let mut sp = CombustionState::stoich_h2o2(n);
+        let e_int = h2o2_ic_energy(rho, p);
+        let (mx, my, e) =
+            prim_to_cons2d(&vec![rho; n], &vec![0.0; n], &vec![0.0; n], &vec![e_int; n]).unwrap();
+        let mut state = ConservedState2d {
+            rho: vec![rho; n],
+            mx,
+            my,
+            e,
+        };
+        let bc = crate::Boundaries2d {
+            west: crate::Bc2d::SupersonicOutflow,
+            east: crate::Bc2d::SupersonicOutflow,
+            south: crate::Bc2d::SlipWall,
+            north: crate::Bc2d::SlipWall,
+        };
+        for _ in 0..40 {
+            let res = advance2d_combustion_axi(&mut state, &mut sp, &g, 0.4, false, &bc, 1, None);
+            assert!(res.is_ok(), "axi step failed: {:?}", res.err());
+        }
+        for k in 0..n {
+            assert!(
+                (state.rho[k] - rho).abs() < 1e-6,
+                "rho drifted at k={k}: {}",
+                state.rho[k]
+            );
+        }
+    }
+
+    /// the real-gas reservoir inflow: the ghost carries the reservoir
+    /// state expanded isentropically to the local face pressure, so a
+    /// chamber holds its pressure while the throat draws flow. the
+    /// ghost must land on the face pressure (the pressure inversion
+    /// through the closure must reproduce the requested pressure) and
+    /// the expansion must be subsonic at the face.
+    #[test]
+    fn reservoir_ghost_expands_to_the_face_pressure() {
+        let n = 8;
+        let mut sp = CombustionState::stoich_h2o2(n);
+        // a burned chamber fill: the cea equilibrium composition at
+        // 70 bar and 3676 k.
+        let fill = [
+            0.01583304, 0.07194470, 0.77605355, 0.11605824, 0.00232724, 0.01719592, 0.00049223,
+            0.00009298, 0.0,
+        ];
+        let y9: [f64; ct::NS] = fill;
+        let rho_t = 3.6116f64;
+        let pt = 7.0e6f64;
+        let tt = 3676.52f64;
+        let bc = crate::Boundaries2d {
+            west: crate::Bc2d::ReservoirInflowRealGas {
+                pt,
+                tt,
+                rho_t,
+                fill: fill.to_vec(),
+                n_species: ct::NS,
+                injector_area: None,
+            },
+            east: crate::Bc2d::SupersonicOutflow,
+            south: crate::Bc2d::SlipWall,
+            north: crate::Bc2d::SlipWall,
+        };
+        let model = crate::ThermoModel::Combustion9 { gamma_shaping: 1.2 };
+        // the ghost takes the chamber's own pressure and temperature:
+        // the gas leaving the reservoir has expanded and mixed into the
+        // chamber, and it sits at the chamber's state.
+        let p_face = 5.0e6f64;
+        let t_face = 3400.0f64;
+        let (rho_g, u_g, e_g) =
+            crate::axi::reservoir_real_gas(&bc.west, model, p_face, t_face).expect("no ghost");
+        // the density follows from the chamber's pressure and
+        // temperature.
+        let rmix = crate::combustion_closure::mix_gas_constant(&y9);
+        let rho_want = p_face / (rmix * t_face);
+        assert!(
+            (rho_g - rho_want).abs() / rho_want < 1e-9,
+            "the ghost's density {rho_g} against {rho_want}"
+        );
+        // the ghost's own pressure through the closure must land on
+        // the chamber's pressure.
+        let p_g = crate::combustion_closure::pressure_at(rho_g, e_g, &y9);
+        assert!(
+            (p_g - p_face).abs() / p_face < 1e-3,
+            "ghost pressure {p_g} vs the face {p_face}"
+        );
+        // the ghost's closure variable must invert to the chamber's
+        // temperature.
+        let t_g = crate::combustion_closure::temperature_at(e_g, &y9);
+        assert!(
+            (t_g - t_face).abs() / t_face < 1e-3,
+            "the ghost's temperature {t_g} against the chamber's {t_face}"
+        );
+        // the velocity follows the reservoir's expansion to the face's
+        // pressure, so a lower face pressure carries a faster flow.
+        assert!(u_g > 0.0, "the expansion must accelerate the flow");
+        let (_, u_full, _) =
+            crate::axi::reservoir_real_gas(&bc.west, model, pt, t_face).expect("no ghost");
+        assert!(
+            u_full.abs() < 1e-9,
+            "at the reservoir's pressure the reservoir must not accelerate"
+        );
+        // the composition is untouched by the expansion.
+        let _ = &mut sp;
+    }
+
     /// the full stiff transient the combustor march drives: a stoich
     /// fill at 70 bar and 800 k burns to equilibrium in one cell-dt.
     /// the element pools must survive to roundoff — no clamp or
@@ -456,8 +844,6 @@ mod tests {
             );
         }
     }
-
-    use super::*;
 
     /// a uniform frozen field stays uniform: the transport must not
     /// disturb a constant state, and with chemistry off the fill
@@ -564,6 +950,7 @@ mod tests {
                 u: 100.0,
                 v: 0.0,
                 p: 7.0e6,
+                t: None,
             },
             east: crate::solver2d::Bc2d::SupersonicOutflow,
             south: crate::solver2d::Bc2d::SlipWall,

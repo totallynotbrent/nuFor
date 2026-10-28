@@ -53,9 +53,9 @@ listing's own derivative identities (the listing prints both the fits
 and their partials, so each coefficient cross-checks algebraically
 against its neighbors). Two acceptance gates pin the implementation:
 
-- cold air at sea level returns p within 0.3 percent of 101325 Pa
-  and a ~ 340 m/s
-- a Mach 22 normal shock compresses about 16x, past the perfect-gas
+- cold air at sea level returns p within 0.31 percent of 101325 Pa
+  (the gate measures 0.3008 percent) and a ~ 340 m/s
+- a Mach 22 normal shock compresses 16.3x, past the perfect-gas
   ceiling of 6x, with a subsonic post-shock state
 
 Both are enforced in `crates/nufor-core/tests/eqair.rs`.
@@ -100,7 +100,13 @@ sphere-cone capsule at Mach 22 in air at 40 km density
 perfect-gas capsule at the same Mach, the equilibrium-air run shows
 the two real-gas signatures: the bow shock stands closer to the body
 (the colder, denser shock layer is thinner), and the density jump
-across the shock reaches ~17x where the perfect gas is capped at 6x.
+across the shock reaches 10.7x on the 320x160 grid, where the perfect
+gas is capped at 6x. the jump is the ratio between the two cells that
+straddle the shock, and the local gate in
+`crates/nufor-cli/tests/capsule_eqair_artifact.rs` reads the snapshot
+the case writes and holds it inside the measured band. the gate needs
+that snapshot, so it runs on my desktop with the case's own output in
+place.
 
 ## A way to run viscous
 
@@ -132,8 +138,8 @@ correlations (Fay-Riddell) are posed at.
 1D and 3D marches still run the perfect gas; the planar and
 axisymmetric 2D paths (the hypersonic entry paths) are the
 closure-aware ones. The nonequilibrium models are built on top of
-this: two-temperature vibration ([[numerics/foundations/two-temperature]])
-and five-species chemistry ([[numerics/foundations/five-species]]) are
+this: two-temperature vibration ([[numerics/foundations/two-temperature|two-temperature vibration]])
+and five-species chemistry ([[numerics/foundations/five-species|five-species chemistry]]) are
 the next steps past equilibrium.
 
 ![March steps and wall time per trajectory station](station-sweep.png)

@@ -1,0 +1,54 @@
+case cylinder-m20-park5-visc-eta-0.5  (case.toml)
+time 0.003001 s in 3247 steps, wall 3705.7 s
+grid 400x200, viscous true, eos Park5 { gamma_shaping: 1.4 }
+freestream rho 1.36300e-5 p 0.9 u 6047.0
+max density ratio 270.97
+peak pressure 6187.2 Pa at (x=-0.772, y=0.638), T there 4608 K
+max temperature 18515 K
+wall temperature 1000 K (0 = adiabatic)
+
+noneq indicator (park 2T over body-adjacent probes):
+  n2 tau_vib range 6.02e-10 .. 3.08e-6 s
+  residence time x_len/u 1.12e-3 s
+  tau_vib/tau_flight range 5.36e-7 .. 2.74e-3
+
+continuum probe (bird gradient-length knudsen):
+  kn_inf (lambda_inf/l_ref) 7.620e-4
+  max kn_gll(rho) 1.089e3 at (0.844, 0.570)
+  max kn_gll(t) 9.877e0
+  cells above breakdown threshold 10.4 pct
+
+peak wall heat flux 3.8947 MW/m^2 at surface point (0.963, 0.315)
+wall heat flux by surface point (MW/m^2):
+  -1.010  0.009  0.5573
+  -0.992  0.162  0.5903
+  -0.959  0.298  0.4873
+  -0.907  0.434  0.7621
+  -0.856  0.536  0.7739
+  -0.772  0.638  0.2592
+  -0.704  0.723  0.1856
+  -0.601  0.808  0.1854
+  -0.500  0.876  0.1895
+  -0.380  0.927  0.2992
+  -0.261  0.978  0.6675
+  -0.108  0.995  0.7937
+  0.044  1.012  0.5034
+  0.198  0.995  0.6460
+  0.334  0.944  0.9956
+  0.452  0.893  0.5837
+  0.555  0.842  0.9196
+  0.657  0.757  1.0302
+  0.742  0.672  0.8972
+  0.827  0.570  0.8423
+  0.878  0.502  0.6643
+  0.946  0.332  2.9191
+  0.963  0.315  3.8947
+  0.980  0.230  1.7448
+  0.996  0.196  1.2940
+
+
+aero coefficients (pressure only):
+  C_D 0.1498
+  C_L -0.1099
+  L/D -0.7333
+  (band cells 278, q_inf 249.2 Pa, A_ref 17.57, L_ref 4.73)

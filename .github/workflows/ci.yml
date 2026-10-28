@@ -2,7 +2,7 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    branches: [main, experimental]
   pull_request:
 
 jobs:
@@ -39,6 +39,13 @@ jobs:
       - name: Skeleton structure + LF check
         shell: bash
         run: python .github/scripts/skeleton_check.py
+      - name: Campaign gates (dissociation, stagnation, wall accommodation, nozzle, station)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: bash tools/case_gates.sh
+      - name: Repo hygiene (private paths + published paths)
+        shell: bash
+        run: python tools/repo_hygiene.py
 
   # Real mixed build: build.rs drives CMake into the Fortran kernels, then the
   # FFI integration tests run against the linked library (PLAN step 2).
@@ -68,12 +75,16 @@ jobs:
           # one gate invocation: run under mpirun, retry up to 3 times when
           # the prte teardown race swallows the harness output. mpirun's own
           # exit code is launcher noise (one rank's finalize races the other).
+          # the pass signal is the harness's counts, not its prefix: when the
+          # race interleaves the captured output with the summary, the
+          # "test result: " prefix lands on the captured output's last line
+          # and the counts move to the next one.
           check() {
             local np="$1" test="$2" log ok worst attempt
             for attempt in 1 2 3; do
               log=$(mpirun --allow-run-as-root --oversubscribe -np "$np" "$bin" --exact "$test" --nocapture --ignored 2>&1) || true
               echo "$log"
-              ok=$(echo "$log" | grep -c 'test result: ok. 1 passed')
+              ok=$(echo "$log" | grep -c '1 passed; 0 failed')
               if [ "$ok" -ge 1 ]; then break; fi
               echo "attempt $attempt for np=$np $test lost the harness output, retrying"
             done
@@ -110,7 +121,7 @@ jobs:
           for attempt in 1 2 3; do
             caplog=$(mpirun --allow-run-as-root --oversubscribe -np 1 "$bin" --exact mpi_np1_matches_rust_capsule --nocapture --ignored 2>&1) || true
             echo "$caplog"
-            capok=$(echo "$caplog" | grep -c 'test result: ok. 1 passed')
+            capok=$(echo "$caplog" | grep -c '1 passed; 0 failed')
             if [ "$capok" -ge 1 ]; then break; fi
             echo "attempt $attempt for the capsule gate lost the harness output, retrying"
           done

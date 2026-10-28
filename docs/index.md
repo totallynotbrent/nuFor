@@ -48,6 +48,7 @@ The full ladder, with what is explicitly out of scope, lives in the
 ## Research
 
 - [[research/results|Research results]] - measured numbers behind the features: the station sweep, the trim anchor, MPI scaling, threading
+- [[research/claim-register|Claim register]] - every published number, where it comes from, and whether a gate backs it
 
 ## Verification
 
@@ -62,6 +63,7 @@ Every milestone closes against an analytical or benchmark case, tracked on the
 - [[numerics/2d/turbulent-plate|Turbulent flat plate]] - the SA layer at correlation Reynolds numbers
 - [[numerics/2d/supersonic-cylinder|Supersonic cylinder]] - the detached bow shock
 - [[numerics/2d/combustion|H2/O2 combustion]] - the nine-species reacting lane, gated against CEA
+- [[numerics/2d/chamber-throat|Chamber to throat]] - the choked nozzle in the axisymmetric combustion lane
 - [[numerics/2d/axisymmetric|Axisymmetric Euler]] - bodies of revolution: the annular update and its geometric source
 - [[verification/axisymmetric-sphere|Axisymmetric sphere validation]] - the bow shock standoff vs Ambrosio-Wortman
 - [[aeroshell|Aeroshell cross-check]] - the capsule at peak q: CFD vs modified Newtonian
@@ -84,7 +86,7 @@ The current build: 1D/2D/3D structured Euler, 2D/3D viscous terms,
 Spalart-Allmaras RANS, masked bodies, an axisymmetric solver, the
 equilibrium-air closure, live two-temperature nonequilibrium (Park 2T),
 five-species finite-rate chemistry (Park 5), catalytic wall
-brackets on the species viscous lane, and an MPI-parallel
-Fortran march. Open work: unstructured meshes and
+conditions with an accommodation coefficient on the species viscous
+lane, and an MPI-parallel Fortran march. Open work: unstructured meshes and
 broad experimental validation. The
 [[roadmap|roadmap]] tracks it capability by capability.
