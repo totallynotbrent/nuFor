@@ -326,25 +326,34 @@ state closely enough to hang contracts on:
 
 | contract | tolerance | measured |
 | --- | --- | --- |
-| the throat chokes | mach within 0.08 of 1 | 1.0328 |
-| the throat's temperature | within 5 percent of CEA | -0.8 percent |
-| the throat's pressure | within 12 percent of CEA | -11.3 percent |
-| the mass flow is conserved | within 8 percent | 0.5 percent |
-| the chamber runs subsonic | mach below 0.1 | 0.0685 |
-| the exit runs supersonic | mach above 1 | 1.7088 |
+| the throat chokes | the mixed mach crosses 1 | it does, at x = 147.8 mm |
+| the sonic temperature | within 5 percent of CEA | -0.5 percent |
+| the sonic pressure | within 12 percent of CEA | -8.4 percent |
+| the mass flow is conserved | within 8 percent | -0.3 percent |
+| the chamber runs subsonic | mach below 0.1 | 0.005 |
+| the exit runs supersonic | flux mach above 1 | 1.710 |
+| the gas agrees with CEA | within 1 percent | 0.28 percent |
+| the march agrees with its gas | within 10 percent | -8.19 percent |
 
-The chamber's entropy rise stays under 20 J/(kg K), so the converging
-section is close to isentropic, and the pressure sits under the
-isentrope because the chemistry keeps running in the chamber and
-changes the gas the nozzle sees.
+The throat's pressure is measured at the sonic point, found with the
+mixed mach, because the mesh's throat is a staircase plateau and the
+flow chokes at its upstream edge. The last two contracts come from an
+audit that walks the marched gas's own frozen isentrope with the
+crate's nasa-7 heats: CEA's throat sits 0.28 percent from that isentrope,
+so the gas is not what the march misses, and the march itself is eight
+percent under it. The loss is numerical dissipation in the transonic
+acceleration through the staircased throat, and a graded or cut-cell
+mesh at the shoulder is the next attempt.
 
 That march takes about thirty minutes, so the gate that drives it runs
-on my desktop. The settled snapshot ships with the case, and a second
-gate recomputes the numbers above from the field in seconds and checks
-that the page publishes them, so the table stays tied to the march in
-the continuous integration. The closure's own gates run there as well:
-the flame temperature at 70 bar against CEA, the adiabatic round trip
-at the flame point, and the chamber sound speed.
+on my desktop. The settled snapshot ships with the case, a distiller
+walks the snapshots into the record the gates and the figures read, and
+two gates work in the continuous integration: the rust audit recomputes
+the isentrope from the crate's thermochemistry and checks the record
+against the recomputation, and the case gate holds the contracts and
+checks that the page publishes the numbers. The closure's own gates
+run there as well: the flame temperature at 70 bar against CEA, the
+adiabatic round trip at the flame point, and the chamber sound speed.
 
 What the lane does not have yet: no engine cycle, no turbomachinery, no
 propellant tank model, and nothing running on more than one core. The
@@ -352,7 +361,9 @@ wall treatments an engine report wants (conjugate cooling, film
 cooling, the cold wall against the cooled wall bracket) ride on the
 catalytic wall machinery and are still to come, and moving the lane
 onto the Fortran core is the same work the rest of the new
-physics needs.
+physics needs. The throat's eight percent is the nearest fix on the
+list: it is a mesh problem, not a physics problem, and it is worth
+taking before the lane grows a combustor.
 
 ## See also
 

@@ -1,121 +1,119 @@
 """the chamber-throat verification figures.
 
-two figures on the house template:
+three figures on the house template:
 
-- the settling: the throat's mach, pressure and temperature against the
-  clock, and the chamber's feed against the throat's throughput, with
-  cea's equilibrium throat state marked.
+- the settling: the sonic pressure, temperature and mass flow against
+  the clock, with the marched gas's own isentrope and cea's equilibrium
+  throat state marked.
 - the profile: the duct's axial pressure, temperature and mach at the
   settled state, with the wall's radius beside them.
+- the loss: the marched pressure against the isentrope the gas's own
+  thermochemistry demands, which is where the marcher's error shows.
 
-the inputs are the run's interval snapshots and the throat history the
-watcher writes beside them:
+the inputs are the distilled record the case ships:
 
-    throat-history.csv   step,t,throat_col,throat_area,throat_mdot,
-                         throat_p,throat_T,throat_M,chamber_mdot,
-                         chamber_p,chamber_T,chamber_M
-    vtk-XXXXXX.vtk       one snapshot per interval
+    settled/history.csv    step,sonic_col,sonic_x_m,sonic_p_pa,sonic_T_k,
+                           sonic_mdot_kg_s,chamber_p_pa,chamber_T_k,
+                           chamber_mdot_kg_s
+    settled/profile.csv    x_m,area_m2,p_pa,T_k,mixed_mach,flux_mach,
+                           velocity_m_s,m_dot_kg_s
+    settled/isentrope.csv  x_m,isentropic_p_pa,marched_p_pa,deviation_percent
 
-usage: figures.py [run-dir] [out-dir]
+usage: figures.py [settled-dir] [out-dir]
 """
-import ast
+import csv
 import math
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from figtemplate import figure, save, ORANGE, PURPLE, GREEN, RED, GRAY  # noqa: E402
-from chamber_fields import (  # noqa: E402
-    read_case,
-    read_history,
-    read_vtk,
-    columns,
-    throat_column,
-    wall_radius,
-)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-# cea's equilibrium throat state for this chamber, and the closure's own
-# frozen-composition isentrope at the chamber's pressure.
+# cea's equilibrium throat state for this chamber
 CEA_P = 4.05352e6
 CEA_T = 3501.98
-CLOSURE_RATIO = 0.56534
 
 
-def settling_figure(history, out_dir):
-    """the throat's state against the clock."""
-    steps = [r["step"] for r in history]
-    times = [r["t"] for r in history]
+def read_rows(path):
+    with open(path, newline="") as handle:
+        return [
+            {key: float(value) for key, value in row.items()}
+            for row in csv.DictReader(row for row in handle if not row.startswith("#"))
+        ]
+
+
+def settling_figure(history, isentrope, out_dir):
+    """the sonic state against the clock."""
+    steps = [row["step"] for row in history]
     fig, axes = figure(nrows=2, ncols=2, figsize=(9.5, 6.4))
+
     ax = axes[0][0]
-    ax.plot(times, [r["throat_M"] for r in history], "o-", color=ORANGE, ms=3,
-            label="throat mach")
-    ax.axhline(1.0, color=GRAY, lw=1.0, label="mach 1")
-    ax.set_xlabel("time (s)")
-    ax.set_ylabel("mach")
-    ax.set_title("the throat chokes")
+    ax.plot(steps, [row["sonic_p_pa"] / 1e6 for row in history], "o-", color=PURPLE, ms=3,
+            label="the sonic point")
+    ax.axhline(CEA_P / 1e6, color=RED, lw=1.0, ls=":", label="cea throat")
+    if isentrope:
+        ax.axhline(isentrope[0]["isentropic_p_pa"] / 1e6, color=GRAY, lw=1.2, ls="--",
+                   label="the gas's own isentrope")
+    ax.set_xlabel("step")
+    ax.set_ylabel("pressure (MPa)")
+    ax.set_title("the sonic pressure")
     ax.legend(loc="best", fontsize=9)
 
     ax = axes[0][1]
-    ax.plot(times, [r["throat_p"] / 1e6 for r in history], "o-", color=PURPLE, ms=3,
-            label="throat")
-    ax.axhline(CEA_P / 1e6, color=RED, lw=1.0, label="cea throat")
-    ax.set_xlabel("time (s)")
-    ax.set_ylabel("pressure (MPa)")
-    ax.set_title("the throat's pressure")
+    ax.plot(steps, [row["sonic_T_k"] for row in history], "o-", color=GREEN, ms=3,
+            label="the sonic point")
+    ax.axhline(CEA_T, color=RED, lw=1.0, ls=":", label="cea throat")
+    ax.set_xlabel("step")
+    ax.set_ylabel("temperature (K)")
+    ax.set_title("the sonic temperature")
     ax.legend(loc="best", fontsize=9)
 
     ax = axes[1][0]
-    ax.plot(times, [r["throat_T"] for r in history], "o-", color=GREEN, ms=3,
-            label="throat")
-    ax.axhline(CEA_T, color=RED, lw=1.0, label="cea throat")
-    ax.set_xlabel("time (s)")
-    ax.set_ylabel("temperature (K)")
-    ax.set_title("the throat's temperature")
+    ax.plot(steps, [row["sonic_mdot_kg_s"] for row in history], "s-", color=ORANGE, ms=3,
+            label="through the throat")
+    ax.axhline(3.80, color=RED, lw=1.0, ls=":", label="cea")
+    ax.set_xlabel("step")
+    ax.set_ylabel("mass flow (kg/s)")
+    ax.set_title("the throat's throughput")
     ax.legend(loc="best", fontsize=9)
 
     ax = axes[1][1]
-    ax.plot(times, [r["chamber_mdot"] for r in history], "o-", color=ORANGE, ms=3,
-            label="chamber feed")
-    ax.plot(times, [r["throat_mdot"] for r in history], "s-", color=PURPLE, ms=3,
-            label="throat throughput")
-    ax.set_xlabel("time (s)")
-    ax.set_ylabel("mass flow (kg/s)")
-    ax.set_title("the feed against the throat's throughput")
+    ax.plot(steps, [row["chamber_p_pa"] / 1e6 for row in history], "o-", color=PURPLE, ms=3,
+            label="the chamber")
+    ax.set_xlabel("step")
+    ax.set_ylabel("pressure (MPa)")
+    ax.set_title("the chamber's pressure")
     ax.legend(loc="best", fontsize=9)
     fig.tight_layout()
     save(fig, "chamber-throat-settling", out_dir=out_dir)
 
 
-def profile_figure(case, cols, out_dir):
+def profile_figure(profile, sonic_x, out_dir):
     """the duct's axial state at the settled snapshot."""
-    nx = case["nx"]
-    ti, min_r = throat_column(case, cols)
-    dx = (case["x1"] - case["x0"]) / nx
-    xs = [case["x0"] + (i + 0.5) * dx for i in sorted(cols)]
+    xs = [row["x_m"] for row in profile]
     fig, axes = figure(nrows=5, figsize=(7.6, 10.2))
-    ax = axes[0]
-    radii = [wall_radius(case["verts"], x) for x in xs]
-    ax.plot(xs, radii, color=GRAY, lw=1.4)
-    ax.set_xlabel("x (m)")
-    ax.set_ylabel("radius (m)")
-    ax.set_title("the duct's wall")
 
-    for ax, key, label, title, color in (
-        (axes[1], "p", "pressure (MPa)", "the axial pressure", PURPLE),
-        (axes[2], "T", "temperature (K)", "the axial temperature", GREEN),
-        (axes[3], "mach", "mach", "the axial mach", ORANGE),
+    ax = axes[0]
+    areas = [row["area_m2"] for row in profile]
+    ax.plot(xs, [math.sqrt(area / math.pi) for area in areas], color=GRAY, lw=1.4)
+    ax.set_xlabel("x (m)")
+    ax.set_ylabel("equivalent radius (m)")
+    ax.set_title("the duct's flow area")
+
+    for ax, key, scale, label, title, color in (
+        (axes[1], "p_pa", 1e-6, "pressure (MPa)", "the axial pressure", PURPLE),
+        (axes[2], "T_k", 1.0, "temperature (K)", "the axial temperature", GREEN),
+        (axes[3], "mixed_mach", 1.0, "mach", "the axial mach", ORANGE),
     ):
-        ys = []
-        for i in sorted(cols):
-            v = cols[i][key]
-            ys.append(v / 1e6 if key == "p" else v)
-        ax.plot(xs, ys, color=color, lw=1.4)
-        ax.axvline(case["x0"] + (ti + 0.5) * dx, color=RED, lw=1.0, ls="--")
+        ax.plot(xs, [row[key] * scale for row in profile], color=color, lw=1.4)
+        ax.axvline(sonic_x, color=RED, lw=1.0, ls="--")
         ax.set_xlabel("x (m)")
         ax.set_ylabel(label)
         ax.set_title(title)
+    axes[3].plot(xs, [row["flux_mach"] for row in profile], color=PURPLE, lw=1.0, ls=":",
+                 label="the flux's mach")
     axes[3].axhline(1.0, color=GRAY, lw=1.0, ls=":", label="mach 1")
     axes[1].axhline(CEA_P / 1e6, color=RED, lw=1.0, ls=":", label="cea throat")
     axes[2].axhline(CEA_T, color=RED, lw=1.0, ls=":", label="cea throat")
@@ -124,31 +122,57 @@ def profile_figure(case, cols, out_dir):
     axes[3].legend(loc="best", fontsize=9)
 
     ax = axes[4]
-    ys = [cols[i]["m_dot"] for i in sorted(cols)]
-    ax.plot(xs, ys, color=PURPLE, lw=1.4)
-    ax.axvline(case["x0"] + (ti + 0.5) * dx, color=RED, lw=1.0, ls="--")
+    ax.plot(xs, [row["m_dot_kg_s"] for row in profile], color=PURPLE, lw=1.4)
+    ax.axvline(sonic_x, color=RED, lw=1.0, ls="--")
     ax.set_xlabel("x (m)")
     ax.set_ylabel("mass flow (kg/s)")
     ax.set_title("the axial mass flow")
-    axes[0].axvline(case["x0"] + (ti + 0.5) * dx, color=RED, lw=1.0, ls="--")
-    axes[0].text(case["x0"] + (ti + 0.5) * dx, max(radii) * 0.92, " throat",
+    axes[0].axvline(sonic_x, color=RED, lw=1.0, ls="--")
+    axes[0].text(sonic_x, max(math.sqrt(a / math.pi) for a in areas) * 0.92, " sonic",
                  color=RED, fontsize=9)
     fig.tight_layout()
     save(fig, "chamber-throat-profile", out_dir=out_dir)
 
 
+def loss_figure(isentrope, out_dir):
+    """the marched pressure against the isentrope the gas demands."""
+    xs = [row["x_m"] * 1000.0 for row in isentrope]
+    fig, axes = figure(nrows=2, figsize=(7.6, 5.6))
+
+    ax = axes[0]
+    ax.plot(xs, [row["isentropic_p_pa"] / 1e6 for row in isentrope], "-", color=GRAY, lw=1.4,
+            label="the gas's own isentrope")
+    ax.plot(xs, [row["marched_p_pa"] / 1e6 for row in isentrope], "-", color=PURPLE, lw=1.4,
+            label="the march")
+    ax.set_xlabel("x (mm)")
+    ax.set_ylabel("pressure (MPa)")
+    ax.set_title("the marched pressure against the isentrope")
+    ax.legend(loc="best", fontsize=9)
+
+    ax = axes[1]
+    deviations = [row["deviation_percent"] for row in isentrope]
+    ax.plot(xs, deviations, "-", color=ORANGE, lw=1.4)
+    ax.axhline(0.0, color=GRAY, lw=1.0)
+    ax.set_ylim(min(deviations) - 1.0, 1.0)
+    ax.set_xlabel("x (mm)")
+    ax.set_ylabel("percent off the isentrope")
+    ax.set_title("how far the march sits off the isentrope")
+    fig.tight_layout()
+    save(fig, "chamber-throat-isentrope-loss", out_dir=out_dir)
+
+
 def main():
-    run_dir = sys.argv[1] if len(sys.argv) > 1 else "run"
+    settled = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "settled")
     out_dir = sys.argv[2] if len(sys.argv) > 2 else os.path.join(
         HERE, "..", "..", "docs", "numerics", "2d"
     )
-    case = read_case(os.path.join(HERE, "case.toml"))
-    history = read_history(os.path.join(run_dir, "throat-history.csv"))
-    settling_figure(history, out_dir)
-    snapshots = sorted(f for f in os.listdir(run_dir) if f.startswith("vtk-"))
-    fields, nx, ny, origin, spacing = read_vtk(os.path.join(run_dir, snapshots[-1]))
-    cols = columns(case, fields, nx, ny, origin, spacing)
-    profile_figure(case, cols, out_dir)
+    history = read_rows(os.path.join(settled, "history.csv"))
+    profile = read_rows(os.path.join(settled, "profile.csv"))
+    isentrope = read_rows(os.path.join(settled, "isentrope.csv"))
+    sonic_x = history[-1]["sonic_x_m"]
+    settling_figure(history, isentrope, out_dir)
+    profile_figure(profile, sonic_x, out_dir)
+    loss_figure(isentrope, out_dir)
 
 
 if __name__ == "__main__":
