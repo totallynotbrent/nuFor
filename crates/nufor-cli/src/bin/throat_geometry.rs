@@ -8,7 +8,8 @@
 //! usage: nufor throat-geometry <case.toml>
 //! prints the per-column area, the throat column, and the area steps
 //! around the throat.
-use nufor_core::{grid2d, solid_mask, SolidPolygon, SolidShape};
+
+use nufor_core::{grid2d, solid_mask, SolidPolygon};
 
 /// reads a scalar from the case's own text.
 fn grid_value(text: &str, key: &str) -> f64 {
@@ -93,26 +94,14 @@ fn main() {
     // volume fraction, so the column's flow area is the sum of the
     // annulus each cell contributes at its own fraction. this is the
     // area the marcher actually has, and it does not jump in whole rows.
-    let cut = nufor_core::CutField::from_sdf(
+    // the axisymmetric geometry the solver actually marches: the same
+    // dissection, the same annular weighting. reporting an area from
+    // any other geometry would measure a throat the flow does not see.
+    let cut = nufor_core::cutcell_axi_geom::AxiCutGeom::from_sdf(
         &|x, y| poly.signed_distance(x, y),
-        &|x, y| poly.normal(x, y),
         &grid,
     );
-    let cut_areas: Vec<f64> = (0..nx)
-        .map(|i| {
-            let mut a = 0.0f64;
-            for j in 0..ny {
-                let f = cut.at(i, j);
-                if f.vol <= 0.0 {
-                    continue;
-                }
-                let rm = y0 + j as f64 * dy;
-                let rp = rm + dy;
-                a += f.vol * std::f64::consts::PI * (rp * rp - rm * rm);
-            }
-            a
-        })
-        .collect();
+    let cut_areas: Vec<f64> = (0..nx).map(|i| cut.column_area(&grid, i)).collect();
     // the case chooses which representation the flow marches on, and
     // the reported geometry must be the one it chose.
     let cut_mode = text
@@ -147,6 +136,41 @@ fn main() {
         );
         println!("cut throat column {} area {:.6e}", t.0, t.1);
     }
+
+    // the geometry's census: the cut cells, the slivers and the shut
+    // faces. a shut face that is not really a wall is a phantom
+    // obstruction, and phantom obstructions are how a cut march blows
+    // up.
+    let cut_cells = (0..nx * ny)
+        .filter(|&k| cut.vol[k] > 0.0 && cut.vol[k] < 1.0)
+        .count();
+    let slivers = (0..nx * ny)
+        .filter(|&k| cut.vol[k] > 0.0 && cut.vol[k] < 0.2)
+        .count();
+    let beta_min = (0..nx * ny)
+        .filter(|&k| cut.vol[k] > 0.0)
+        .map(|k| cut.vol[k])
+        .fold(1.0f64, f64::min);
+    println!(
+        "geometry census: cut_cells {cut_cells} slivers {slivers} beta_min {beta_min:.5} closed_faces {}",
+        cut.closed_face.len()
+    );
+    // where the shut faces are: a shut face in the FLOW is a phantom
+    // obstruction, and phantom obstructions are how a cut march blows up.
+    let mut cf_cols: Vec<usize> = cut.closed_face.iter().map(|f| f.col).collect();
+    cf_cols.sort_unstable();
+    let cf_hist: Vec<String> = cf_cols
+        .chunk_by(|a, b| b - a <= 1)
+        .map(|grp| format!("{}..{}", grp[0], grp[grp.len() - 1]))
+        .collect();
+    println!("closed face columns: {}", cf_hist.join(", "));
+    let mut cf_rows: Vec<usize> = cut.closed_face.iter().map(|f| f.row).collect();
+    cf_rows.sort_unstable();
+    let cf_rhist: Vec<String> = cf_rows
+        .chunk_by(|a, b| b - a <= 1)
+        .map(|grp| format!("{}..{}", grp[0], grp[grp.len() - 1]))
+        .collect();
+    println!("closed face rows: {}", cf_rhist.join(", "));
 
     // the throat is the widest-but-smallest area: the last column that
     // holds the minimum. the flow chokes there, so the column after it

@@ -30,7 +30,7 @@
 use crate::combustion_closure as closure9;
 use crate::combustion_march::CombustionState;
 use crate::combustion_thermo as ct;
-use crate::cutcell_march::CutField;
+use crate::cutcell_axi_geom::AxiCutGeom;
 use crate::error::Error;
 use crate::grid2d::Grid2d;
 use crate::state2d::{cons_to_prim2d, ConservedState2d};
@@ -130,7 +130,7 @@ pub(crate) fn add_cut_combustion_viscous(
     state: &mut ConservedState2d,
     species: &mut CombustionState,
     g: &Grid2d,
-    cut: &CutField,
+    cut: &AxiCutGeom,
     tr: &TransportProps,
     dt: f64,
     wall_temperature: f64,
@@ -157,12 +157,10 @@ pub(crate) fn add_cut_combustion_viscous(
         for f in 1..nx {
             let a = idx(f - 1, j);
             let b = idx(f, j);
-            let fa = cut.at(f - 1, j);
-            let fb = cut.at(f, j);
-            // the shared face's opening: the smaller of the two cells'
-            // apertures on that side, since the face is open only where
-            // BOTH cells have fluid.
-            let ap = fa.east.min(fb.west);
+            // the shared face's opening: ONE number for the face,
+            // measured on the face itself, so the two cells cannot
+            // disagree about how much of it is open.
+            let ap = cut.ax_at(f, j);
             if ap <= 0.0 {
                 continue;
             }
@@ -199,9 +197,7 @@ pub(crate) fn add_cut_combustion_viscous(
         for f in 1..ny {
             let a = idx(i, f - 1);
             let b = idx(i, f);
-            let fa = cut.at(i, f - 1);
-            let fb = cut.at(i, f);
-            let ap = fa.north.min(fb.south);
+            let ap = cut.ay_at(f, i);
             if ap <= 0.0 {
                 continue;
             }
@@ -243,8 +239,7 @@ pub(crate) fn add_cut_combustion_viscous(
     for j in 0..ny {
         for i in 0..nx {
             let k = idx(i, j);
-            let f = cut.at(i, j);
-            if f.vol <= 0.0 || f.vol >= 1.0 || cut.eb_len[k] <= 0.0 {
+            if cut.vol[k] <= 0.0 || cut.vol[k] >= 1.0 || cut.eb_len[k] <= 0.0 {
                 continue;
             }
             let (cx, cy) = (g.centers_x[i], g.centers_y[j]);
@@ -304,12 +299,12 @@ pub(crate) fn add_cut_combustion_viscous(
             // acts along the tangent; the pressure's normal component
             // is already accounted for by the flow update.
             let tau = tr.mu[k] * shear;
-            state.mx[k] -= dt * tau * (-eny) * area / f.vol.max(1.0e-9);
-            state.my[k] -= dt * tau * (enx) * area / f.vol.max(1.0e-9);
+            state.mx[k] -= dt * tau * (-eny) * area / cut.vol[k].max(1.0e-9);
+            state.my[k] -= dt * tau * (enx) * area / cut.vol[k].max(1.0e-9);
             // the conductive flux into the gas raises the cell's
             // energy. a cold wall gives a negative flux, so the cell
             // LOSES energy, which is the sign the bracket needs.
-            state.e[k] += dt * flux_into_gas * area / f.vol.max(1.0e-9);
+            state.e[k] += dt * flux_into_gas * area / cut.vol[k].max(1.0e-9);
         }
     }
 
@@ -318,38 +313,21 @@ pub(crate) fn add_cut_combustion_viscous(
     for j in 0..ny {
         for i in 0..nx {
             let k = idx(i, j);
-            let f = cut.at(i, j);
-            if f.vol <= 0.0 {
+            if cut.vol[k] <= 0.0 {
                 continue;
             }
-            let vol = f.vol.max(1.0e-9);
+            let vol = cut.vol[k].max(1.0e-9);
             let dxi = dt / g.dxs[i];
             let kfx_e = (i + 1) * ny + j;
             let kfx_w = i * ny + j;
             let (rm, rp) = (g.faces_y[j], g.faces_y[j + 1]);
             let rc = 0.5 * (rm + rp);
-            // the face apertures: the shared face's opening, which is
-            // the smaller of the two cells' openings on that side.
-            let fe = if i + 1 < nx {
-                cut.at(i, j).east.min(cut.at(i + 1, j).west)
-            } else {
-                0.0
-            };
-            let fw = if i > 0 {
-                cut.at(i, j).west.min(cut.at(i - 1, j).east)
-            } else {
-                0.0
-            };
-            let fn_ = if j + 1 < ny {
-                cut.at(i, j).north.min(cut.at(i, j + 1).south)
-            } else {
-                0.0
-            };
-            let fs = if j > 0 {
-                cut.at(i, j).south.min(cut.at(i, j - 1).north)
-            } else {
-                0.0
-            };
+            // the face apertures: the SHARED face's opening, one
+            // number for the face, so the two cells cannot disagree.
+            let fe = if i + 1 < nx { cut.ax_at(i + 1, j) } else { 0.0 };
+            let fw = if i > 0 { cut.ax_at(i, j) } else { 0.0 };
+            let fn_ = if j + 1 < ny { cut.ay_at(j + 1, i) } else { 0.0 };
+            let fs = if j > 0 { cut.ay_at(j, i) } else { 0.0 };
             // the radial divergence, with the annulus weight AND the
             // radial faces' apertures, exactly as the cut-cell flow
             // update does.
@@ -392,7 +370,7 @@ mod tests {
         let g = crate::grid2d::grid2d(nx, ny, 0.0, 0.08, 0.0, 0.08).unwrap();
         let sdf = |_x: f64, y: f64| y - 0.032;
         let normal = |_x: f64, _y: f64| (0.0, -1.0);
-        let cut = CutField::from_sdf(&sdf, &normal, &g);
+        let cut = AxiCutGeom::from_sdf(&sdf, &g);
         let rho = 12.64f64;
         let p = 7.0e6f64;
         let e_int = crate::combustion_march::h2o2_ic_energy(rho, p);
@@ -434,7 +412,7 @@ mod tests {
         let g = crate::grid2d::grid2d(nx, ny, 0.0, 0.08, 0.0, 0.08).unwrap();
         let sdf = |_x: f64, y: f64| y - 0.032;
         let normal = |_x: f64, _y: f64| (0.0, -1.0);
-        let cut = CutField::from_sdf(&sdf, &normal, &g);
+        let cut = AxiCutGeom::from_sdf(&sdf, &g);
         let rho = 12.64f64;
         let p = 7.0e6f64;
         let e_int = crate::combustion_march::h2o2_ic_energy(rho, p);

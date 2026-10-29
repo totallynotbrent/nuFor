@@ -24,6 +24,7 @@ pub mod combustion_viscous_axi;
 pub mod continuum_probe;
 pub mod curvilinear;
 mod cutcell;
+pub mod cutcell_axi_geom;
 pub mod cutcell_combustion;
 mod cutcell_march;
 pub mod cutcell_viscous;

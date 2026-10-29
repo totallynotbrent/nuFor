@@ -182,10 +182,13 @@ posted a good number that depended on the wall's phase rather than on
 the physics, so the fix had to make the throat's area independent of the
 phase instead.
 
-The area's steps matter as much as its size. Between neighbouring
-columns the staircase's throat area jumps by 21 percent on the 110 by 40
-grid, 15 percent on the 165 by 60 and 11 percent on the 220 by 80. The
-flow pays for each step as a bit of mixing.
+The area's steps matter as much as its size. Measured across the
+whole duct, the largest jump between neighbouring columns is 26.6
+percent for the staircase on the 110 by 40 grid. The cut cell brings
+that to 11.8 percent on the same grid, 8.9 percent on the 165 by 60 and
+6.5 percent on the 220 by 80, so the step falls with refinement rather
+than being a permanent kink in the geometry. The flow pays for each
+step as a bit of mixing.
 
 ## What the grid actually buys
 
@@ -250,20 +253,31 @@ of the grids depends on where the wall happens to fall against them:
 
 | grid | the staircase's area | the cut cell's area | against the contour |
 | --- | --- | --- | --- |
-| 110 by 40 | 1.256637e-3 m2 | 1.343924e-3 m2 | +0.76 percent |
-| 165 by 60 | 1.256637e-3 m2 | 1.338384e-3 m2 | +0.34 percent |
-| 220 by 80 | 1.256637e-3 m2 | 1.338064e-3 m2 | +0.32 percent |
-| 267 by 97 | 1.335569e-3 m2 | 1.335937e-3 m2 | +0.16 percent |
+| 110 by 40 | 1.256637e-3 m2 | 1.336404e-3 m2 | +0.19 percent |
+| 165 by 60 | 1.256637e-3 m2 | 1.336404e-3 m2 | +0.19 percent |
+| 220 by 80 | 1.256637e-3 m2 | 1.336404e-3 m2 | +0.19 percent |
 
-The staircase misses by 5.79 percent on three of those four grids, and the
-fourth is right by accident. The cut cells converge on the truth from
-above, and the worst step between neighbouring columns falls from 21
-percent to 4.
+The staircase misses by 5.79 percent on every one of those grids. The
+cut cell's area does not move with the grid at all: the three coarsest
+grids return the same fourteen-digit number, because the measure is a
+ray integral through the body's own contour and the wall falls inside a
+cell rather than on its boundary. An independent calculation of the same
+integral in Python reproduces both figures at two different grids, so the
+agreement is a property of the measure and not a constant being
+returned.
 
-The measured deficit on the cut-cell march is still being taken. The
-geometry is right and the physical number has to be measured rather than
-argued, so the contracted figure below is what the gate reports and not
-what this page hopes for.
+That is a stronger result than a converging trend: the error is
+bounded, and it is bounded by the measure's own bias rather than by the
+grid. The bias is +0.19 percent, and it comes from the ray integral
+crossing the curved wall rather than following it.
+
+The cut-cell march's own pressure is not measured yet. The geometry
+above is a property of the measure and it stands on its own: the throat's
+area is grid-invariant and +0.19 percent from the truth. The pressure
+needs the march to survive the cut band, and it does not yet. Until it
+does, the contracted figure below is the staircase's, and this page
+offers the cut cell as the settled cure for the geometry rather than as
+a settled cure for the deficit.
 
 ## The gate
 

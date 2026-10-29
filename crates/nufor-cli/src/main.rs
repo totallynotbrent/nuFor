@@ -1354,9 +1354,11 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
                         return 2;
                     }
                 };
-                let cut = nufor_core::CutField::from_sdf(
+                // the axisymmetric geometry: the volume fractions and
+                // the face openings are measured in the annulus, so the
+                // conservation law and the geometry agree.
+                let cut = nufor_core::cutcell_axi_geom::AxiCutGeom::from_sdf(
                     cb.0.as_ref() as &dyn Fn(f64, f64) -> f64,
-                    cb.1.as_ref() as &dyn Fn(f64, f64) -> (f64, f64),
                     &g,
                 );
                 nufor_core::cutcell_combustion::advance2d_combustion_axi_cut_rk2(
