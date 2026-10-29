@@ -277,23 +277,6 @@ fn the_chamber_throat_gap_splits_into_a_thermodynamic_part_and_a_marching_part()
         ),
     ];
 
-    // the marched gas has to stay near its own isentrope: that gap is
-    // the marcher's own error, and it has to stay inside ten percent.
-    assert!(
-        marching_gap.abs() < 10.0,
-        "the marched sonic pressure sits {marching_gap:.2} percent off the marched gas's own isentrope"
-    );
-    // cea and the marched gas have to agree, or the comparison is not
-    // about the gas at all.
-    assert!(
-        thermodynamic_gap.abs() < 5.0,
-        "cea's throat sits {thermodynamic_gap:.2} percent off the marched gas's own isentrope"
-    );
-    // the composition the march runs must be the one cea would recognise
-    // as mostly water, or the gas is not the gas the comparison claims.
-    let water = number(&inputs, "y_H2O");
-    assert!(water > 0.5, "the chamber's gas is {water} water");
-
     // the converging section on its own: the last subsomic station
     // before the throat, with the gas the mass flux carries.
     let profile = read_profile(&root.join("profile.csv"));
@@ -364,10 +347,32 @@ fn the_chamber_throat_gap_splits_into_a_thermodynamic_part_and_a_marching_part()
         fs::write(root.join("isentrope.csv"), curve).expect("the isentrope curve writes");
     }
 
-    // the committed result has to match the recomputation.
     let result_path = root.join("thermo_result.csv");
-    if result_path.exists() {
-        let committed = read_pairs(&result_path);
+
+    // the committed result is read BEFORE the fresh one is written, so
+    // the drift check below still compares two different things.
+    let committed_before: Option<std::collections::HashMap<String, String>> =
+        if result_path.exists() {
+            Some(read_pairs(&result_path))
+        } else {
+            None
+        };
+
+    // the numbers are written BEFORE anything is asserted, so a record
+    // always reflects the measurement that was just taken and a failing
+    // leg can still be diagnosed from what it left behind.
+    let mut text = String::from(
+        "# the chamber's sonic state against the marched gas's own isentrope\n\
+         # written by crates/nufor-cli/tests/chamber_throat_thermo.rs\n",
+    );
+    for (key, value) in &computed {
+        text.push_str(&format!("{key},{value}\n"));
+    }
+    fs::write(&result_path, text).expect("the result file writes");
+
+    // the committed result has to match the recomputation, or the
+    // record has drifted away from the march it claims to summarise.
+    if let Some(committed) = committed_before {
         for (key, value) in &computed {
             let stored = committed
                 .get(key)
@@ -383,14 +388,26 @@ fn the_chamber_throat_gap_splits_into_a_thermodynamic_part_and_a_marching_part()
         }
     }
 
-    let mut text = String::from(
-        "# the chamber's sonic state against the marched gas's own isentrope\n\
-         # written by crates/nufor-cli/tests/chamber_throat_thermo.rs\n",
+    // the numbers are written BEFORE the contracts are checked, so a
+    // level that fails a contract still leaves its measurements on disk
+    // and the failure can be diagnosed from them.
+
+    // the marched gas has to stay near its own isentrope: that gap is
+    // the marcher's own error, and it has to stay inside ten percent.
+    assert!(
+        marching_gap.abs() < 10.0,
+        "the marched sonic pressure sits {marching_gap:.2} percent off the marched gas's own isentrope"
     );
-    for (key, value) in &computed {
-        text.push_str(&format!("{key},{value}\n"));
-    }
-    fs::write(&result_path, text).expect("the result file writes");
+    // cea and the marched gas have to agree, or the comparison is not
+    // about the gas at all.
+    assert!(
+        thermodynamic_gap.abs() < 5.0,
+        "cea's throat sits {thermodynamic_gap:.2} percent off the marched gas's own isentrope"
+    );
+    // the composition the march runs must be the one cea would recognise
+    // as mostly water, or the gas is not the gas the comparison claims.
+    let water = number(&inputs, "y_H2O");
+    assert!(water > 0.5, "the chamber's gas is {water} water");
 
     println!(
         "the marched gas: R {:.1} J/(kg K), cp {:.0} J/(kg K), gamma {:.4}",

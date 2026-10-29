@@ -1,11 +1,11 @@
 # the chamber's sonic state against the marched gas's own isentrope
 # written by crates/nufor-cli/tests/chamber_throat_thermo.rs
-R_J_kg_K,448.01738778491955
-cp_J_kg_K,3261.597864155993
-gamma,1.159233898424959
-isentrope_sonic_T_k,3414.25304221483
-isentrope_sonic_p_pa,4042168.951948428
-cea_minus_isentrope_percent,0.2808157745633144
-measured_minus_isentrope_percent,-8.193222045599779
-measured_minus_cea_percent,-8.450308022237463
-measured_sonic_T_k_used,3484.0153
+R_J_kg_K,448.02559309491306
+cp_J_kg_K,3261.583424361362
+gamma,1.159238096376091
+isentrope_sonic_T_k,3414.2121237595356
+isentrope_sonic_p_pa,4042258.252449268
+cea_minus_isentrope_percent,0.2786003972880424
+measured_minus_isentrope_percent,-7.273232428213284
+measured_minus_cea_percent,-7.530851842349362
+measured_sonic_T_k_used,3488.2903

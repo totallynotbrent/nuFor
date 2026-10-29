@@ -1,9 +1,9 @@
 """distils the chamber march into the record the docs and the gates read.
 
 the march writes a snapshot every sample interval. this walks them, finds
-where the flow reaches the speed of sound in each one (the mixed mach is
-the criterion, and the throat's pressure is a property of that point,
-not of the mesh's narrowest column), and writes:
+where the flow chokes in each one (the flux mach is the criterion, and
+the throat's pressure is a property of that point, not of the mesh's
+narrowest column), and writes:
 
     settled/history.csv        the sampled sonic and chamber states
     settled/settled.json       the settled state, its band and the profile

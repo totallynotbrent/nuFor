@@ -326,31 +326,52 @@ state closely enough to hang contracts on:
 
 | contract | tolerance | measured |
 | --- | --- | --- |
-| the throat chokes | the mixed mach crosses 1 | it does, at x = 147.8 mm |
-| the sonic temperature | within 5 percent of CEA | -0.5 percent |
-| the sonic pressure | within 12 percent of CEA | -8.4 percent |
+| the throat chokes | the flux mach crosses 1 | it does |
+| the sonic temperature | within 5 percent of CEA | -0.4 percent |
+| the sonic pressure | within 12 percent of CEA | -7.5 percent |
 | the mass flow is conserved | within 8 percent | -0.3 percent |
-| the chamber runs subsonic | mach below 0.1 | 0.005 |
-| the exit runs supersonic | flux mach above 1 | 1.710 |
+| the chamber runs subsonic | mach below 0.1 | 0.002 |
+| the exit runs supersonic | flux mach above 1 | 1.677 |
 | the gas agrees with CEA | within 1 percent | 0.28 percent |
-| the march agrees with its gas | within 10 percent | -8.19 percent |
-| the deficit shrinks with the grid | every level improves on the last | it does |
-| the reference does not drift | the gas stays within 1 percent of CEA | 0.93 percent |
+| the march agrees with its gas | within 10 percent | -7.27 percent |
+| the deficit shrinks radially | a finer radial spacing improves it | it does |
+| the reference does not drift | the gas stays within 1 percent of CEA on every level | 0.93 percent |
 
-The throat's pressure is measured at the sonic point, found with the
-mixed mach, because the mesh's throat is a staircase plateau and the
-flow chokes at its upstream edge. The audit that walks the marched gas's
-own frozen isentrope with the crate's nasa-7 heats puts CEA's throat
-0.28 percent from that isentrope, so the gas is not what the march
-misses, and the march itself is eight percent under it on the shipped
-110 by 40 mesh.
+The throat's pressure is measured at the sonic point, found with the flux
+mach, which rises monotonically through the throat where the mixed mach
+does not. The old detector crossed mach one three times on the shipped
+case and the published figure was the first of those, so the numbers
+this lane quotes before were reading a wandering crossing as a settled
+one. With the choke located in the flow the audit that walks the marched
+gas's own frozen isentrope with the crate's nasa-7 heats puts CEA's
+throat 0.28 percent from that isentrope, so the gas is not what the
+march misses, and the march itself is seven percent under it on the
+shipped 110 by 40 mesh.
 
-A three-grid resolution study says the loss is the mesh's. The same
-contour, injector and gas ran on 110 by 40, 165 by 60 and 220 by 80, and
-the marcher's deficit fell 8.19, 6.49 and 4.39 percent as the grid
-tightened. Halving the Courant number did not help, so the loss is
-spatial dissipation in the transonic acceleration through the staircased
-throat, and a graded or cut-cell mesh at the shoulder is the next attempt.
+The loss turned out to be the wall's representation rather than the
+grid's fineness. The staircase quantises the throat's radius to whole
+radial rows, and it does so to the same 20.000 millimetres on the 110 by
+40, 165 by 60 and 220 by 80 grids, so the throat misses the contour's
+area by 5.79 percent on all three. Halving the Courant number did not
+help, and seeding the flow from the contour's smooth areas did not help
+either. Holding the radial spacing fixed and refining the axis bought
+almost nothing; refining the radial spacing bought two to four points.
+
+That points the fix at the mesh rather than at the gas. The repository
+already carries a body-fitted axisymmetric grid for sphere-cone flows:
+its inner boundary is the body surface itself, it carries per-cell areas
+and per-face normals, and it is mapped to the body instead of masked
+against it. A grid shaped like that has a throat area that is right by
+construction and converges on the contour's own figure instead of
+quantising to whole radial rows. Adapting it to this contour, to the
+nine-species chemistry and to the viscous wall is the next piece of work,
+and the reference it has to meet is the contour's 1.333814e-3 square
+metres, independent of the grid.
+
+The cutoff cells in the tree are the planar ones, and the axisymmetric
+lane has no cut-cell marching yet. Until a measure of the throat's area
+comes from the body's own geometry rather than from the rows it lands
+on, the width of the deficiency is bracketed rather than closed.
 
 That march takes about thirty minutes, so the gate that drives it runs
 on my desktop. The settled snapshot ships with the case, a distiller
@@ -368,10 +389,14 @@ wall treatments an engine report wants (conjugate cooling, film
 cooling, the cold wall against the cooled wall bracket) ride on the
 catalytic wall machinery and are still to come, and moving the lane
 onto the Fortran core is the same work the rest of the new
-physics needs. The throat's eight percent is the nearest fix on the
+physics needs. The throat's seven percent is the nearest fix on the
 list: it is a mesh problem, not a physics problem, and it is worth
 taking before the lane grows a combustor.
 
+## See also
+
+- [[architecture|Architecture]]
+- [[verification/index|Verification]]
 ## See also
 
 - [[architecture|Architecture]]
