@@ -46,6 +46,43 @@ fn polygon(text: &str) -> SolidPolygon {
     SolidPolygon::new(verts)
 }
 
+/// group a sorted list of indices into runs of consecutive values.
+///
+/// the list is sorted, so a run ends where the next value is more than
+/// one past the current one.
+fn group_ranges(sorted: &[usize]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut start: Option<usize> = None;
+    let mut previous = 0usize;
+    for &value in sorted {
+        match start {
+            None => {
+                start = Some(value);
+                previous = value;
+            }
+            Some(begin) => {
+                if value > previous + 1 {
+                    out.push(if begin == previous {
+                        format!("{begin}")
+                    } else {
+                        format!("{begin}..{previous}")
+                    });
+                    start = Some(value);
+                }
+                previous = value;
+            }
+        }
+    }
+    if let Some(begin) = start {
+        out.push(if begin == previous {
+            format!("{begin}")
+        } else {
+            format!("{begin}..{previous}")
+        });
+    }
+    out
+}
+
 fn main() {
     let path = std::env::args().nth(1).expect("pass a case.toml");
     let text = std::fs::read_to_string(&path).expect("read the case");
@@ -159,17 +196,11 @@ fn main() {
     // obstruction, and phantom obstructions are how a cut march blows up.
     let mut cf_cols: Vec<usize> = cut.closed_face.iter().map(|f| f.col).collect();
     cf_cols.sort_unstable();
-    let cf_hist: Vec<String> = cf_cols
-        .chunk_by(|a, b| b - a <= 1)
-        .map(|grp| format!("{}..{}", grp[0], grp[grp.len() - 1]))
-        .collect();
+    let cf_hist = group_ranges(&cf_cols);
     println!("closed face columns: {}", cf_hist.join(", "));
     let mut cf_rows: Vec<usize> = cut.closed_face.iter().map(|f| f.row).collect();
     cf_rows.sort_unstable();
-    let cf_rhist: Vec<String> = cf_rows
-        .chunk_by(|a, b| b - a <= 1)
-        .map(|grp| format!("{}..{}", grp[0], grp[grp.len() - 1]))
-        .collect();
+    let cf_rhist = group_ranges(&cf_rows);
     println!("closed face rows: {}", cf_rhist.join(", "));
 
     // the throat is the widest-but-smallest area: the last column that

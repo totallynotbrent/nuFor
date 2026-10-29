@@ -369,7 +369,6 @@ mod tests {
         let (nx, ny) = (8, 8);
         let g = crate::grid2d::grid2d(nx, ny, 0.0, 0.08, 0.0, 0.08).unwrap();
         let sdf = |_x: f64, y: f64| y - 0.032;
-        let normal = |_x: f64, _y: f64| (0.0, -1.0);
         let cut = AxiCutGeom::from_sdf(&sdf, &g);
         let rho = 12.64f64;
         let p = 7.0e6f64;
@@ -411,7 +410,6 @@ mod tests {
         let (nx, ny) = (8, 8);
         let g = crate::grid2d::grid2d(nx, ny, 0.0, 0.08, 0.0, 0.08).unwrap();
         let sdf = |_x: f64, y: f64| y - 0.032;
-        let normal = |_x: f64, _y: f64| (0.0, -1.0);
         let cut = AxiCutGeom::from_sdf(&sdf, &g);
         let rho = 12.64f64;
         let p = 7.0e6f64;
