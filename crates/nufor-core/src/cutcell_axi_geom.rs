@@ -15,10 +15,12 @@
 //! the volume fractions and the face apertures describe the same
 //! pieces:
 //!
-//!     vol[k]     the cell's ANNULAR volume fraction
-//!     ax[j][f]   the x-face's open fraction, weighted by the radius
-//!     ay[i][f]   the y-face's open fraction
-//!     eb_*       the wall's geometry inside the cut cells
+//! ```text
+//! vol[k]     the cell's ANNULAR volume fraction
+//! ax[j][f]   the x-face's open fraction, weighted by the radius
+//! ay[i][f]   the y-face's open fraction
+//! eb_*       the wall's geometry inside the cut cells
+//! ```
 //!
 //! every face fraction is measured once, ON the face, and both of the
 //! face's neighbouring cells use that same number. that is what makes
