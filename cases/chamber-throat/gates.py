@@ -38,6 +38,7 @@ from chamber_fields import (  # noqa: E402
     read_vtk,
     sonic_point,
 )
+import resolution  # noqa: E402
 
 SETTLED = os.path.join(HERE, "settled")
 RECORD = os.path.join(SETTLED, "settled.json")
@@ -45,6 +46,7 @@ RESULT = os.path.join(SETTLED, "thermo_result.csv")
 CURVE = os.path.join(SETTLED, "isentrope.csv")
 FIELD = os.path.join(SETTLED, "vtk-final.vtk")
 PAGE = os.path.join(ROOT, "docs", "numerics", "2d", "chamber-throat.md")
+RESOLUTION = os.path.join(SETTLED, "resolution.csv")
 
 
 def recorded():
@@ -247,6 +249,34 @@ def main():
         print(("PASS " if ok else "FAIL ") + f"the page's {label}: {got} against the recorded {want:.4f}")
         if not ok:
             failures.append(f"the page's {label}")
+
+    # the resolution study has to ship and has to agree with the case.
+    if not os.path.exists(RESOLUTION):
+        print("FAIL the resolution study is missing")
+        failures.append("the resolution study")
+    else:
+        levels = resolution.read_summary(RESOLUTION)
+        if len(levels) < 2:
+            print("FAIL the resolution study carries fewer than two grid levels")
+            failures.append("the resolution study's levels")
+        else:
+            for failure in resolution.check_levels(levels):
+                print(f"FAIL {failure}")
+                failures.append(failure)
+            base = levels[0]
+            ok = abs(base["sonic_p_mpa"] - values["pressure_mpa"]) <= 0.002
+            print(
+                ("PASS " if ok else "FAIL ")
+                + f"the resolution study's coarse level: {base['sonic_p_mpa']:.4f} against "
+                f"the recorded {values['pressure_mpa']:.4f}"
+            )
+            if not ok:
+                failures.append("the resolution study's coarse level")
+            finest = levels[-1]
+            print(
+                f"PASS the finest grid {finest['grid']} leaves the marcher owing "
+                f"{finest['deficit_percent']:.2f} percent"
+            )
 
     if failures:
         print("FAILED: " + "; ".join(failures))

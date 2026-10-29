@@ -161,6 +161,40 @@ def loss_figure(isentrope, out_dir):
     save(fig, "chamber-throat-isentrope-loss", out_dir=out_dir)
 
 
+def resolution_figure(resolution_csv, out_dir):
+    """the marcher's deficit against the grid it ran on."""
+    rows = []
+    with open(resolution_csv, newline="") as handle:
+        for row in csv.DictReader(handle):
+            rows.append({
+                "nx": int(row["nx"]),
+                "ny": int(row["ny"]),
+                "sonic_p_mpa": float(row["sonic_p_mpa"]),
+                "deficit_percent": float(row["deficit_percent"]),
+            })
+    grids = [row["nx"] * row["ny"] for row in rows]
+    deficits = [-row["deficit_percent"] for row in rows]
+    sonics = [row["sonic_p_mpa"] for row in rows]
+    fig, axes = figure(nrows=1, ncols=2, figsize=(9.5, 3.9))
+
+    ax = axes[0]
+    ax.plot(grids, sonics, "o-", color=PURPLE, ms=5, label="the marched sonic pressure")
+    ax.axhline(CEA_P / 1e6, color=RED, lw=1.0, ls=":", label="cea throat")
+    ax.set_xlabel("cells")
+    ax.set_ylabel("pressure (MPa)")
+    ax.set_title("the sonic pressure against the grid")
+    ax.legend(loc="center left", fontsize=9)
+
+    ax = axes[1]
+    ax.plot(grids, deficits, "o-", color=ORANGE, ms=5, label="the marcher's deficit")
+    ax.set_xlabel("cells")
+    ax.set_ylabel("the marcher's deficit (%)")
+    ax.set_title("what the marcher still owes")
+    ax.legend(loc="upper right", fontsize=9)
+    fig.tight_layout()
+    save(fig, "chamber-throat-resolution", out_dir=out_dir)
+
+
 def main():
     settled = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "settled")
     out_dir = sys.argv[2] if len(sys.argv) > 2 else os.path.join(
@@ -173,6 +207,9 @@ def main():
     settling_figure(history, isentrope, out_dir)
     profile_figure(profile, sonic_x, out_dir)
     loss_figure(isentrope, out_dir)
+    resolution_csv = os.path.join(settled, "resolution.csv")
+    if os.path.exists(resolution_csv):
+        resolution_figure(resolution_csv, out_dir)
 
 
 if __name__ == "__main__":

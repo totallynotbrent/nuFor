@@ -79,9 +79,19 @@ def analyse(path, case):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("run_dir", help="the directory holding the march")
+    parser.add_argument(
+        "--case",
+        default=os.path.join(HERE, "case.toml"),
+        help="the case the march used",
+    )
+    parser.add_argument(
+        "--out",
+        default=os.path.join(HERE, "settled"),
+        help="the directory for the distilled record",
+    )
     args = parser.parse_args()
 
-    case = cf.read_case(os.path.join(HERE, "case.toml"))
+    case = cf.read_case(args.case)
     snapshots = sorted(
         name for name in os.listdir(args.run_dir) if name.startswith("vtk-") and name.endswith(".vtk")
     )
@@ -119,7 +129,7 @@ def main():
     chamber_t = [item["chamber"]["T"] for item in tail]
     chamber_mdot = [item["chamber"]["m_dot"] for item in tail]
 
-    out = os.path.join(HERE, "settled")
+    out = args.out
     os.makedirs(out, exist_ok=True)
 
     with open(os.path.join(out, "history.csv"), "w", newline="") as handle:
@@ -157,6 +167,7 @@ def main():
         "source": "the march distilled by cases/chamber-throat/distill.py",
         "step": settled["step"],
         "settled_samples": len(tail),
+        "grid": [case["nx"], case["ny"]],
         "sonic": {
             "col": settled["sonic"]["col"],
             "x_m": settled["sonic"]["x"],

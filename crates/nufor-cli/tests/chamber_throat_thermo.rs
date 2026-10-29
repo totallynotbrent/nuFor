@@ -31,6 +31,9 @@ use nufor_core::combustion_thermo::M as MOLAR_MASS;
 use nufor_core::combustion_thermo::{mix_cp_mass, mix_h_mass, NS, RU, SPECIES_NAMES};
 
 fn case_root() -> PathBuf {
+    if let Ok(custom) = std::env::var("NUFOR_CHAMBER_RECORD") {
+        return PathBuf::from(custom);
+    }
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)

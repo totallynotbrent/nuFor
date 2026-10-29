@@ -146,8 +146,36 @@ Knowing that the loss is ours changes what the fix is. The throat's
 pressure is not eight percent low because the chemistry is late or the
 closure is wrong. It is low because the mesh's staircased throat
 dissipates the acceleration, and the cure is a graded or cut-cell mesh
-at the throat, not a change to the gas. Until that mesh lands, twelve
-percent is the honest bound on this case, and this page says why.
+at the throat, not a change to the gas.
+
+## What the grid buys back
+
+Three grids ran the same contour, the same injector and the same gas. The
+resolution went up and the physics stayed put, and the marched gas's own
+isentrope was walked again on every level:
+
+| grid | sonic pressure | the gas's isentrope | the marcher's deficit |
+| --- | --- | --- | --- |
+| 110 by 40 | 3.7110 MPa | 4.0422 MPa | -8.19 percent |
+| 165 by 60 | 3.7745 MPa | 4.0364 MPa | -6.49 percent |
+| 220 by 80 | 3.8397 MPa | 4.0162 MPa | -4.39 percent |
+
+The deficit shrinks on every level and the march moves toward the CEA
+throat, so the loss is mesh-dependent dissipation rather than a property
+of the gas. The gas's disagreement with CEA stays under one percent on all
+three levels, so the reference held still while the mesh tightened.
+
+Halving the Courant number does not do this. At 110 by 40 with a CFL of
+0.15 instead of 0.3 the sonic pressure lands at 3.6839 MPa and the
+deficit widens to 8.68 percent, so the loss is not time-integration
+error either. It is the spatial stencil walking the area step.
+
+![the marcher's deficit against the grid](chamber-throat-resolution.png)
+
+Each level bought back less per jump in cell count than the last, so the
+sequence has not reached a plateau and the table gives bounds rather than
+an extrapolated limit. The direction is not in doubt, though, and the
+220 by 80 level carries the deficit under five percent.
 
 ## The gate
 
@@ -176,12 +204,21 @@ cd cases/chamber-throat && python3 gates.py
 | the exit runs supersonic | flux mach above 1 | 1.710 |
 | the gas agrees with CEA | within 1 percent | 0.28 percent |
 | the march agrees with its gas | within 10 percent | -8.19 percent |
+| the deficit shrinks with the grid | every level improves on the last | it does |
+| the reference does not drift | the gas stays within 1 percent of CEA on every level | 0.93 percent |
 
 The last two contracts are the ones worth keeping. The seventh ties the
 comparison to the gas the march actually runs, so a change in the
 closure cannot quietly redefine what the case measures. The eighth
 bounds the march's own error, so the case notices when the marching gets
-worse even though the throat is still inside the loose contract.
+worse even though the throat is still inside the loose contract. The
+ninth and tenth hold the resolution study to the picture: the marcher's
+deficit has to fall as the grid tightens, and the gas has to keep
+agreeing with CEA while it does.
+
+The shipped case and record are the 110 by 40 march, so the contracts
+above describe that mesh. The resolution summary in `settled/resolution.csv`
+carries the finer grids.
 
 Both gates run in the continuous integration. The heavy gate that
 actually marches the case stays on my desktop, because it runs about
@@ -211,18 +248,37 @@ the duct). The rust audit adds `settled/thermo_result.csv` and
 walked field itself stays out of the repository, and the gate checks the
 record against it whenever a local march leaves it on disk.
 
+A resolution study writes its record outside the case. The case and the
+destination are explicit, so a finer grid cannot overwrite the shipped
+110 by 40 record:
+
+```
+python3 cases/chamber-throat/distill.py <run-dir> \
+  --case <run-dir>/case.toml --out <run-dir>/settled
+```
+
+`cases/chamber-throat/resolution.py` compares the distilled records
+across grids and writes the summary the gate reads:
+
+```
+cargo test -p nufor-cli --test chamber_throat_thermo
+python3 cases/chamber-throat/resolution.py --write \
+  cases/chamber-throat/settled/resolution.csv <record dir> [...]
+```
+
 ## What is not settled
 
 The loss through the converging section is the open problem on this
-case. Eight percent is the number the current mesh earns, and the
-figure shows it arriving with the staircase. A throat refined in the
-axial direction, or cut cells at the shoulder, is the next attempt, and
-the eighth contract is what says whether it helped.
+case. Eight percent is the number the 110 by 40 mesh earns, four percent
+is what the 220 by 80 mesh earns, and the figure shows it arriving with
+the staircase. A throat refined in the axial direction, or cut cells at
+the shoulder, is the next attempt, and the eighth contract is what says
+whether it helped.
 
 The grid's throat area is quantized: 1.2566e-3 m2 on 55 by 20, 110 by
-40 and 220 by 80, all within one percent of each other. Only a much
-finer grid in y moves it, and the cut-cell machinery is not wired into
-the command line. The grid's throat is therefore the throat the gate
+40, 165 by 60 and 220 by 80, all within one percent of each other. Only
+a much finer grid in y moves it, and the cut-cell machinery is not wired
+into the command line. The grid's throat is therefore the throat the gate
 measures, and the injector is sized to match it.
 
 The reacting lane's local states carry a few percent of noise: the

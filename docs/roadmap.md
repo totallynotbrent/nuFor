@@ -334,16 +334,23 @@ state closely enough to hang contracts on:
 | the exit runs supersonic | flux mach above 1 | 1.710 |
 | the gas agrees with CEA | within 1 percent | 0.28 percent |
 | the march agrees with its gas | within 10 percent | -8.19 percent |
+| the deficit shrinks with the grid | every level improves on the last | it does |
+| the reference does not drift | the gas stays within 1 percent of CEA | 0.93 percent |
 
 The throat's pressure is measured at the sonic point, found with the
 mixed mach, because the mesh's throat is a staircase plateau and the
-flow chokes at its upstream edge. The last two contracts come from an
-audit that walks the marched gas's own frozen isentrope with the
-crate's nasa-7 heats: CEA's throat sits 0.28 percent from that isentrope,
-so the gas is not what the march misses, and the march itself is eight
-percent under it. The loss is numerical dissipation in the transonic
-acceleration through the staircased throat, and a graded or cut-cell
-mesh at the shoulder is the next attempt.
+flow chokes at its upstream edge. The audit that walks the marched gas's
+own frozen isentrope with the crate's nasa-7 heats puts CEA's throat
+0.28 percent from that isentrope, so the gas is not what the march
+misses, and the march itself is eight percent under it on the shipped
+110 by 40 mesh.
+
+A three-grid resolution study says the loss is the mesh's. The same
+contour, injector and gas ran on 110 by 40, 165 by 60 and 220 by 80, and
+the marcher's deficit fell 8.19, 6.49 and 4.39 percent as the grid
+tightened. Halving the Courant number did not help, so the loss is
+spatial dissipation in the transonic acceleration through the staircased
+throat, and a graded or cut-cell mesh at the shoulder is the next attempt.
 
 That march takes about thirty minutes, so the gate that drives it runs
 on my desktop. The settled snapshot ships with the case, a distiller
