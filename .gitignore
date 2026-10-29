@@ -112,3 +112,7 @@ results/
 # web-ui uploaded meshes (runtime data, not source)
 uploads/
 cases/*/run-log-last.txt
+
+# the engine wall bracket gate writes its findings here; the findings
+# are read out of the marched records, not carried in the tree
+cases/engine-wall-bracket/gates.json
