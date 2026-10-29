@@ -64,6 +64,7 @@ Every milestone closes against an analytical or benchmark case, tracked on the
 - [[numerics/2d/supersonic-cylinder|Supersonic cylinder]] - the detached bow shock
 - [[numerics/2d/combustion|H2/O2 combustion]] - the nine-species reacting lane, gated against CEA
 - [[numerics/2d/chamber-throat|Chamber to throat]] - the choked nozzle in the axisymmetric combustion lane
+- [[numerics/2d/engine-wall-bracket|Engine wall bracket]] - the cold wall against the cooled wall
 - [[numerics/2d/axisymmetric|Axisymmetric Euler]] - bodies of revolution: the annular update and its geometric source
 - [[verification/axisymmetric-sphere|Axisymmetric sphere validation]] - the bow shock standoff vs Ambrosio-Wortman
 - [[aeroshell|Aeroshell cross-check]] - the capsule at peak q: CFD vs modified Newtonian

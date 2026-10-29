@@ -164,45 +164,24 @@ fn wall_verts() -> Vec<(f64, f64)> {
         .collect()
 }
 
-/// the signed distance to the polygon: negative inside.
-fn signed_distance(verts: &[(f64, f64)], px: f64, py: f64) -> f64 {
-    let mut best = f64::MAX;
-    let mut inside = false;
-    let n = verts.len();
-    for i in 0..n {
-        let (ax, ay) = verts[i];
-        let (bx, by) = verts[(i + 1) % n];
-        let (ex, ey) = (bx - ax, by - ay);
-        let l2 = (ex * ex + ey * ey).max(1e-30);
-        let t = (((px - ax) * ex + (py - ay) * ey) / l2).clamp(0.0, 1.0);
-        let (qx, qy) = (ax + t * ex, ay + t * ey);
-        best = best.min((px - qx).hypot(py - qy));
-        if (ay > py) != (by > py) && px < ax + (py - ay) * ex / ey {
-            inside = !inside;
-        }
-    }
-    if inside {
-        -best
-    } else {
-        best
-    }
-}
-
-/// the solid mask: the solver treats a cell whose center sits within
-/// 0.45 min(dx,dy) of the wall as solid, so the body fattens by half a
-/// cell. the gate reads the same rows the solver marched.
+/// the solid mask, from the CORE's own rule.
+///
+/// the gate used to rebuild the mask with its own 0.45 min(dx,dy)
+/// thickening rule while the solver used the plain centre-on-centre
+/// rule. the two disagreed, so the gate agreed with a geometry the
+/// marcher never saw, and every throat-area number taken from it was
+/// measuring the wrong passage. the gate now asks the core for the mask
+/// through the same public call the marcher uses, so the two cannot
+/// drift apart again.
 fn solid_cells(verts: &[(f64, f64)]) -> Vec<bool> {
     let dx = (X1 - X0) / NX as f64;
     let dy = (Y1 - Y0) / NY as f64;
-    let h = dx.min(dy);
-    let mut mask = vec![false; NX * NY];
-    for j in 0..NY {
-        for i in 0..NX {
-            let x = X0 + (i as f64 + 0.5) * dx;
-            let y = Y0 + (j as f64 + 0.5) * dy;
-            mask[j * NX + i] = signed_distance(verts, x, y) <= 0.45 * h;
-        }
-    }
+    let grid = nufor_core::grid2d(NX, NY, X0, X1, Y0, Y1).expect("the gate's grid");
+    let poly = nufor_core::SolidPolygon::new(verts.to_vec());
+    let mask = nufor_core::solid_mask(&grid, &|x, y| poly.signed_distance(x, y));
+    assert_eq!(mask.len(), NX * NY, "the core's mask length");
+    let mask = mask.as_ref().clone();
+    assert!((dx.min(dy) > 0.0), "the gate's grid spacing");
     mask
 }
 
@@ -250,6 +229,15 @@ fn station(
     let mut p_sum = 0.0;
     let mut t_sum = 0.0;
     let mut m_sum = 0.0;
+    // the flux mach is the mass flux's own mach, weighted by the mass
+    // the column carries. it is the quantity the mass flow balances on
+    // and it rises monotonically through the throat, so it gives one
+    // crossing per run. the MIXED mach cannot: the staircase mixes the
+    // streams inside a cell, so at the throat it swings by tenths
+    // between neighbouring columns and its crossing wanders onto a
+    // different column on every grid.
+    let mut flux_weight = 0.0f64;
+    let mut flux_mach_num = 0.0f64;
     for j in 0..NY {
         if mask[j * NX + col] {
             continue;
@@ -263,22 +251,27 @@ fn station(
         p_sum += pressure[k] * a;
         t_sum += temperature[k] * a;
         m_sum += mach[k] * a;
+        let w = rho[k] * velocity_x[k] * a;
+        flux_weight += w;
+        flux_mach_num += w * mach[k];
     }
     assert!(area > 0.0, "the column has no fluid");
     Station {
         area,
         m_dot,
-        mach: m_sum / area,
+        mach: if flux_weight > 0.0 {
+            flux_mach_num / flux_weight
+        } else {
+            m_sum / area
+        },
         pressure: p_sum / area,
         temperature: t_sum / area,
     }
 }
 
 /// the throat's column: the cell holding the polygon's narrowest point.
-/// the grid's throat is a staircase plateau several cells wide, and the
-/// flow only reaches mach one at the plateau's downstream edge, which
-/// is where the wall's narrowest vertex sits.
-fn throat_column(verts: &[(f64, f64)]) -> usize {
+/// the grid's throat is a staircase plateau several cells wide.
+fn geometric_throat_column(verts: &[(f64, f64)]) -> usize {
     let mut narrowest = f64::MAX;
     let mut x_throat = 0.0;
     for &(x, r) in verts {
@@ -289,6 +282,35 @@ fn throat_column(verts: &[(f64, f64)]) -> usize {
     }
     let dx = (X1 - X0) / NX as f64;
     (((x_throat - X0) / dx).floor() as usize).min(NX - 1)
+}
+
+/// where the marched flow actually chokes: the first column whose FLUX
+/// mach reaches one, found by scanning the converging section.
+///
+/// the gate used to read the GEOMETRIC throat's column and expect
+/// mach one there. on the coarse grids the staircase admits the
+/// acceleration slightly ahead of the geometric minimum, so the flow
+/// was already supersonic where the gate looked and the assertion
+/// tested the staircase's placement rather than the choke. the choke is
+/// a property of the flow, so it is located in the flow.
+fn sonic_column(
+    mask: &[bool],
+    rho: &[f64],
+    pressure: &[f64],
+    temperature: &[f64],
+    mach: &[f64],
+    velocity_x: &[f64],
+) -> usize {
+    for col in 0..NX {
+        if mask[col] {
+            continue;
+        }
+        let st = station(col, mask, rho, pressure, temperature, mach, velocity_x);
+        if st.mach >= 1.0 {
+            return col;
+        }
+    }
+    panic!("the flow never reaches mach one");
 }
 
 /// the chamber-to-throat gate: the throat chokes and sits on CEA's
@@ -318,8 +340,14 @@ fn the_chamber_throat_chokes_at_the_cea_state() {
 
     let verts = wall_verts();
     let mask = solid_cells(&verts);
-    let ti = throat_column(&verts);
+    let gi = geometric_throat_column(&verts);
+    let si = sonic_column(&mask, &rho, &pressure, &temperature, &mach, &velocity_x);
+    // the choked column and the geometric throat are reported apart:
+    // the gap between them is the staircase admitting the acceleration
+    // early, and it is the throat's geometry the number must answer to.
+    let ti = si;
     let throat = station(ti, &mask, &rho, &pressure, &temperature, &mach, &velocity_x);
+    println!("the geometric throat is col {gi}; the flow chokes at col {si}");
     // the chamber's mid-section: the flow there is slow and axial.
     let ci = (ti / 2).max(1);
     let chamber = station(ci, &mask, &rho, &pressure, &temperature, &mach, &velocity_x);

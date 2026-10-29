@@ -84,6 +84,27 @@ pub struct Physics {
     /// correlations (fay-riddell) are posed at a fixed wall temperature.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wall_temperature: Option<f64>,
+    /// the axisymmetric wall's representation: "mask" (the staircase,
+    /// a cell is solid when its centre is inside the body) or "cut"
+    /// (the wall is resolved by real apertures, each cell cut against
+    /// the body's exact signed distance function). the staircase
+    /// quantises the throat's area to whole radial rows, so the
+    /// choked pressure pays for it; the cut-cell representation gives
+    /// the throat an area that does not depend on where the wall falls
+    /// against the grid. "cut" needs a signed-distance body and it
+    /// costs more per step.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wall_representation: Option<String>,
+    /// which areas the quasi1d seed walks: "mesh" (the axisymmetric
+    /// lane's default, the staircase's own annular areas) or "contour"
+    /// (the polygon body's true smooth area). the mesh areas are the
+    /// capacity the discretised flow really has, but they quantise the
+    /// throat to whole radial rows, and a seed built on a quantised
+    /// throat hands the marching flow an inception state that already
+    /// owes the geometry's area error. "contour" seeds the flow from the
+    /// geometry the case actually draws.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quasi1d_seed_areas: Option<String>,
     /// catalytic wall recombination for the park5 viscous lane:
     /// "none" (dY/dn = 0 at the wall, the default) or "full" (the wall
     /// composition is the equilibrium value at the wall temperature;

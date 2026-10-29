@@ -85,13 +85,23 @@ _MASK_CACHE = {}
 
 
 def solid_mask(case):
-    """the solver's rule: a cell within 0.45 min(dx,dy) of the wall is
-    solid, so the body fattens by half a cell.
+    """the solver's rule: a cell is solid when its CENTRE lies inside the
+    body.
+
+    the solver dropped the older half-cell fattening (body.rs caches the
+    mask on `d <= 0.0`), because swallowing the near-wall fluid thickened
+    the passage and moved the effective throat and exit area. this reader
+    had kept the old rule and was therefore measuring a different
+    throat than the solver marched, which is where the stale throat-area
+    figure came from.
 
     the mask is cached on the wall's shape, because the readers ask for
-    it once per column and the distance work is the slow part.
+    it once per column and the distance work is the slow part. the rule
+    is part of the key, so a future change of rule cannot be served from
+    a stale entry.
     """
     key = (
+        "centre-inside",
         case["nx"],
         case["ny"],
         case["x0"],
@@ -106,13 +116,12 @@ def solid_mask(case):
     nx, ny = case["nx"], case["ny"]
     dx = (case["x1"] - case["x0"]) / nx
     dy = (case["y1"] - case["y0"]) / ny
-    h = min(dx, dy)
     mask = []
     for j in range(ny):
         for i in range(nx):
             x = case["x0"] + (i + 0.5) * dx
             y = case["y0"] + (j + 0.5) * dy
-            mask.append(signed_distance(case["verts"], x, y) <= 0.45 * h)
+            mask.append(signed_distance(case["verts"], x, y) <= 0.0)
     _MASK_CACHE[key] = mask
     return mask
 
@@ -244,14 +253,26 @@ def station_state(case, fields, nx, ny, origin, spacing, col):
 
 
 def sonic_point(case, fields, nx, ny, origin, spacing):
-    """where the marched flow reaches the speed of sound.
+    """where the marched flow chokes.
 
-    the throat's area is the narrowest column of the mesh, but the
-    mesh's throat is a staircase plateau, and the marched flow reaches
-    mach one at the plateau's upstream edge while the pressure keeps
-    falling across it. the choked state belongs to the sonic point, so
-    that is where the throat's pressure is measured, and the crossing
-    is interpolated between the two straddling columns.
+    the choke is where the FLUX mach crosses one. the flux mach is the
+    mass-weighted mean mach, the same quantity the mass flow balances
+    on, and it rises monotonically through the throat, so it gives one
+    crossing per run.
+
+    the mixed mach cannot be used for this. the staircase mixes the
+    streams inside a cell, so at the throat the mixed mach swings by
+    tenths between neighbouring columns (0.53, 0.53, 0.48, 0.32, 0.90,
+    0.81, 0.96, 1.09 on 220x80). its first crossing therefore lands on a
+    different column on every grid, and the 220x80 record was reading a
+    column PAST the throat's single-column plateau.
+
+    the crossing is interpolated between the two straddling columns, and
+    it is searched over the whole converging section, because on the
+    coarse grids the stream passes mach one slightly AHEAD of the
+    geometric minimum: the staircase admits the acceleration early. that
+    early crossing is the artefact the throat's geometry has to answer
+    for, so it is reported where it happens rather than hidden.
     """
     dx, _ = spacing
     states = {}
@@ -264,8 +285,8 @@ def sonic_point(case, fields, nx, ny, origin, spacing):
             continue
         left = states[col - 1]
         right = states[col]
-        if left["mixed_mach"] < 1.0 <= right["mixed_mach"]:
-            frac = (1.0 - left["mixed_mach"]) / max(right["mixed_mach"] - left["mixed_mach"], 1.0e-12)
+        if left["flux_mach"] < 1.0 <= right["flux_mach"]:
+            frac = (1.0 - left["flux_mach"]) / max(right["flux_mach"] - left["flux_mach"], 1.0e-12)
             return {
                 "col": col,
                 "frac": frac,
@@ -274,6 +295,7 @@ def sonic_point(case, fields, nx, ny, origin, spacing):
                 "T": left["T"] + frac * (right["T"] - left["T"]),
                 "m_dot": left["m_dot"] + frac * (right["m_dot"] - left["m_dot"]),
                 "area": left["area"] + frac * (right["area"] - left["area"]),
+                "basis": "flux_mach",
             }
     return None
 

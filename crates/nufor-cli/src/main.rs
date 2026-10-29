@@ -1321,19 +1321,93 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
     let mut ok = true;
     let mut prog = progress::Progress::new(path, "2d-axi");
     while t < t_end && steps < max_steps {
+        // the viscosity scale is computed BEFORE the mutable borrows: it
+        // needs the state and the composition, and the march needs both
+        // mutably.
+        let vis_scale_pre = match (&st, &combustion_state) {
+            (_, Some(spec)) => nufor_core::cutcell_viscous::viscosity_scale(
+                &st,
+                spec,
+                cfg.physics.mu.unwrap_or(0.0),
+            ),
+            _ => 1.0,
+        };
         let stepped_axi = if let Some(sp) = combustion_state.as_mut() {
-            nufor_core::combustion_march::advance2d_combustion_axi_rk2(
-                &mut st,
-                sp,
-                &g,
-                cfl,
-                true,
-                &bc,
-                cfg.numerics.threads,
-                body.as_ref()
-                    .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
-                combustion_react,
-            )
+            // the CUT-CELL lane. the staircase quantises the throat's
+            // area to whole radial rows and the marched gas pays for it
+            // with a lost total pressure, so the wall can instead be
+            // resolved by real apertures: each cell cut against the
+            // body's exact signed distance function.
+            //
+            // the cut-cell lane and the viscous lane do not combine
+            // yet: the viscous wall stencil wants the staircase's
+            // crossed faces, and the cut-cell lane brings its own
+            // immersed-boundary flux. a case that asks for both says
+            // so, and the run refuses rather than pretending.
+            let mu_case = cfg.physics.mu.unwrap_or(0.0);
+            let cut_wall = cfg.physics.wall_representation.as_deref() == Some("cut");
+            if cut_wall {
+                let cb = match case_body_fns(&cfg.body) {
+                    Some(cb) => cb,
+                    None => {
+                        eprintln!("wall_representation = \"cut\" needs a body in the case");
+                        return 2;
+                    }
+                };
+                let cut = nufor_core::CutField::from_sdf(
+                    cb.0.as_ref() as &dyn Fn(f64, f64) -> f64,
+                    cb.1.as_ref() as &dyn Fn(f64, f64) -> (f64, f64),
+                    &g,
+                );
+                nufor_core::cutcell_combustion::advance2d_combustion_axi_cut_rk2(
+                    &mut st,
+                    sp,
+                    &g,
+                    &cut,
+                    cfl,
+                    true,
+                    &bc,
+                    cfg.numerics.threads,
+                    body.as_ref()
+                        .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
+                    cfg.physics.wall_temperature.unwrap_or(0.0),
+                    // the case's viscosity is an ABSOLUTE value, while
+                    // the closure's is the molecule's. the scale is the
+                    // ratio, so the cut-cell lane transports the gas
+                    // with the viscosity the case asked for and the
+                    // molecular diffusivities in proportion.
+                    vis_scale_pre,
+                    combustion_react,
+                )
+            } else if mu_case > 0.0 {
+                let tw = cfg.physics.wall_temperature.unwrap_or(0.0);
+                nufor_core::combustion_viscous_axi::advance2d_combustion_axi_visc_rk2(
+                    &mut st,
+                    sp,
+                    &g,
+                    cfl,
+                    true,
+                    &bc,
+                    tw,
+                    cfg.numerics.threads,
+                    body.as_ref()
+                        .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
+                    combustion_react,
+                )
+            } else {
+                nufor_core::combustion_march::advance2d_combustion_axi_rk2(
+                    &mut st,
+                    sp,
+                    &g,
+                    cfl,
+                    true,
+                    &bc,
+                    cfg.numerics.threads,
+                    body.as_ref()
+                        .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
+                    combustion_react,
+                )
+            }
         } else if cfg.numerics.local_time_stepping {
             advance2d_axi_lts(
                 &mut st,
@@ -2866,6 +2940,51 @@ fn write_run_log_2d(
     // one-sided quadratic the march's conductor applies, scaled by the
     // same per-cell viscosity the march uses. only emitted for viscous
     // runs with a finite wall temperature.
+    // the axisymmetric combustion lane's OWN wall accounting: the
+    // conductive power leaving the gas at every wall face, summed and
+    // bucketed along the axis. the engine's wall bracket needs a
+    // measured duty, not a qualitative claim that a colder wall cooled
+    // the gas, and the bracket compares the duty between an adiabatic
+    // wall and a cooled one.
+    let mut axi_wall_s = String::new();
+    if visc
+        && tw > 0.0
+        && cfg.physics.equations == Equations::EulerAxi
+        && cfg.physics.chemistry.is_some()
+    {
+        if let (Some(cb), Some(spec)) = (case_body_fns(&cfg.body), combustion) {
+            let diag = nufor_core::combustion_viscous_axi::wall_diagnostics(
+                st,
+                spec,
+                g,
+                12,
+                Some(cb.0.as_ref() as &dyn Fn(f64, f64) -> f64),
+                tw,
+            );
+            if let Ok(diag) = diag {
+                axi_wall_s.push_str(&format!(
+                    "wall duty: {:.4} MW leaving the gas into a {:.0} K wall\n",
+                    diag.heat_watts / 1e6,
+                    tw
+                ));
+                axi_wall_s.push_str("wall duty by station (MW):\n");
+                for b in &diag.buckets {
+                    if b.perimeter_metres <= 0.0 {
+                        continue;
+                    }
+                    axi_wall_s.push_str(&format!(
+                        "  x {:7.4}..{:7.4}  {:9.5}  perimeter {:6.4} m\n",
+                        b.x0,
+                        b.x1,
+                        b.heat_watts / 1e6,
+                        b.perimeter_metres
+                    ));
+                }
+                axi_wall_s.push('\n');
+            }
+        }
+    }
+
     let mut qwall_s = String::new();
     if visc && tw > 0.0 {
         let cb = case_body_fns(&cfg.body);
@@ -3068,6 +3187,9 @@ fn write_run_log_2d(
         txt.push_str(&noneq_line);
     }
     txt.push_str(&continuum_line);
+    if !axi_wall_s.is_empty() {
+        txt.push_str(&axi_wall_s);
+    }
     if !qwall_s.is_empty() {
         txt.push('\n');
         txt.push_str(&qwall_s);
@@ -3779,12 +3901,19 @@ fn ic2d_from_case_model(
                 }
                 _ => gamma,
             };
-            // the axisymmetric lane marches the mesh's annular areas:
-            // the staircase is the capacity the flow really has, so
-            // the seed is built on it and the seeded mass flux is what
-            // the mesh can pass. the planar lane keeps the contour's
-            // smooth area.
-            let stations = if cfg.physics.equations == Equations::EulerAxi {
+            // which areas the seed walks. the axisymmetric lane can walk
+            // the mesh's own annular areas, which are the capacity the
+            // discretised flow really has; the contour's smooth area is
+            // the geometry the case actually draws. the choice is the
+            // case's, because the two give materially different throats:
+            // the mesh areas quantise the throat radius to whole radial
+            // rows, and a seed built on a quantised throat hands the
+            // marching flow an inception state that already owes the
+            // area error.
+            let seed_on_mesh = cfg.physics.quasi1d_seed_areas.as_deref() == Some("mesh")
+                || (cfg.physics.quasi1d_seed_areas.is_none()
+                    && cfg.physics.equations == Equations::EulerAxi);
+            let stations = if seed_on_mesh {
                 let mask = case_body_fns(&cfg.body).map(|b| {
                     let band = 1.5 * g.dx.min(g.dy);
                     body_cache(g, b.0.as_ref() as &dyn Fn(f64, f64) -> f64, band)
