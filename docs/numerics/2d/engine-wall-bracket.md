@@ -137,6 +137,21 @@ An orbit that is periodic without having quite closed shows no repeated
 checksum, so the period is then found from the observable's own
 recurrence. The checker records which of the two criteria supplied it.
 
+The recurrence criterion needs enough fields before it can speak. A lag
+of fourteen fields can only be examined when the saved series extends
+past sixteen fields, because a correlation at that lag consumes two
+overlapping stretches of the series. Below that the series cannot show
+the period however periodic it is, and the criterion reports no
+recurrence rather than a wrong one. A series shortened in this way will
+often show a tall correlation at a shorter lag, where the fundamental
+lies beyond the saved window. That is an artifact of the window, not a
+property of the flow.
+
+The recurrence criterion is also the weaker of the two, and it is
+restricted to lags that admit at least two whole recurrences inside the
+saved data. A lag fitted by only one repetition cannot be distinguished
+from a coincidence.
+
 ## A defect the bracket found
 
 The first two-period pass measured a contradiction. The wall reported
