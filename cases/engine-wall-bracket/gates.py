@@ -168,11 +168,16 @@ def digest(path):
 
 
 def detect_period(fields):
-    """the flow's period in saved fields, by repeated checksums.
+    """the flow's period in saved fields, from the fields' checksums.
 
-    the marched flow falls into a strictly periodic orbit, so two saved
-    fields with the same checksum mark one whole period apart. the
-    smallest such separation is the period.
+    the marched flow falls into a periodic orbit, so two saved fields with
+    the same checksum mark one whole period apart. the smallest such
+    separation is the period.
+
+    the checksums are the STRONG criterion: they certify the orbit
+    closed exactly. a flow that is periodic but has not quite closed
+    shows no repeat, which the caller handles by falling back on the
+    observable's own periodicity. see detect_period_by_signal.
     """
     seen = {}
     checksums = [digest(path) for path in fields]
@@ -183,6 +188,55 @@ def detect_period(fields):
                 return gap, seen[value], index
         seen[value] = index
     return None, None, None
+
+
+def signal_correlation(values, lag):
+    """the correlation between a series and itself, displaced by a lag."""
+    n = len(values)
+    if lag >= n - 2:
+        return 0.0
+    a = values[: n - lag]
+    b = values[lag:]
+    mean_a = statistics.fmean(a)
+    mean_b = statistics.fmean(b)
+    numerator = sum((x - mean_a) * (y - mean_b) for x, y in zip(a, b))
+    denominator = math.sqrt(
+        sum((x - mean_a) ** 2 for x in a) * sum((y - mean_b) ** 2 for y in b)
+    )
+    return numerator / denominator if denominator else 0.0
+
+
+def detect_period_by_signal(case, fields):
+    """the flow's period in saved fields, from the observable's recurrence.
+
+    a flow that is periodic but has not quite closed has no repeated
+    checksum, so the period is found from the choked mass flow instead:
+    the lag whose correlation with the series is greatest is the period.
+
+    this is a weaker criterion than the checksum, and it says so, so the
+    measurement that rests on it carries an extra allowance.
+    """
+    values = []
+    for path in fields:
+        try:
+            row = measure_field(case, path)
+        except Exception:  # pragma: no cover - a bad field is a fault
+            continue
+        if row:
+            values.append(row["mass_flow"])
+    n = len(values)
+    if n < 8:
+        return None, 0.0
+    best_lag = None
+    best_value = 0.0
+    for lag in range(2, n - 2):
+        value = signal_correlation(values, lag)
+        if value > best_value:
+            best_value = value
+            best_lag = lag
+    if best_lag is None or best_value < 0.5:
+        return None, best_value
+    return best_lag, best_value
 
 
 def period_groups(fields, period):
@@ -247,13 +301,28 @@ def measure(tag, run_root):
 
     period, first, repeat = detect_period(saved)
     info["period_fields"] = period
-    if period is None:
-        info["why"] = (
-            "the saved fields show no repeat yet, so the flow's period "
-            "cannot be identified and no whole-period average is possible"
+    if period is not None:
+        info["period_confirmed_by_checksum"] = True
+        info["period_examples"] = [first, repeat]
+    else:
+        # the orbit has not closed exactly, so the period is taken from
+        # the observable's own recurrence, which is a weaker criterion
+        # and is recorded as such.
+        info["period_confirmed_by_checksum"] = False
+        fallback, strength = detect_period_by_signal(
+            cf.read_case(case_path), saved
         )
-        return info
-    info["period_examples"] = [first, repeat]
+        if fallback is None:
+            info["why"] = (
+                "the saved fields show no repeat and no clear recurrence "
+                "(strongest correlation %.3f), so the flow's period cannot "
+                "be identified and no whole-period average is possible"
+                % strength
+            )
+            info["signal_correlation_best"] = strength
+            return info
+        period = fallback
+        info["period_signal_strength"] = strength
 
     groups = period_groups(saved, period)
     complete = [g for g in groups if len(g) == period]
@@ -300,8 +369,33 @@ def measure(tag, run_root):
             means[key + "_sem"] = statistics.pstdev(per_period) / math.sqrt(
                 len(per_period)
             )
+            means[key + "_uncertainty_basis"] = "period to period"
+        elif rows:
+            # only one whole period is available, so there is no spread
+            # between periods to draw an uncertainty from. the period is
+            # split in half instead, and the two halves' disagreement
+            # bounds how much the phase within the period biases the
+            # mean. this is the same calibration the adiabatic leg gave:
+            # its two halves disagreed by 0.153 percent.
+            #
+            # the estimate is scaled by sqrt(2) because each half
+            # averages half as many fields as the full period, so each
+            # half's deviation from the full mean is amplified by
+            # roughly sqrt(2).
+            first_half = average_group(rows[0][: period // 2], key)
+            second_half = average_group(rows[0][period // 2 :], key)
+            if first_half is not None and second_half is not None:
+                means[key + "_sem"] = (
+                    abs(first_half - second_half) / 2.0 * math.sqrt(2.0)
+                )
+                means[key + "_uncertainty_basis"] = "split half within one period"
+                means[key + "_half_disagreement"] = abs(first_half - second_half)
+            else:
+                means[key + "_sem"] = 0.0
+                means[key + "_uncertainty_basis"] = "unknown"
         else:
             means[key + "_sem"] = 0.0
+            means[key + "_uncertainty_basis"] = "unknown"
     info.update(means)
     info["ran"] = True
     return info

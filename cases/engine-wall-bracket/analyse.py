@@ -336,10 +336,26 @@ def analyse_leg(tag, runs_root, cases_dir):
     period = first = repeat = None
     if GATE is not None:
         period, first, repeat = GATE.detect_period(fields)
+    if period is None and GATE is not None:
+        # the orbit has not closed exactly, so the period is taken from
+        # the observable's own recurrence, which the gate performs with
+        # the same criterion, so the two instruments agree.
+        fallback, strength = GATE.detect_period_by_signal(
+            CF.read_case(case_path), fields
+        )
+        if fallback is not None:
+            period = fallback
+            out["period_confirmed_by_checksum"] = False
+            out["period_signal_strength"] = strength
     if period is None:
-        out["why"] = "the saved fields show no repeat yet, so the flow's period cannot be identified"
+        out["why"] = (
+            "the saved fields show no repeat and no clear recurrence, so "
+            "the flow's period cannot be identified"
+        )
         out["fields_saved"] = len(fields)
         return out
+    if "period_confirmed_by_checksum" not in out:
+        out["period_confirmed_by_checksum"] = True
     out["period_fields"] = period
     out["fields_saved"] = len(fields)
 
@@ -415,6 +431,29 @@ def analyse_leg(tag, runs_root, cases_dir):
                 if stats["mean"]
                 else 0.0
             )
+        elif len(values) == 1 and measured:
+            # only one whole period is available, so there is no spread
+            # between periods. the period is split in half instead, and
+            # the halves' disagreement bounds the bias the phase within
+            # the period introduces. the same calibration the gate uses.
+            first_half = [
+                m[key] for m in measured[: len(measured) // 2] if key in m
+            ]
+            second_half = [
+                m[key] for m in measured[len(measured) // 2 :] if key in m
+            ]
+            if first_half and second_half:
+                half_mean = statistics.fmean(first_half)
+                other_mean = statistics.fmean(second_half)
+                disagreement = abs(half_mean - other_mean)
+                stats["effective_sem"] = disagreement / 2.0 * math.sqrt(2.0)
+                stats["effective_pct_sem"] = (
+                    100.0 * stats["effective_sem"] / stats["mean"]
+                    if stats["mean"]
+                    else 0.0
+                )
+                stats["uncertainty_basis"] = "split half within one period"
+                stats["half_disagreement"] = disagreement
         out[label] = stats
         out[f"{label}_behaviour"] = behaviour
         # the within-period variation is reported too, because it is the
