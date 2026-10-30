@@ -21,8 +21,8 @@ THE CONTRACTS
 - the film-cooled wall draws MORE heat than the merely radiating wall,
   since the film is an additional path for the energy to leave by;
 
-- the cooled walls' chambers run COOLER, and the choked mass flow falls
-  with the total temperature.
+- the cooled walls' chambers run COOLER, and the choked mass flow RISES
+  with the cooling, because it scales as p0 / sqrt(t0).
 
 why the last pair is phrased that way
 
@@ -32,10 +32,23 @@ choked flow
     p_star = p0 (2 / (gamma + 1))^(gamma / (gamma - 1))
 
 holds no total temperature, so a cooler chamber barely moves the throat
-pressure. the mass flow does move, because it scales as 1 / sqrt(t0). an
-earlier version of this gate asserted that the cooled wall's throat
-pressure sat below the adiabatic wall's, which is a claim the flow does
-not have to satisfy, and it could never have passed reliably.
+pressure. the mass flow does move, because it scales as p0 / sqrt(t0).
+
+the sign of that dependence was got backwards in an earlier version of
+this gate, which asserted that a cooler chamber carries LESS mass flow.
+deriving it afresh from the choked relations gives the opposite:
+
+    T_star / T0 = 2 / (gamma + 1)          so T_star scales with T0
+    rho_star = p_star / (R T_star)          and p_star scales with p0
+    V_star = sqrt(gamma R T_star)
+
+which yields
+
+    m_dot = A_star p_star sqrt(gamma) / (sqrt(R) sqrt(T0))
+          = A_star p0 sqrt(gamma) / (sqrt(R) sqrt(T0))
+
+so a cooler chamber at the same total pressure carries MORE mass. a
+contract asserting the opposite would have failed a correct result.
 
 MEASUREMENT NOTES
 
@@ -401,6 +414,49 @@ def measure(tag, run_root):
     return info
 
 
+def predict_mass_flow_shift(reference, other, duty_mw):
+    """the mass flow shift the wall's duty SHOULD produce.
+
+    the wall's duty leaves the gas, so it lowers the chamber's bulk
+    enthalpy. at a fixed total pressure a cooler chamber carries MORE
+    mass through the throat, because the choked mass flow scales as
+    p0 / sqrt(t0).
+
+    this is the quantitative companion to the measured contrast. if the
+    wall's duty really does reach the fluid, the measured shift should
+    agree with the predicted one.
+
+    the heat capacity is taken from the combustion products at the
+    chamber's own temperature, where cp is near 3262 j/(kg.k) and gamma
+    is near 1.16 for burnt gas around 3700 k.
+    """
+    if not duty_mw or duty_mw <= 0.0:
+        return None
+    mass_flow = reference.get("mass_flow")
+    t0 = reference.get("chamber_t0")
+    if not mass_flow or not t0:
+        return None
+    cp = 3262.0
+    watt = duty_mw * 1.0e6
+    # the steady sensible-energy balance. the wall's duty removes energy
+    # from the gas at this rate, so removing it lowers the chamber's
+    # enthalpy by that amount spread over the gas's mass flow.
+    # the wall's duty LOWERS the chamber's enthalpy, so the chamber sits
+    # cooler by this much than the adiabatic reference would.
+    temperature_drop = watt / (mass_flow * cp)
+    # a cooler chamber at fixed total pressure carries MORE mass, since
+    # the choked mass flow scales as p0 / sqrt(t0). with t0 lowered by
+    # the drop, the fractional change is +(drop / (2 t0)).
+    predicted_fractional = 0.5 * temperature_drop / t0
+    predicted_absolute = mass_flow * predicted_fractional
+    return {
+        "duty_mw": duty_mw,
+        "predicted_dt0_k": -temperature_drop,
+        "predicted_mdot_delta_kg_s": predicted_absolute,
+        "predicted_mdot_delta_pct": 100.0 * predicted_fractional,
+    }
+
+
 def contrast(reference, other, key):
     """the difference between two legs, with its combined uncertainty."""
     a = reference.get(key)
@@ -550,15 +606,68 @@ def main():
                 leg[key + "_delta_sigma"] = c["sigma"]
                 leg[key + "_delta"] = c["delta"]
 
-            # the physical expectation: a cooler chamber carries less mass
-            # flow, because the choked mass flow scales as 1 / sqrt(t0).
+            # the physical expectation: a cooler chamber carries MORE mass
+            # flow, because the choked mass flow scales as p0 / sqrt(t0).
             sf = leg.get("mass_flow_delta_sigma")
             st = leg.get("chamber_t0_delta_sigma")
             if sf is not None and st is not None:
-                if leg.get("chamber_t0_delta", 0.0) < 0.0 and sf > 0.0:
+                dt0 = leg.get("chamber_t0_delta", 0.0)
+                if dt0 < 0.0 and sf < 0.0:
                     problems.append(
                         "the %s leg's chamber is cooler but its mass flow "
-                        "rose; the chilled mass flow should fall" % tag
+                        "fell; a cooler chamber carries MORE mass flow, "
+                        "because the choked mass flow scales as "
+                        "p0 / sqrt(t0)" % tag
+                    )
+                # the quantitative check: the shift the duty should have
+                # produced, against the shift actually measured.
+                prediction = predict_mass_flow_shift(
+                    adi,
+                    leg,
+                    leg.get("duty_mw"),
+                )
+                if prediction is not None:
+                    leg["predicted_effect"] = prediction
+                    measured_delta = leg.get("mass_flow_delta")
+                    if measured_delta is not None:
+                        prediction["measured_mdot_delta_kg_s"] = measured_delta
+                        ratio = (
+                            measured_delta / prediction[
+                                "predicted_mdot_delta_kg_s"
+                            ]
+                            if prediction["predicted_mdot_delta_kg_s"]
+                            else None
+                        )
+                        prediction["measured_over_predicted"] = ratio
+                        if ratio is not None and abs(ratio) > 3.0:
+                            problems.append(
+                                "the %s leg's mass flow shifted %+.6g kg/s "
+                                "where the wall's duty predicts %+.6g kg/s, "
+                                "which is %.1f times the prediction; the "
+                                "duty and the flow's response disagree"
+                                % (
+                                    tag,
+                                    measured_delta,
+                                    prediction[
+                                        "predicted_mdot_delta_kg_s"
+                                    ],
+                                    ratio,
+                                )
+                            )
+                if prediction is not None and prediction.get(
+                    "measured_mdot_delta_kg_s"
+                ) is not None:
+                    print(
+                        "    %s: the duty predicts %+.6g kg/s "
+                        "(%+0.4f percent), the flow shifted %+.6g kg/s, "
+                        "which is %.2f times the prediction"
+                        % (
+                            tag,
+                            prediction["predicted_mdot_delta_kg_s"],
+                            prediction["predicted_mdot_delta_pct"],
+                            prediction["measured_mdot_delta_kg_s"],
+                            prediction.get("measured_over_predicted") or 0.0,
+                        )
                     )
                 if sf is not None and abs(sf) < 2.0:
                     print(
