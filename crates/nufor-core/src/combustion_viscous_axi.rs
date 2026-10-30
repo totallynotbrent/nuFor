@@ -414,13 +414,23 @@ pub(crate) fn add_axi_combustion_viscous(
             // the radial divergence of a face quantity: the annular
             // weight over the radius and the annulus thickness. it
             // carries no dt, and the caller scales it once.
-            let radial = |f: &Vec<f64>| (rp * f[j + 1] - rm * f[j]) / (rc * g.dys[j]);
+            //
+            // the radial face quantities are laid out with a COLUMN
+            // stride, one block of ny + 1 faces per column, so the
+            // divergence has to reach into the block belonging to this
+            // column. reading the block of the first column instead
+            // spends every wall's flux on the first column's gas and
+            // leaves the rest of the wall inert.
+            let radial = |f: &[f64]| {
+                let base = i * (ny + 1);
+                (rp * f[base + j + 1] - rm * f[base + j]) / (rc * g.dys[j])
+            };
             // tau_xx is the x-face axial stress and tau_xy the radial
             // shear: the x-momentum equation takes d(tau_xx)/dx plus
             // d(tau_xy)/dr, the y-momentum the other pairing.
-            let dmx = -(dxi * (tx_x[kfx_e] - tx_x[kfx_w]) + dt * radial(&tx_y));
-            let dmy = -(dxi * (ty_x[kfx_e] - ty_x[kfx_w]) + dt * radial(&ty_y));
-            let de = -(dxi * (te_x[kfx_e] - te_x[kfx_w]) + dt * radial(&te_y));
+            let dmx = -(dxi * (tx_x[kfx_e] - tx_x[kfx_w]) + dt * radial(&tx_y[..]));
+            let dmy = -(dxi * (ty_x[kfx_e] - ty_x[kfx_w]) + dt * radial(&ty_y[..]));
+            let de = -(dxi * (te_x[kfx_e] - te_x[kfx_w]) + dt * radial(&te_y[..]));
             state.mx[k] += dmx;
             state.my[k] += dmy;
             state.e[k] += de;
@@ -888,6 +898,94 @@ mod tests {
             glowing_loss > dull_loss,
             "radiation did not add to the wall's duty: {glowing_loss:e} against {dull_loss:e}; surf_T would be needed"
         );
+    }
+
+    /// the radial divergence must reach the column it is updating.
+    ///
+    /// the radial face quantities are laid out with a column stride, so
+    /// the divergence has to index the column it sits in. if it reaches
+    /// another column, the wall's flux is spent on the wrong gas, and
+    /// the gas under the wall appears untouched.
+    ///
+    /// the fixture puts a walled shelf in the middle of the mesh, well
+    /// away from the first column, and bounds it in height so there is
+    /// gas above it. the gas above the shelf must feel the shelf's
+    /// temperature, and the gas beside the shelf must feel it less than
+    /// the gas on it.
+    #[test]
+    fn the_radial_divergence_reads_its_own_column() {
+        let (nx, ny) = (12, 8);
+        let idx = |i: usize, j: usize| j * nx + i;
+        let g = crate::grid2d::grid2d(nx, ny, 0.0, 0.12, 0.0, 0.08).unwrap();
+        let rho = 12.64f64;
+        let p = 7.0e6f64;
+        let e_int = crate::combustion_march::h2o2_ic_energy(rho, p);
+        let n = nx * ny;
+        let st = ConservedState2d {
+            rho: vec![rho; n],
+            mx: vec![0.0; n],
+            my: vec![0.0; n],
+            e: vec![rho * e_int; n],
+        };
+        let sp = CombustionState::stoich_h2o2(n);
+        let tr = axi_combustion_transport(&st, &sp, &g).unwrap();
+
+        // a shelf: it sits between x = 0.04 and x = 0.07, and rises from
+        // the axis to y = 0.03. the distance is negative inside it and
+        // positive outside, which is what the body cache reads.
+        let dist = |x: f64, y: f64| {
+            let dx = (0.04 - x).max(x - 0.07);
+            let dy = (0.0 - y).max(y - 0.03);
+            dx.max(dy)
+        };
+
+        let march = |wall_temp: f64| {
+            let mut s = st.clone();
+            let mut y = sp.clone();
+            let opts = AxiWallOpts {
+                temperature: wall_temp,
+                emissivity: 0.0,
+                film_coefficient: 0.0,
+            };
+            add_axi_combustion_viscous(&mut s, &mut y, &g, &tr, 1.0e-5, opts, Some(&dist)).unwrap();
+            s
+        };
+
+        // the gas's own temperature gives a wall that exchanges nothing,
+        // so the difference between the two marches is the wall's doing.
+        let gas_temp = tr.t[idx(0, 0)];
+        let cold = march(300.0);
+        let neutral = march(gas_temp);
+
+        // the row of gas sitting on the shelf's top face. the shelf
+        // spans the columns 4 to 6.
+        let above_row = 3usize;
+        let mut drained = 0usize;
+        for i in 4..=6 {
+            let k = idx(i, above_row);
+            let drain = neutral.e[k] - cold.e[k];
+            assert!(
+                drain > 0.0,
+                "the gas on the shelf in column {i} did not lose energy to \
+                 the cold shelf: {drain:e}"
+            );
+            drained += 1;
+        }
+        assert_eq!(drained, 3, "the fixture did not place gas on the shelf");
+
+        // the gas in the first column, which stands on no wall at all,
+        // must not feel the shelf's temperature. if the radial flux is
+        // read from the wrong column, the first column picks up every
+        // wall's flux instead.
+        for i in 0..3 {
+            let k = idx(i, above_row);
+            let drain = neutral.e[k] - cold.e[k];
+            assert!(
+                drain.abs() < 1.0e-6,
+                "the gas in the wall-free column {i} reacted to the shelf's \
+                 temperature: {drain:e}"
+            );
+        }
     }
 
     #[test]
