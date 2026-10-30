@@ -223,8 +223,18 @@ def detect_period_by_signal(case, fields):
     """the flow's period in saved fields, from the observable's recurrence.
 
     a flow that is periodic but has not quite closed has no repeated
-    checksum, so the period is found from the choked mass flow instead:
-    the lag whose correlation with the series is greatest is the period.
+    checksum, so the period is found from the choked mass flow instead.
+
+    the period is scored by the FUNDAMENTAL rather than by the tallest
+    peak. a periodic series correlates at its period, at twice its
+    period, and at fractions of it, so the tallest correlation is often
+    a beat or a harmonic rather than the period itself. scoring a lag by
+    its own correlation together with the correlation at twice the lag
+    picks the smallest lag that really does recur.
+
+    the search is restricted to lags that admit at least two whole
+    recurrences inside the data, because a lag that fits fewer than two
+    cannot be distinguished from a coincidence.
 
     this is a weaker criterion than the checksum, and it says so, so the
     measurement that rests on it carries an extra allowance.
@@ -238,18 +248,81 @@ def detect_period_by_signal(case, fields):
         if row:
             values.append(row["mass_flow"])
     n = len(values)
-    if n < 8:
+    if n < 12:
         return None, 0.0
+
+    # the largest lag that still admits two recurrences and half of it
+    max_lag = max(2, (n - 1) // 2)
+    correlations = {lag: signal_correlation(values, lag) for lag in range(2, max_lag)}
+
     best_lag = None
-    best_value = 0.0
-    for lag in range(2, n - 2):
-        value = signal_correlation(values, lag)
-        if value > best_value:
-            best_value = value
+    best_score = 0.0
+    for lag, value in correlations.items():
+        doubled = correlations.get(2 * lag, 0.0)
+        score = 0.5 * (value + doubled)
+        if score > best_score:
+            best_score = score
             best_lag = lag
-    if best_lag is None or best_value < 0.5:
-        return None, best_value
-    return best_lag, best_value
+    if best_lag is None or best_score < 0.4:
+        return None, best_score
+    return best_lag, best_score
+
+
+def detect_period_across_legs(legs):
+    """the flow's period, agreed by the legs that share it.
+
+    every leg marches the same chamber, so every leg's flow period is the
+    same period. requiring the legs to agree therefore constrains the
+    period far harder than any single leg's own correlogram can, and it
+    rejects the spurious lags that a partly covered series produces.
+
+    the checksum criterion wins wherever it applies. a leg whose fields
+    repeat bit for bit states its period exactly, and that period is
+    taken as the answer for every leg. only where NO leg has an exact
+    repeat does the signal estimate stand in, and then the estimate is
+    reported as provisional.
+
+    the legs are dictionaries carrying a "tag", a "case" and a "fields"
+    entry.
+    """
+    usable = [leg for leg in legs if leg and leg.get("fields")]
+    if not usable:
+        return None, 0.0, None, "no legs"
+
+    # the checksum criterion, per leg
+    exact = {}
+    for leg in usable:
+        gap, _, _ = detect_period(leg["fields"])
+        if gap:
+            exact[leg["tag"]] = gap
+    if exact:
+        # the legs share one period, so the exact one speaks for all
+        period = min(exact.values())
+        provenance = "checksum"
+        if len(set(exact.values())) > 1:
+            provenance = "checksum, legs disagree"
+        return period, 1.0, exact, provenance
+
+    # no exact repeat anywhere: fall back on the signal estimate
+    scored = []
+    for leg in usable:
+        lag, score = detect_period_by_signal(leg["case"], leg["fields"])
+        if lag:
+            scored.append((leg, lag, score))
+    if not scored:
+        return None, 0.0, None, "no period found"
+
+    candidates = sorted({lag for _, lag, _ in scored})
+    for candidate in candidates:
+        agreeing = [score for _, lag, score in scored if abs(lag - candidate) <= 1]
+        if len(agreeing) == len(scored):
+            strength = min(agreeing)
+            per_leg = {leg["tag"]: lag for leg, lag, _ in scored}
+            return candidate, strength, per_leg, "signal, provisional"
+
+    # no agreement: take the first leg's own best, and say so
+    leg, lag, score = scored[0]
+    return lag, score, {leg["tag"]: lag for leg, lag, _ in scored}, "signal, provisional"
 
 
 def period_groups(fields, period):
@@ -312,30 +385,43 @@ def measure(tag, run_root):
         return info
     info["fields_saved"] = len(saved)
 
-    period, first, repeat = detect_period(saved)
-    info["period_fields"] = period
-    if period is not None:
-        info["period_confirmed_by_checksum"] = True
-        info["period_examples"] = [first, repeat]
-    else:
-        # the orbit has not closed exactly, so the period is taken from
-        # the observable's own recurrence, which is a weaker criterion
-        # and is recorded as such.
-        info["period_confirmed_by_checksum"] = False
-        fallback, strength = detect_period_by_signal(
-            cf.read_case(case_path), saved
+    # the period comes from the whole bracket: every leg marches the same
+    # chamber, so the legs' agreement constrains it far harder than one
+    # leg's own correlogram can, and it rejects the spurious lags a
+    # partly covered series produces.
+    legs = []
+    for sibling_tag in ("wall-adiabatic", "wall-radiating", "wall-filmcooled"):
+        sibling_root = os.path.join(os.path.dirname(run_dir), sibling_tag)
+        sibling_case = os.path.join(sibling_root, "case.toml")
+        sibling_fields = sorted(glob.glob(os.path.join(sibling_root, "vtk-*.vtk")))
+        if not os.path.exists(sibling_case) or not sibling_fields:
+            continue
+        legs.append(
+            {
+                "tag": sibling_tag,
+                "case": cf.read_case(sibling_case),
+                "fields": sibling_fields,
+            }
         )
-        if fallback is None:
-            info["why"] = (
-                "the saved fields show no repeat and no clear recurrence "
-                "(strongest correlation %.3f), so the flow's period cannot "
-                "be identified and no whole-period average is possible"
-                % strength
-            )
-            info["signal_correlation_best"] = strength
-            return info
-        period = fallback
-        info["period_signal_strength"] = strength
+    period, strength, per_leg, provenance = detect_period_across_legs(legs)
+    info["period_fields"] = period
+    info["period_provenance"] = provenance
+    if period is not None:
+        info["period_by_leg"] = per_leg
+        if provenance.startswith("checksum"):
+            info["period_confirmed_by_checksum"] = True
+        else:
+            info["period_confirmed_by_checksum"] = False
+            info["period_signal_strength"] = strength
+    else:
+        info["period_confirmed_by_checksum"] = False
+        info["why"] = (
+            "the saved fields show no repeat and no clear recurrence "
+            "(strongest correlation %.3f), so the flow's period cannot "
+            "be identified and no whole-period average is possible" % strength
+        )
+        info["signal_correlation_best"] = strength
+        return info
 
     groups = period_groups(saved, period)
     complete = [g for g in groups if len(g) == period]

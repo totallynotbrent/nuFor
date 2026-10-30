@@ -334,19 +334,31 @@ def analyse_leg(tag, runs_root, cases_dir):
     # carries the wave's phase with it and is not comparable with
     # another leg's window.
     period = first = repeat = None
+    confirmed = None
+    strength = 0.0
+    provenance = "none"
     if GATE is not None:
-        period, first, repeat = GATE.detect_period(fields)
-    if period is None and GATE is not None:
-        # the orbit has not closed exactly, so the period is taken from
-        # the observable's own recurrence, which the gate performs with
-        # the same criterion, so the two instruments agree.
-        fallback, strength = GATE.detect_period_by_signal(
-            CF.read_case(case_path), fields
-        )
-        if fallback is not None:
-            period = fallback
-            out["period_confirmed_by_checksum"] = False
-            out["period_signal_strength"] = strength
+        # the period comes from the whole bracket: every leg marches the
+        # same chamber, so the legs' agreement constrains it far harder
+        # than one leg's own correlogram can.
+        legs = []
+        for sibling_tag in LEGS:
+            leg_root = os.path.join(runs_root, sibling_tag)
+            leg_case = os.path.join(leg_root, "case.toml")
+            leg_fields = sorted(glob.glob(os.path.join(leg_root, "vtk-*.vtk")))
+            if not os.path.exists(leg_case) or not leg_fields:
+                continue
+            legs.append(
+                {
+                    "tag": sibling_tag,
+                    "case": CF.read_case(leg_case),
+                    "fields": leg_fields,
+                }
+            )
+        period, strength, per_leg, provenance = GATE.detect_period_across_legs(legs)
+        confirmed = provenance.startswith("checksum")
+        if period is not None:
+            out["period_by_leg"] = per_leg
     if period is None:
         out["why"] = (
             "the saved fields show no repeat and no clear recurrence, so "
@@ -354,8 +366,10 @@ def analyse_leg(tag, runs_root, cases_dir):
         )
         out["fields_saved"] = len(fields)
         return out
-    if "period_confirmed_by_checksum" not in out:
-        out["period_confirmed_by_checksum"] = True
+    out["period_confirmed_by_checksum"] = bool(confirmed)
+    out["period_provenance"] = provenance
+    if not confirmed:
+        out["period_signal_strength"] = strength
     out["period_fields"] = period
     out["fields_saved"] = len(fields)
 
