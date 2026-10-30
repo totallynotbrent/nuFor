@@ -1,20 +1,22 @@
 schema_version = 1
 
 [metadata]
-name = "wall-warm1200"
-description = "a chamber of burned gas fed through an injector, necking to a throat and opening into a bell, with a back-pressure exit"
+name = "wall-filmcooled"
+description = "the chamber with a radiating 400 K wall at emissivity 0.9 plus a 2000 W per square metre kelvin film coefficient, representing an actively cooled wall"
 case_revision = 1
 
 [physics]
 equations = "euler_axi"
 gamma = 1.2
 gas_constant = 527.2
-wall_temperature = 1200.0
 mu = 6.0e-5
 eos = "combustion"
 gas = "h2o2"
 chemistry = "on"
 
+wall_temperature = 400.0
+wall_emissivity = 0.9
+wall_film_coefficient = 2000.0
 [physics.injection]
 H2 = 0.01583304
 O2 = 0.07194470

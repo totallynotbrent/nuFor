@@ -1390,7 +1390,11 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
                     cfl,
                     true,
                     &bc,
-                    tw,
+                    nufor_core::combustion_viscous_axi::AxiWallOpts {
+                        temperature: tw,
+                        emissivity: cfg.physics.wall_emissivity.unwrap_or(0.0),
+                        film_coefficient: cfg.physics.wall_film_coefficient.unwrap_or(0.0),
+                    },
                     cfg.numerics.threads,
                     body.as_ref()
                         .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
@@ -2961,13 +2965,21 @@ fn write_run_log_2d(
                 g,
                 12,
                 Some(cb.0.as_ref() as &dyn Fn(f64, f64) -> f64),
-                tw,
+                nufor_core::combustion_viscous_axi::AxiWallOpts {
+                    temperature: tw,
+                    emissivity: cfg.physics.wall_emissivity.unwrap_or(0.0),
+                    film_coefficient: cfg.physics.wall_film_coefficient.unwrap_or(0.0),
+                },
             );
             if let Ok(diag) = diag {
                 axi_wall_s.push_str(&format!(
-                    "wall duty: {:.4} MW leaving the gas into a {:.0} K wall\n",
+                    "wall duty: {:.4} MW leaving the gas into a {:.0} K wall\n\
+(conduction {:.4} MW, radiation {:.4} MW, film {:.4} MW)\n",
                     diag.heat_watts / 1e6,
-                    tw
+                    tw,
+                    diag.conductive_watts / 1e6,
+                    diag.radiative_watts / 1e6,
+                    diag.film_watts / 1e6,
                 ));
                 axi_wall_s.push_str("wall duty by station (MW):\n");
                 for b in &diag.buckets {

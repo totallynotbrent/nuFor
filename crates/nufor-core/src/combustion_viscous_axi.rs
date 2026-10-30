@@ -41,10 +41,97 @@ pub(crate) struct AxiCombustionTransport {
 }
 
 /// the wall's treatment options.
-#[derive(Clone, Copy)]
-pub(crate) struct AxiWallOpts {
+#[derive(Clone, Copy, Debug, Default)]
+pub struct AxiWallOpts {
     /// the wall temperature in K; zero or less means adiabatic.
     pub temperature: f64,
+    /// the wall's grey-body emissivity; zero or less means the wall
+    /// does not radiate.
+    pub emissivity: f64,
+    /// the wall's film heat-transfer coefficient in W per square metre
+    /// kelvin; zero or less means no film.
+    pub film_coefficient: f64,
+}
+
+/// the gas temperature extrapolated to the wall face, in K.
+///
+/// the radiative and film fluxes act on the gas at the wall surface,
+/// not at the first cell's centre. near a cold wall the cell centre is
+/// markedly cooler than the gas actually touching the wall, so using
+/// the centre there would bias the exchange downward. this
+/// extrapolates the two nearest cell-centre temperatures linearly to
+/// the wall's position.
+fn surface_temperature(v0: f64, v1: f64, y_wall: f64, c0: f64, c1: f64) -> f64 {
+    if (c1 - c0).abs() < 1.0e-30 {
+        return v0;
+    }
+    v0 + (y_wall - c0) * (v1 - v0) / (c1 - c0)
+}
+
+/// the wall's outward normal's direction, from the gas toward the body.
+///
+/// the signed distance is negative inside the body and grows outward,
+/// so its gradient points from the body toward the gas. the heat
+/// leaving the gas travels the other way, toward the body, so the
+/// direction the heat travels is the negated gradient.
+fn wall_heat_direction(dist: &dyn Fn(f64, f64) -> f64, x: f64, y: f64, h: f64) -> (f64, f64) {
+    let dx = (dist(x + h, y) - dist(x - h, y)) / (2.0 * h);
+    let dy = (dist(x, y + h) - dist(x, y - h)) / (2.0 * h);
+    let norm = (dx * dx + dy * dy).sqrt();
+    if norm < 1.0e-30 {
+        return (0.0, 0.0);
+    }
+    (-dx / norm, -dy / norm)
+}
+
+/// the stefan-boltzmann constant in W per square metre per kelvin to
+/// the fourth.
+pub const STEFAN_BOLTZMANN: f64 = 5.670374419e-8;
+
+/// the radiant flux leaving the gas for a grey wall, in W per square
+/// metre.
+///
+/// the gas sees the wall through the grey-body exchange
+///
+///   q = eps * sigma * (t_gas^4 - t_wall^4)
+///
+/// which at 3690 k is about 9.5 mw per square metre for a coated
+/// chamber wall. that is an order of magnitude above the fourier
+/// conduction the near-wall cells carry, so a wall modelled with
+/// conduction alone exchanges a small fraction of the heat a real
+/// chamber wall does.
+fn radiant_wall_flux(t_gas: f64, t_wall: f64, emissivity: f64) -> f64 {
+    if emissivity <= 0.0 || t_gas <= 0.0 || t_wall <= 0.0 {
+        return 0.0;
+    }
+    let tg = t_gas.clamp(0.0, 6000.0);
+    let tw = t_wall.clamp(0.0, 6000.0);
+    emissivity * STEFAN_BOLTZMANN * (tg.powi(4) - tw.powi(4))
+}
+
+/// the film's flux from the gas to the wall, in W per square metre.
+fn film_wall_flux(t_gas: f64, t_wall: f64, h: f64) -> f64 {
+    if h <= 0.0 {
+        return 0.0;
+    }
+    h * (t_gas - t_wall)
+}
+
+/// the wall's total flux from the gas, in W per square metre.
+///
+/// a positive result means the wall is pulling heat out of the gas.
+/// the three contributions are conduction through the near-wall
+/// cells, radiation to the wall, and the film's convective exchange.
+pub(crate) fn wall_flux_parts(
+    t_gas: f64,
+    t_wall: f64,
+    conduction: f64,
+    emissivity: f64,
+    film_coefficient: f64,
+) -> (f64, f64, f64) {
+    let radiative = radiant_wall_flux(t_gas, t_wall, emissivity);
+    let film = film_wall_flux(t_gas, t_wall, film_coefficient);
+    (conduction + radiative + film, radiative, film)
 }
 
 /// one-sided quadratic derivative through the wall value and the first
@@ -111,6 +198,8 @@ pub(crate) fn add_axi_combustion_viscous(
     let ny = g.ny;
     let idx = |i: usize, j: usize| j * nx + i;
     let (u, v, _et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
+    // the signed distance drives the wall's normal direction.
+    let wall_fn = wall.map(|f| f as &dyn Fn(f64, f64) -> f64);
 
     // the body's crossed faces and the solid mask. the wall flux rides
     // on the crossed faces, and the solid cells hold the flow out.
@@ -211,7 +300,7 @@ pub(crate) fn add_axi_combustion_viscous(
 
     // the wall faces the body's boundary crosses. the gas side is the
     // fluid cell beside the face.
-    if wall.is_some() {
+    if let Some(wall_fn) = wall_fn {
         for j in 0..ny {
             for f in 1..nx {
                 if !wall_x[j * (nx + 1) + f] {
@@ -235,7 +324,23 @@ pub(crate) fn add_axi_combustion_viscous(
                 if wall_opts.temperature > 0.0 {
                     let dtdn =
                         wall_quad_deriv(wall_opts.temperature, tr.t[a], tr.t[b], face_x, c0, c1);
-                    q = -tr.k[a] * dtdn;
+                    let conduction = -tr.k[a] * dtdn;
+                    let t_surface = surface_temperature(tr.t[a], tr.t[b], face_x, c0, c1);
+                    // the conduction term is already signed along the
+                    // face's axis. the radiant and film terms are
+                    // magnitudes of heat LEAVING the gas, so they take
+                    // the wall's outward normal's sign along that axis
+                    // before they join it.
+                    let (hx, _) =
+                        wall_heat_direction(wall_fn, face_x, g.centers_y[a], 0.25 * g.dx.min(g.dy));
+                    let (_, radiant, film) = wall_flux_parts(
+                        t_surface,
+                        wall_opts.temperature,
+                        0.0,
+                        wall_opts.emissivity,
+                        wall_opts.film_coefficient,
+                    );
+                    q = conduction + hx * (radiant + film);
                 }
                 tx_x[k] = mu_f * dudx;
                 ty_x[k] = mu_f * dvdx;
@@ -269,7 +374,20 @@ pub(crate) fn add_axi_combustion_viscous(
                 if wall_opts.temperature > 0.0 {
                     let dtdn =
                         wall_quad_deriv(wall_opts.temperature, tr.t[a], tr.t[b], face_y, c0, c1);
-                    q = -tr.k[a] * dtdn;
+                    let conduction = -tr.k[a] * dtdn;
+                    let t_surface = surface_temperature(tr.t[a], tr.t[b], face_y, c0, c1);
+                    // the radiant and film terms leave the gas, so they
+                    // take the outward normal's sign along the axis.
+                    let (_, hy) =
+                        wall_heat_direction(wall_fn, g.centers_x[i], face_y, 0.25 * g.dx.min(g.dy));
+                    let (_, radiant, film) = wall_flux_parts(
+                        t_surface,
+                        wall_opts.temperature,
+                        0.0,
+                        wall_opts.emissivity,
+                        wall_opts.film_coefficient,
+                    );
+                    q = conduction + hy * (radiant + film);
                 }
                 tx_y[k] = mu_f * dudy;
                 ty_y[k] = mu_f * dvdy;
@@ -327,8 +445,14 @@ pub(crate) fn add_axi_combustion_viscous(
 /// heating can be told from the bell's.
 #[derive(Clone, Debug, Default)]
 pub struct WallDiagnostics {
-    /// the total conductive power leaving the gas, W.
+    /// the total power leaving the gas, W.
     pub heat_watts: f64,
+    /// the conductive share of that power, W.
+    pub conductive_watts: f64,
+    /// the radiative share of that power, W.
+    pub radiative_watts: f64,
+    /// the film's share of that power, W.
+    pub film_watts: f64,
     /// the wall's shear force along the axis, N.
     pub shear_newtons: f64,
     /// the buckets along the axis: each holds the x range and the power.
@@ -340,8 +464,14 @@ pub struct WallDiagnostics {
 pub struct WallBucket {
     pub x0: f64,
     pub x1: f64,
-    /// the conductive power leaving the gas in this slice, W.
+    /// the total power leaving the gas in this slice, W.
     pub heat_watts: f64,
+    /// the conductive share in this slice, W.
+    pub conductive_watts: f64,
+    /// the radiative share in this slice, W.
+    pub radiative_watts: f64,
+    /// the film's share in this slice, W.
+    pub film_watts: f64,
     /// the wall's perimeter in this slice, m.
     pub perimeter_metres: f64,
     /// the wall's mean temperature in this slice, K.
@@ -360,8 +490,11 @@ pub fn wall_diagnostics(
     g: &Grid2d,
     nbuckets: usize,
     wall: Option<&dyn Fn(f64, f64) -> f64>,
-    wall_temperature: f64,
+    wall_opts: AxiWallOpts,
 ) -> Result<WallDiagnostics, Error> {
+    let wall_temperature = wall_opts.temperature;
+    let wall_emissivity = wall_opts.emissivity;
+    let wall_film_coefficient = wall_opts.film_coefficient;
     let mut out = WallDiagnostics::default();
     let dist = match wall {
         Some(d) => d,
@@ -402,7 +535,17 @@ pub fn wall_diagnostics(
             let (c0, c1) = (g.centers_x[a], g.centers_x[b]);
             let dtdn = wall_quad_deriv(wall_temperature, tr.t[a], tr.t[b], face_x, c0, c1);
             // the conductive flux LEAVING the gas, per unit area
-            let q = -tr.k[a] * dtdn;
+            let conduction = -tr.k[a] * dtdn;
+            let t_surface = surface_temperature(tr.t[a], tr.t[b], face_x, c0, c1);
+            let (hx, _) = wall_heat_direction(dist, face_x, g.centers_y[a], 0.25 * g.dx.min(g.dy));
+            let (_, q_rad, q_film) = wall_flux_parts(
+                t_surface,
+                wall_temperature,
+                0.0,
+                wall_emissivity,
+                wall_film_coefficient,
+            );
+            let q = conduction + hx * (q_rad + q_film);
             // the face's area is the annulus at this radius, times the
             // cell's circumferential span. the axisymmetric face is a
             // cylinder of this radius and this height.
@@ -415,9 +558,15 @@ pub fn wall_diagnostics(
                 .max(0.0) as usize;
             let bi = bi.min(nbuckets - 1);
             buckets[bi].heat_watts += power;
+            buckets[bi].conductive_watts += conduction * area;
+            buckets[bi].radiative_watts += q_rad * area;
+            buckets[bi].film_watts += q_film * area;
             buckets[bi].perimeter_metres += 2.0 * std::f64::consts::PI * r_face;
             buckets[bi].temperature_k += wall_temperature;
             out.heat_watts += power;
+            out.conductive_watts += conduction * area;
+            out.radiative_watts += q_rad * area;
+            out.film_watts += q_film * area;
             // the wall's shear: the axial viscous stress at the wall
             let dudx = wall_quad_deriv(0.0, u[a], u[b], face_x, c0, c1);
             out.shear_newtons += tr.mu[a] * dudx * area;
@@ -440,7 +589,17 @@ pub fn wall_diagnostics(
             let face_y = g.faces_y[f];
             let (c0, c1) = (g.centers_y[a], g.centers_y[b]);
             let dtdn = wall_quad_deriv(wall_temperature, tr.t[a], tr.t[b], face_y, c0, c1);
-            let q = -tr.k[a] * dtdn;
+            let conduction = -tr.k[a] * dtdn;
+            let t_surface = surface_temperature(tr.t[a], tr.t[b], face_y, c0, c1);
+            let (_, hy) = wall_heat_direction(dist, g.centers_x[i], face_y, 0.25 * g.dx.min(g.dy));
+            let (_, q_rad, q_film) = wall_flux_parts(
+                t_surface,
+                wall_temperature,
+                0.0,
+                wall_emissivity,
+                wall_film_coefficient,
+            );
+            let q = conduction + hy * (q_rad + q_film);
             // a y face is a cone frustum's lateral surface
             let rm = g.centers_y[a];
             let rp = g.centers_y[b];
@@ -452,9 +611,15 @@ pub fn wall_diagnostics(
                 .max(0.0) as usize;
             let bi = bi.min(nbuckets - 1);
             buckets[bi].heat_watts += power;
+            buckets[bi].conductive_watts += conduction * area;
+            buckets[bi].radiative_watts += q_rad * area;
+            buckets[bi].film_watts += q_film * area;
             buckets[bi].perimeter_metres += std::f64::consts::PI * (rp + rm);
             buckets[bi].temperature_k += wall_temperature;
             out.heat_watts += power;
+            out.conductive_watts += conduction * area;
+            out.radiative_watts += q_rad * area;
+            out.film_watts += q_film * area;
         }
     }
     for b in buckets.iter_mut() {
@@ -475,15 +640,12 @@ pub fn advance2d_combustion_axi_visc_rk2(
     cfl: f64,
     muscl: bool,
     bc: &Boundaries2d,
-    wall_temperature: f64,
+    wall_opts: AxiWallOpts,
     nthreads: usize,
     wall: Option<&dyn Fn(f64, f64) -> f64>,
     react: bool,
 ) -> Result<(f64, f64), Error> {
     let tr = axi_combustion_transport(state, species, g)?;
-    let wall_opts = AxiWallOpts {
-        temperature: wall_temperature,
-    };
     let mut s1 = state.clone();
     let mut y1 = species.clone();
     let mut dt_last = 0.0f64;
@@ -559,12 +721,51 @@ mod tests {
     /// nothing. the axisymmetric lane shares the transport with the
     /// planar one, so this catches a mispaired stress or a stray dt.
     #[test]
+    fn the_radiant_wall_flux_follows_the_stefan_boltzmann_law() {
+        // the blackbody flux at 3000 k, from the law itself
+        let sigma = STEFAN_BOLTZMANN;
+        let blackbody = sigma * 3000.0_f64.powi(4);
+        // a grey wall emits and absorbs, so its net exchange with a
+        // hot gas scales with its emissivity
+        let q = radiant_wall_flux(3000.0, 300.0, 0.9);
+        let expected = 0.9 * sigma * (3000.0_f64.powi(4) - 300.0_f64.powi(4));
+        assert!((q - expected).abs() / expected.abs() < 1.0e-12);
+        // a black wall draws more than a white one
+        assert!(radiant_wall_flux(3000.0, 300.0, 1.0) > q);
+        // an insulated wall draws nothing
+        assert_eq!(radiant_wall_flux(3000.0, 300.0, 0.0), 0.0);
+        // a wall hotter than the gas receives heat rather than losing it
+        assert!(radiant_wall_flux(300.0, 3000.0, 0.9) < 0.0);
+        assert!(blackbody > 0.0);
+    }
+
+    #[test]
+    fn the_chamber_walls_radiation_is_large_next_to_conduction() {
+        // the point of adding radiation: a 3690 k gas facing a 400 k
+        // wall exchanges far more energy by radiation than the
+        // near-wall cells conduct, so a conduction-only wall is not a
+        // representation of a real chamber wall.
+        let q_rad = radiant_wall_flux(3690.0, 400.0, 0.9);
+        // the measured conduction-only duty implied an effective
+        // conductance of about 340 w per square metre kelvin
+        let q_cond = 341.0 * (3690.0 - 400.0);
+        // eight times the conduction the old wall model carried
+        assert!(q_rad > 8.0 * q_cond);
+        // and it is on the order of ten megawatts per square metre
+        assert!(q_rad > 8.0e6 && q_rad < 1.1e7);
+    }
+
+    #[test]
     fn a_uniform_field_feels_no_viscous_force() {
         let (g, st, sp) = square_case();
         let tr = axi_combustion_transport(&st, &sp, &g).unwrap();
         let mut s1 = st.clone();
         let mut y1 = sp.clone();
-        let opts = AxiWallOpts { temperature: 0.0 };
+        let opts = AxiWallOpts {
+            temperature: 0.0,
+            emissivity: 0.0,
+            film_coefficient: 0.0,
+        };
         add_axi_combustion_viscous(&mut s1, &mut y1, &g, &tr, 1.0e-6, opts, None).unwrap();
         // the radial annulus weighting makes the divergence of a uniform
         // field nonzero in principle, so the contract is weaker than the
@@ -605,7 +806,11 @@ mod tests {
         let tr = axi_combustion_transport(&st, &sp, &g).unwrap();
         let mut s1 = st.clone();
         let mut y1 = sp.clone();
-        let opts = AxiWallOpts { temperature: 300.0 };
+        let opts = AxiWallOpts {
+            temperature: 300.0,
+            emissivity: 0.0,
+            film_coefficient: 0.0,
+        };
         let dist = |_x: f64, y: f64| y - 0.02;
         add_axi_combustion_viscous(&mut s1, &mut y1, &g, &tr, 1.0e-5, opts, Some(&dist)).unwrap();
         let before: f64 = st.rho.iter().sum();
@@ -618,6 +823,73 @@ mod tests {
 
     /// a cold wall cools the gas beside it. the near-wall cell must
     /// lose energy, and the far cells must not gain it.
+    #[test]
+    fn a_radiating_wall_cools_the_gas_more_than_a_non_radiating_one() {
+        let (nx, ny) = (8, 8);
+        let idx = |i: usize, j: usize| j * nx + i;
+        let g = crate::grid2d::grid2d(nx, ny, 0.0, 0.08, 0.0, 0.08).unwrap();
+        let rho = 12.64f64;
+        let p = 7.0e6f64;
+        let e_int = crate::combustion_march::h2o2_ic_energy(rho, p);
+        let n = nx * ny;
+        let st = ConservedState2d {
+            rho: vec![rho; n],
+            mx: vec![0.0; n],
+            my: vec![0.0; n],
+            e: vec![rho * e_int; n],
+        };
+        let sp = CombustionState::stoich_h2o2(n);
+        let tr = axi_combustion_transport(&st, &sp, &g).unwrap();
+        let dist = |_x: f64, y: f64| y - 0.02;
+
+        // the same cold wall, once conducting only and once radiating.
+        let mut dull = st.clone();
+        let mut dull_sp = sp.clone();
+        let mut glowing = st.clone();
+        let mut glowing_sp = sp.clone();
+
+        add_axi_combustion_viscous(
+            &mut dull,
+            &mut dull_sp,
+            &g,
+            &tr,
+            1.0e-5,
+            AxiWallOpts {
+                temperature: 300.0,
+                emissivity: 0.0,
+                film_coefficient: 0.0,
+            },
+            Some(&dist),
+        )
+        .unwrap();
+        add_axi_combustion_viscous(
+            &mut glowing,
+            &mut glowing_sp,
+            &g,
+            &tr,
+            1.0e-5,
+            AxiWallOpts {
+                temperature: 300.0,
+                emissivity: 0.9,
+                film_coefficient: 0.0,
+            },
+            Some(&dist),
+        )
+        .unwrap();
+
+        let near = idx(0, 2);
+        let dull_loss = st.e[near] - dull.e[near];
+        let glowing_loss = st.e[near] - glowing.e[near];
+        // both take heat out of the near-wall cell
+        assert!(dull_loss > 0.0);
+        assert!(glowing_loss > 0.0);
+        // and the radiating wall takes strictly more out
+        assert!(
+            glowing_loss > dull_loss,
+            "radiation did not add to the wall's duty: {glowing_loss:e} against {dull_loss:e}; surf_T would be needed"
+        );
+    }
+
     #[test]
     fn a_cold_wall_cools_the_near_wall_cell() {
         let (nx, ny) = (8, 8);
@@ -637,7 +909,11 @@ mod tests {
         let tr = axi_combustion_transport(&st, &sp, &g).unwrap();
         let mut s1 = st.clone();
         let mut y1 = sp.clone();
-        let opts = AxiWallOpts { temperature: 300.0 };
+        let opts = AxiWallOpts {
+            temperature: 300.0,
+            emissivity: 0.0,
+            film_coefficient: 0.0,
+        };
         // a flat wall along the bottom, so the row 0 cells are the
         // near-wall ones. the distance function says the gas is above
         // the line y = 0.02.

@@ -84,6 +84,25 @@ pub struct Physics {
     /// correlations (fay-riddell) are posed at a fixed wall temperature.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wall_temperature: Option<f64>,
+    /// the wall's grey-body emissivity for radiative heat exchange.
+    ///
+    /// a wall at 3690 k sees the chamber overwhelmingly through
+    /// radiation: the blackbody flux at that temperature is 10.5 mw per
+    /// square metre, while the fourier conduction through a near-wall
+    /// cell is a small fraction of that. omitting this, or setting it
+    /// to zero, leaves the wall with conduction only, which exchanges
+    /// far less heat than a real chamber wall and cannot move the
+    /// flow. one means a black wall.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wall_emissivity: Option<f64>,
+    /// the wall's film heat-transfer coefficient in w per square metre
+    /// kelvin. this is the actively-cooled regime: the coolant flowing
+    /// through the wall's channels takes energy from the gas at a rate
+    /// set by the film coefficient and the gas-to-wall temperature
+    /// difference. omitting this leaves the film out and the wall
+    /// radiates only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wall_film_coefficient: Option<f64>,
     /// the axisymmetric wall's representation: "mask" (the staircase,
     /// a cell is solid when its centre is inside the body) or "cut"
     /// (the wall is resolved by real apertures, each cell cut against

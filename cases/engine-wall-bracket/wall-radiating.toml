@@ -1,20 +1,22 @@
 schema_version = 1
 
 [metadata]
-name = "wall-cold400"
-description = "a chamber of burned gas fed through an injector, necking to a throat and opening into a bell, with a back-pressure exit"
+name = "wall-radiating"
+description = "the chamber with a radiating 400 K wall at emissivity 0.9 and no film, isolating the radiative exchange"
 case_revision = 1
 
 [physics]
 equations = "euler_axi"
 gamma = 1.2
 gas_constant = 527.2
-wall_temperature = 400.0
 mu = 6.0e-5
 eos = "combustion"
 gas = "h2o2"
 chemistry = "on"
 
+wall_temperature = 400.0
+wall_emissivity = 0.9
+wall_film_coefficient = 0.0
 [physics.injection]
 H2 = 0.01583304
 O2 = 0.07194470

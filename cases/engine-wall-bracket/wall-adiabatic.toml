@@ -2,7 +2,7 @@ schema_version = 1
 
 [metadata]
 name = "wall-adiabatic"
-description = "a chamber of burned gas fed through an injector, necking to a throat and opening into a bell, with a back-pressure exit"
+description = "the chamber's reference leg: an adiabatic wall that takes no heat, so the bracket's reference end is exact"
 case_revision = 1
 
 [physics]
