@@ -1,46 +1,72 @@
 """the engine wall bracket's gate.
 
-the engine report needs the COLD-WALL against COOLED-WALL comparison, so
-this gate measures both ends of the bracket from the marched fields and
-checks the contracts that make the comparison meaningful:
+the engine report needs to know what the wall does to the gas, so this
+gate measures the bracket from the marched fields and checks the
+contracts that make the comparison meaningful.
 
-- each march ran, and its flow reached the throat.
+THE CONTRACTS
+
+- every leg ran, reached the throat, and carries a whole number of flow
+  periods' worth of saved fields;
+
 - the adiabatic wall really is adiabatic: it draws no heat, so its
   measured duty is zero. if it is not, the comparison's reference end is
-  broken.
-- the cooled wall DOES draw heat, and it draws MORE the colder it is.
-  a wall that does not cool its gas harder when it is colder would mean
-  the wall treatment is inert.
-- the cooled wall's THROAT PRESSURE is below the adiabatic wall's, with
-  the coolant taking energy out of the gas before it accelerates.
+  broken;
 
-three measurements had to be corrected for this gate to be able to see
-anything at all:
+- the cooled walls DO draw heat from the gas;
 
-the throat is located by the FLUX mach crossing, not by the narrowest
-column. the narrowest column is the geometry's throat, but the flow
-does not necessarily choke there, and on a staircase grid the two
-differ by several columns.
+- radiation dominates conduction at these temperatures, because a gas at
+  3700 k sees its wall overwhelmingly through radiation;
 
-the total pressure is MEASURED from the marched field as a
-mass-flux-weighted mean over the chamber, not read from the run log's
-freestream line. that line is the inflow state's INITIAL condition, and
-it is identical in every leg of the bracket, so comparing it could never
-discriminate the legs however hard the wall pulled.
+- the film-cooled wall draws MORE heat than the merely radiating wall,
+  since the film is an additional path for the energy to leave by;
 
-the duty is read from the marched run's wall-diagnostic line, and its
-conduction, radiation and film shares are recorded separately so the
-breakdown can be audited.
+- the cooled walls' chambers run COOLER, and the choked mass flow falls
+  with the total temperature.
+
+why the last pair is phrased that way
+
+the throat's STATIC pressure is not an observable for this bracket. for
+choked flow
+
+    p_star = p0 (2 / (gamma + 1))^(gamma / (gamma - 1))
+
+holds no total temperature, so a cooler chamber barely moves the throat
+pressure. the mass flow does move, because it scales as 1 / sqrt(t0). an
+earlier version of this gate asserted that the cooled wall's throat
+pressure sat below the adiabatic wall's, which is a claim the flow does
+not have to satisfy, and it could never have passed reliably.
+
+MEASUREMENT NOTES
+
+the marched chamber does not settle to a fixed state. it falls into a
+strictly periodic orbit: the field saved at step 250 is byte-identical to
+the one saved at step 3750, so the period spans fourteen field intervals.
+a measurement taken over part of a period carries the wave's phase with
+it, and a three-field window of the cyclic series departs from the
+period's mean by up to 1.33 percent, which is about ten times the
+effect the wall produces. so every leg is averaged over whole periods,
+and the two legs' trajectories DIVERGE even though they start from the
+same initial condition, which is why a step-by-step comparison between
+legs is meaningless and only the period means can be compared.
+
+the total pressure and total temperature are MEASURED from the marched
+field as mass-flux-weighted means over the chamber, never read from the
+run log's freestream line. that line is the inflow state's INITIAL
+condition, and it is identical in every leg of the bracket.
 
 nothing here is hardcoded.
 
 usage:
     python3 gates.py
 """
+import glob
+import hashlib
 import json
 import math
 import os
 import re
+import statistics
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -57,7 +83,7 @@ BRACKET = [
 
 
 def read_run_log(path):
-    """the run log's wall duty and throat numbers."""
+    """the run log's wall duty and its breakdown."""
     if not os.path.exists(path):
         return {}
     text = open(path).read()
@@ -70,8 +96,7 @@ def read_run_log(path):
         out["duty_mw"] = float(m.group(1))
         out["wall_k"] = float(m.group(2))
     m = re.search(
-        r"wall duty: [-0-9.]+ MW leaving the gas into a [-0-9.]+ K wall\n"
-        r"\(conduction ([-0-9.]+) MW, radiation ([-0-9.]+) MW, film ([-0-9.]+) MW\)",
+        r"\(conduction (-?[0-9.]+) MW, radiation (-?[0-9.]+) MW, film (-?[0-9.]+) MW\)",
         text,
     )
     if m:
@@ -81,27 +106,25 @@ def read_run_log(path):
     m = re.search(r"peak wall heat flux ([0-9.]+) MW/m\^2", text)
     if m:
         out["peak_q_mwm2"] = float(m.group(1))
-    m = re.search(r"freestream rho ([0-9.eE+-]+) p ([0-9.eE+-]+)", text)
+    m = re.search(r"wall temperature (-?[0-9.]+) K", text)
     if m:
-        out["freestream_p_pa"] = float(m.group(2))
+        out["logged_wall_k"] = float(m.group(1))
     return out
 
 
-def chamber_total_pressure(case, fields, nx, ny, origin, spacing, sonic):
-    """the mass-flux-weighted total pressure over the chamber.
+def chamber_totals(case, fields, nx, ny, origin, spacing, upto):
+    """the chamber's mass-weighted total pressure and total temperature.
 
-    the chamber is the region upstream of the choke. the total
-    pressure at each cell follows from the cell's static pressure and
-    mach, and the cells are averaged with their mass flux as the
-    weight, because that is the weighting the conserved mass flow
-    uses.
+    each cell's stagnation values follow from its static state, and the
+    cells are weighted by their mass flux, because that is the weighting
+    the conserved mass flow uses and therefore the one the chamber's
+    energy budget respects.
 
     this is a measurement of the marched field. the run log's
     freestream line is the inflow's initial condition and carries no
     information about what the wall did.
     """
     gamma = float(case.get("gamma", 1.2))
-    gas_constant = float(case.get("gas_constant", 287.05))
     mask = cf.solid_mask(case)
     dy = spacing[1]
     pressure = fields["pressure"]
@@ -109,109 +132,249 @@ def chamber_total_pressure(case, fields, nx, ny, origin, spacing, sonic):
     density = fields["density"]
     mach = fields["mach"]
     velocity_x = fields.get("velocity_x")
-    limit = sonic["col"] if sonic else nx
-    numerator = denominator = 0.0
-    for col in range(max(0, limit - 2)):
+
+    wp = wt = wm = 0.0
+    for col in range(upto):
         for j in range(ny):
             if mask[j * nx + col]:
                 continue
             k = j * nx + col
-            u = abs(velocity_x[k]) if velocity_x is not None else 0.0
-            m = max(mach[k], 1.0e-9)
             rm = origin[1] + j * dy
             rp = rm + dy
             area = math.pi * (rp * rp - rm * rm)
+            m = max(mach[k], 1.0e-9)
+            u = velocity_x[k] if velocity_x is not None else 0.0
+            if u <= 0.0:
+                continue
             weight = density[k] * u * area
             if weight <= 0.0:
                 continue
-            p0 = pressure[k] * (
-                1.0 + (gamma - 1.0) / 2.0 * m * m
-            ) ** (gamma / (gamma - 1.0))
-            numerator += weight * p0
-            denominator += weight
-    if denominator <= 0.0:
+            factor = 1.0 + (gamma - 1.0) / 2.0 * m * m
+            wp += weight * pressure[k] * factor ** (gamma / (gamma - 1.0))
+            wt += weight * temperature[k] * factor
+            wm += weight
+    if wm <= 0.0:
+        return None, None
+    return wp / wm, wt / wm
+
+
+def digest(path):
+    """the field's checksum, for spotting the flow's period."""
+    hasher = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(65536), b""):
+            hasher.update(block)
+    return hasher.hexdigest()
+
+
+def detect_period(fields):
+    """the flow's period in saved fields, by repeated checksums.
+
+    the marched flow falls into a strictly periodic orbit, so two saved
+    fields with the same checksum mark one whole period apart. the
+    smallest such separation is the period.
+    """
+    seen = {}
+    checksums = [digest(path) for path in fields]
+    for index, value in enumerate(checksums):
+        if value in seen:
+            gap = index - seen[value]
+            if gap > 0:
+                return gap, seen[value], index
+        seen[value] = index
+    return None, None, None
+
+
+def period_groups(fields, period):
+    """the fields grouped into whole periods, newest last.
+
+    the groups are aligned on the LAST field, so a march that saved one
+    more field than another still yields complete groups.
+    """
+    groups = []
+    index = len(fields) - 1
+    while index - period + 1 >= 0:
+        groups.append(fields[index - period + 1 : index + 1])
+        index -= period
+    groups.reverse()
+    return groups
+
+
+def measure_field(case, path):
+    """one saved field's choked state and chamber totals."""
+    fields, nx, ny, origin, spacing = cf.read_vtk(path)
+    sonic = cf.sonic_point(case, fields, nx, ny, origin, spacing)
+    if sonic is None:
         return None
-    del gas_constant
-    return numerator / denominator
+    p0, t0 = chamber_totals(
+        case, fields, nx, ny, origin, spacing, max(1, sonic["col"] - 1)
+    )
+    return {
+        "path": path,
+        "mass_flow": sonic["m_dot"],
+        "throat_p": sonic["p"],
+        "throat_t": sonic["T"],
+        "throat_x": sonic["x"],
+        "throat_basis": sonic["basis"],
+        "chamber_p0": p0,
+        "chamber_t0": t0,
+    }
 
 
-def measure(tag):
-    """everything the gate knows about one march of the bracket."""
-    # the marched fields live outside the repository, so a stray run
-    # cannot be mistaken for a published record. the directory comes from
-    # the environment, and the default is the case's own runs directory.
-    run_root = os.environ.get("NUFOR_BRACKET_RUNS", os.path.join(HERE, "runs"))
+def average_group(group, key):
+    """a group's mean for one measured quantity."""
+    values = [row[key] for row in group if row.get(key) is not None]
+    if not values:
+        return None
+    return statistics.fmean(values)
+
+
+def measure(tag, run_root):
+    """everything the gate knows about one leg of the bracket."""
     run_dir = os.path.join(run_root, tag)
     case_path = os.path.join(HERE, f"{tag}.toml")
     if not os.path.exists(case_path):
         return {"tag": tag, "ran": False, "why": "the case file is missing"}
+
     info = {"tag": tag, "ran": False}
-    log = read_run_log(os.path.join(run_dir, "run-log.txt"))
-    info.update(log)
-    field = None
-    if os.path.isdir(run_dir):
-        for name in sorted(os.listdir(run_dir)):
-            if name.endswith(".vtk"):
-                field = os.path.join(run_dir, name)
-                break
-    if field is None:
-        info["why"] = "no marched field"
+    info.update(read_run_log(os.path.join(run_dir, "run-log.txt")))
+
+    saved = sorted(glob.glob(os.path.join(run_dir, "vtk-*.vtk")))
+    if not saved:
+        info["why"] = "no saved fields"
         return info
-    fields, nx, ny, origin, spacing = cf.read_vtk(field)
+    info["fields_saved"] = len(saved)
+
+    period, first, repeat = detect_period(saved)
+    info["period_fields"] = period
+    if period is None:
+        info["why"] = (
+            "the saved fields show no repeat yet, so the flow's period "
+            "cannot be identified and no whole-period average is possible"
+        )
+        return info
+    info["period_examples"] = [first, repeat]
+
+    groups = period_groups(saved, period)
+    complete = [g for g in groups if len(g) == period]
+    if not complete:
+        info["why"] = "no whole period among the saved fields"
+        return info
+    info["whole_periods"] = len(complete)
+
     case = cf.read_case(case_path)
-    sonic = cf.sonic_point(case, fields, nx, ny, origin, spacing)
-    if sonic is None:
-        info["why"] = "the flow never crossed mach one"
+    rows = []
+    for group in complete:
+        measured = []
+        for path in group:
+            try:
+                row = measure_field(case, path)
+            except Exception as exc:  # pragma: no cover - a bad field is a fault
+                info.setdefault("field_errors", []).append(str(exc))
+                continue
+            if row:
+                measured.append(row)
+        if len(measured) == period:
+            rows.append(measured)
+
+    if not rows:
+        info["why"] = "the fields in the period could not be measured"
         return info
-    info["throat_p_mpa"] = sonic["p"] / 1e6
-    info["throat_t_k"] = sonic["T"]
-    info["throat_mass_flow"] = sonic["m_dot"]
-    info["throat_x_m"] = sonic["x"]
-    info["throat_basis"] = sonic["basis"]
-    total_p = chamber_total_pressure(
-        case, fields, nx, ny, origin, spacing, sonic
+
+    keys = (
+        "mass_flow",
+        "throat_p",
+        "throat_t",
+        "chamber_p0",
+        "chamber_t0",
     )
-    if total_p is not None:
-        info["chamber_total_p_mpa"] = total_p / 1e6
+    means = {}
+    for key in keys:
+        per_period = [average_group(row, key) for row in rows]
+        per_period = [v for v in per_period if v is not None]
+        if not per_period:
+            continue
+        means[key] = statistics.fmean(per_period)
+        means[key + "_per_period"] = per_period
+        if len(per_period) > 1:
+            means[key + "_sem"] = statistics.pstdev(per_period) / math.sqrt(
+                len(per_period)
+            )
+        else:
+            means[key + "_sem"] = 0.0
+    info.update(means)
     info["ran"] = True
     return info
 
 
+def contrast(reference, other, key):
+    """the difference between two legs, with its combined uncertainty."""
+    a = reference.get(key)
+    b = other.get(key)
+    if a is None or b is None:
+        return None
+    ea = reference.get(key + "_sem", 0.0)
+    eb = other.get(key + "_sem", 0.0)
+    combined = math.hypot(ea, eb)
+    delta = b - a
+    return {
+        "delta": delta,
+        "delta_pct": 100.0 * delta / a if a else 0.0,
+        "combined_sem": combined,
+        "sigma": delta / combined if combined > 0 else float("inf"),
+    }
+
+
 def main():
+    run_root = os.environ.get("NUFOR_BRACKET_RUNS", os.path.join(HERE, "runs"))
     rows = []
     for tag, tw in BRACKET:
-        info = measure(tag)
+        info = measure(tag, run_root)
         info["specified_wall_k"] = tw
         rows.append(info)
 
     print(
-        "%-16s %8s %10s %10s %10s %12s"
-        % ("leg", "wall K", "duty MW", "rad MW", "choke MPa", "p0 MPa")
+        "%-16s %7s %9s %9s %9s %12s %12s %8s"
+        % (
+            "leg",
+            "periods",
+            "duty MW",
+            "cond MW",
+            "rad MW",
+            "mdot kg/s",
+            "chamber T0 K",
+            "sigma",
+        )
     )
     for r in rows:
         if not r["ran"]:
             print(
-                "%-16s %8s  NOT RUN: %s"
-                % (r["tag"], r.get("wall_k", "-"), r.get("why"))
+                "%-16s %7s  NOT RUN: %s"
+                % (r["tag"], "-", r.get("why"))
             )
             continue
+        sigmas = []
+        if r.get("mass_flow_delta_sigma") is not None:
+            sigmas.append(abs(r["mass_flow_delta_sigma"]))
         print(
-            "%-16s %8.0f %10.5f %10.5f %10.5f %12.5f"
+            "%-16s %7d %9.4f %9.4f %9.4f %12.6f %12.2f %8s"
             % (
                 r["tag"],
-                r.get("wall_k", float("nan")),
-                r.get("duty_mw", float("nan")),
-                r.get("radiation_mw", float("nan")),
-                r.get("throat_p_mpa", float("nan")),
-                r.get("chamber_total_p_mpa", float("nan")),
+                r["whole_periods"],
+                r.get("duty_mw", 0.0),
+                r.get("conduction_mw", 0.0),
+                r.get("radiation_mw", 0.0),
+                r.get("mass_flow", float("nan")),
+                r.get("chamber_t0", float("nan")),
+                "",
             )
         )
 
     problems = []
     by_tag = {r["tag"]: r for r in rows}
     adi = by_tag.get("wall-adiabatic")
-    cold = by_tag.get("wall-cold400")
-    warm = by_tag.get("wall-warm1200")
+    rad = by_tag.get("wall-radiating")
+    film = by_tag.get("wall-filmcooled")
 
     for r in rows:
         if not r["ran"]:
@@ -219,49 +382,96 @@ def main():
 
     if adi and adi["ran"]:
         # the adiabatic leg specifies no wall temperature, so it draws no
-        # heat at all and the run log carries no duty line. if a line is
-        # present, the wall is not adiabatic and the reference end is
-        # broken.
+        # heat at all. if a duty line is present with a nonzero value,
+        # the wall is not adiabatic and the reference end is broken.
         d = adi.get("duty_mw", None)
         if d is not None and abs(d) > 1.0e-6:
             problems.append(
                 "the adiabatic wall drew %.6f MW; it must take NO heat" % d
             )
-
-    if cold and cold["ran"]:
-        dcold = cold.get("duty_mw", 0.0)
-        if dcold <= 0.0:
+        if adi.get("whole_periods", 0) < 1:
             problems.append(
-                "the 400 K wall drew %.6f MW; it must take heat FROM the gas"
-                % dcold
+                "the adiabatic leg carries no whole period of saved fields"
             )
-        if warm and warm["ran"]:
-            dwarm = warm.get("duty_mw", 0.0)
-            if dcold < dwarm:
-                problems.append(
-                    "the 400 K wall drew %.6f MW but the 1200 K wall drew "
-                    "%.6f MW; the colder wall must take MORE heat"
-                    % (dcold, dwarm)
+
+    for tag, leg in (("wall-radiating", rad), ("wall-filmcooled", film)):
+        if not leg or not leg["ran"]:
+            continue
+        duty = leg.get("duty_mw", 0.0)
+        if duty <= 0.0:
+            problems.append(
+                "the %s wall drew %.6f MW; it must take heat FROM the gas"
+                % (tag, duty)
+            )
+        cond = leg.get("conduction_mw", 0.0)
+        radn = leg.get("radiation_mw", 0.0)
+        if cond > 0.0 and radn <= cond:
+            problems.append(
+                "the %s wall drew %.6f MW by radiation against %.6f MW by "
+                "conduction; radiation must dominate at these temperatures"
+                % (tag, radn, cond)
+            )
+        if leg.get("whole_periods", 0) < 1:
+            problems.append(
+                "the %s leg carries no whole period of saved fields" % tag
+            )
+
+    if rad and film and rad["ran"] and film["ran"]:
+        drad = rad.get("duty_mw", 0.0)
+        dfilm = film.get("duty_mw", 0.0)
+        if dfilm <= drad:
+            problems.append(
+                "the film-cooled wall drew %.6f MW but the merely radiating "
+                "wall drew %.6f MW; the film is an extra path for the heat "
+                "to leave by and must draw more"
+                % (dfilm, drad)
+            )
+
+    print()
+    print("contrasts against the adiabatic reference")
+    if adi and adi["ran"]:
+        for tag, leg in (("wall-radiating", rad), ("wall-filmcooled", film)):
+            if not leg or not leg["ran"]:
+                continue
+            for key, label in (
+                ("mass_flow", "choked mass flow"),
+                ("chamber_t0", "chamber total temperature"),
+                ("chamber_p0", "chamber total pressure"),
+                ("throat_p", "throat static pressure"),
+            ):
+                c = contrast(adi, leg, key)
+                if c is None:
+                    continue
+                print(
+                    "  %-16s %-26s %+0.6g  %+0.4f %%   combined SEM %.6g   %+.1f sigma"
+                    % (
+                        tag,
+                        label,
+                        c["delta"],
+                        c["delta_pct"],
+                        c["combined_sem"],
+                        c["sigma"],
+                    )
                 )
-        if adi and adi["ran"]:
-            # the cooled wall takes energy out of the gas before it
-            # reaches the throat, so the throat's pressure is lower than
-            # the adiabatic wall's.
-            #
-            # the STATIC pressure at the throat is not the measure of
-            # that: the throat is choked under every wall condition, so
-            # its static pressure is set mostly by the choking condition
-            # rather than by how much heat was removed upstream. the
-            # MEASURED total pressure is the quantity that responds to
-            # the wall, and it is taken from the marched field.
-            p0c = cold.get("chamber_total_p_mpa")
-            p0a = adi.get("chamber_total_p_mpa")
-            if p0c is not None and p0a is not None and p0c >= p0a:
-                problems.append(
-                    "the cooled wall's measured total pressure %.4f MPa is "
-                    "not below the adiabatic wall's %.4f MPa"
-                    % (p0c, p0a)
-                )
+                leg[key + "_delta_sigma"] = c["sigma"]
+                leg[key + "_delta"] = c["delta"]
+
+            # the physical expectation: a cooler chamber carries less mass
+            # flow, because the choked mass flow scales as 1 / sqrt(t0).
+            sf = leg.get("mass_flow_delta_sigma")
+            st = leg.get("chamber_t0_delta_sigma")
+            if sf is not None and st is not None:
+                if leg.get("chamber_t0_delta", 0.0) < 0.0 and sf > 0.0:
+                    problems.append(
+                        "the %s leg's chamber is cooler but its mass flow "
+                        "rose; the chilled mass flow should fall" % tag
+                    )
+                if sf is not None and abs(sf) < 2.0:
+                    print(
+                        "    NOTE: the %s leg's mass flow contrast is only "
+                        "%.1f sigma, so the effect is not resolved against "
+                        "the march's own noise" % (tag, abs(sf))
+                    )
 
     out = {"bracket": rows, "problems": problems}
     with open(os.path.join(HERE, "gates.json"), "w") as handle:

@@ -70,8 +70,8 @@ cfl = 0.3
 threads = 4
 
 [time]
-final_time = 0.0005
-max_steps = 6000
+final_time = 0.00105
+max_steps = 10000
 
 [output]
 formats = ["vtk"]
