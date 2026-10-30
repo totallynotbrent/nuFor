@@ -65,7 +65,9 @@ wall duty: 0.8985 MW total leaving the gas into a 400 K wall
   film       0.4147 MW
 ```
 
-Radiation dominates at these temperatures, by about four times over
+These figures come from the march before the defect described below was
+fixed, and they are kept here as the record of what the run reported, not
+as the bracket's result. Radiation dominates at these temperatures, by about four times over
 conduction, and the film term exceeds conduction. Bucketing by station
 also matters, because the duty is not spread evenly: the contraction and
 the bell dominate it, and the chamber's shoulder hardly contributes.
@@ -135,20 +137,44 @@ An orbit that is periodic without having quite closed shows no repeated
 checksum, so the period is then found from the observable's own
 recurrence. The checker records which of the two criteria supplied it.
 
-## What this does not settle
+## A defect the bracket found
 
-The viscosity here is a constant. A real engine's liner has a boundary
-layer that grows through the contraction and the bell, and the wall's
-roughness and film cooling change the effective heat transfer by a lot
-more than the wall's bulk temperature does.
+The first two-period pass measured a contradiction. The wall reported
+removing 0.8985 MW from the gas, while the chamber's bulk temperature
+registered about 4.6 kW of it, a shortfall of roughly two hundredfold.
+Oblique projection of the wall normal explained only about twofold of
+that, so the projection was not the whole story.
 
-The bracket's measured result is not published here yet. An exploratory
-pass showed the wall's reported duty exceeding the energy the chamber's
-bulk temperature registered by roughly two hundredfold, which the
-oblique projection of the wall normal explains only about twofold. That
-gap is under investigation, and publishing a wall-effect magnitude
-derived from a duty whose coupling to the fluid is in doubt would be
-publishing a number the solver does not earn.
+The cause was an indexing error in the viscous axisymmetric lane. The
+radial face quantities are laid out with a column stride, one block of
+radial faces per column, and the radial divergence was reading the
+first column's block for every column. A wall's heat flux was therefore
+spent on the gas above the inlet rather than the gas under that wall.
+The reported duty stayed believable because the diagnostic integrates
+the same wall faces the solver assembles. Only the gas disagreed.
+
+The fix reaches into the block belonging to the column being updated.
+A test carries a walled shelf in the middle of a mesh and asks whether
+the gas above the shelf feels the shelf's temperature. Without the fix
+that gas responds not at all, because the shelf's flux never reaches it.
+The test fails against the old indexing and passes against the new one,
+so it guards the behaviour rather than restating the code.
+
+Every leg measured before the fix describes a defective solver and is
+being remarched. The numbers in this page come from the remarch.
+
+## How the wall's effect is seen
+
+The wall's duty is what the solver claims to have removed. Whether the
+gas agrees is a separate question, and it is answered on the gas
+directly: the temperature in the cells that touch the wall, averaged
+over a whole flow period, compared against the adiabatic leg's.
+
+Comparing single fields between two marches is useless here. The
+chamber's periodic motion swings the per-column difference by more than
+a hundred kelvin in both directions between two arbitrary phases of
+otherwise equivalent legs. Averaging over the flow period removes the
+phase and leaves the leg's own difference.
 
 ## What this does not settle
 
