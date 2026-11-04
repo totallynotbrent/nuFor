@@ -392,8 +392,10 @@ flowchart LR
   self-contained, inspectable, and honest about its envelope.
 
 Open research items, worked when they block a milestone rather than on
-a schedule: LTS (local time stepping) convergence, and the near-wall
-u+ odd-even checkerboard from the grid-convergence study.
+a schedule: the near-wall u+ odd-even checkerboard from the
+grid-convergence study (quantified by the `uplus_metric` second-difference
+score: 0 monotone, 1 pure alternating), and the coupling of the
+finite-volume feed-system tanks (`feed_system`) to a chamber march.
 
 ## The case workflow
 

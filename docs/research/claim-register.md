@@ -66,9 +66,9 @@ Published in `research/results.md` and the catalytic-walls page.
 | the monotonicity across that ladder | the peak grows with the accommodation | the gate in the case directory | gated |
 | the conductance the march uses | the Wilke mixture of the RP-1232 species conductivities, varying with temperature and composition | `crates/nufor-core/src/species_props.rs` | measured |
 | the earlier constant-conductance claim | withdrawn, the species lane has no constant conductance | this review | withdrawn |
-| continuum validity near the wall | gradient length Knudsen number up to 1089, about 10 percent of cells above the threshold | the continuum probe | measured |
+| continuum validity near the wall | gradient-length Knudsen peak 937 on the fine 400x200 grid, 134 on the coarse 200x100 grid; 10.1 and 11.3 percent of cells above the breakdown threshold respectively | the continuum probe at two resolutions | measured |
 | the earlier boundary-cell attribution | withdrawn, the hot region is smooth over several cells | this review | withdrawn |
-| cause of the withheld peak | the flow at the wall is out of the continuum range, so the wall flux is not a continuum quantity there | the continuum probe | diagnosed |
+| cause of the withheld peak | the wall flow is out of the continuum range; halving the cell in each direction drops the peak Kn sevenfold and the peak flux from 4.89 to 1.23 MW/m2, so resolution moves the number but does not clear the threshold | the continuum probe at two resolutions | diagnosed |
 
 The earlier 0.240 and 1.216 MW/m^2 pair came from a reporter that recomputed
 the physics outside the march, with a closure temperature the march never
@@ -107,7 +107,7 @@ Published in `research/results.md` and the five-species page.
 | stagnation-line peak T | 15.3 kK | same | gated |
 | stagnation-line N mole fraction | 0.34 | same | gated |
 | peak N mass fraction | 0.50 | same | gated |
-| drag from the pressure integral | not citable | same | provisional |
+| drag from the pressure integral | Cd = 1.904 reacting (fully catalytic eta=1), 2.431 non-catalytic, integrated over the fluid-solid interface faces of the committed 400x200 VTKs | `cases/cylinder-m20-park5-visc/drag_report.py` | measured |
 | far field the run flies | 220.0 K, 0.890 Pa, Mach 20.00 | the gate in the case directory | gated |
 | far field the case declares | 220 K, 0.89 Pa, Mach 20 | `cases/cylinder-m20-park5/case.toml` | declared |
 
@@ -152,6 +152,7 @@ Published in `numerics/2d/spatial-chemistry.md`.
 | least-positive species fraction after the step | 0.0045 | same | gated |
 | worst cell composition-sum error | 3.775e-15 | same | gated |
 | nine-species scheme through the same interface | accepted unchanged | `chem_spatial` core tests | gated |
+| li-2004 <-> gri30 conversion by species symbol | lifts all 9 fractions losslessly and rejects restriction when gri-only mass is present; the index table is asserted against the generated gri names | `chem_convert` core tests | gated |
 
 The gate measures the public composition and transport path with a real
 GRI-Mech 3.0 composition. Finite-rate GRI-Mech chemistry is not yet coupled
@@ -183,6 +184,17 @@ Published in `numerics/2d/spatial-selection.md`.
 
 Freezing is on the state vector only; rates still see all 53 species.
 
+## Feed-system tanks
+
+Not in a marched case yet; the module and its conservation contracts are
+gated, the coupling to a chamber march is the open seam.
+
+| claim | value | source | state |
+|---|---|---|---|
+| choked blowdown step mass | equals the choked-nozzle flux times area times dt | `feed_system` core tests | gated |
+| polytropic invariant p/rho^n | preserved to 1e-9 relative over 100 steps | same | gated |
+| drawn-mass accounting | sum of m_dot*dt equals the tank level drop to 1e-9 | same | gated |
+
 ## Threaded slab-parallel chemistry
 
 | claim | value | source | state |
@@ -190,6 +202,7 @@ Freezing is on the state vector only; rates still see all 53 species.
 | slab-parallel selected source over 257 cells x 53 species matches serial bitwise | 13,621 of 13,621 entries, zero differing | `crates/nufor-core/examples/par_slabs_gate.rs` | gated |
 | worst composition-sum drift after threaded pass | 1.11e-16 | same | gated |
 | slabs | 4 on 4 threads, contiguous partition | same | gated |
+| mpi slab layout carve/assemble | round trips a row-major field identically across uneven rank splits, and the 4-field interleaved pack used by the broadcast unpacks losslessly | `partition` core tests | gated |
 
 Valid because per-cell chemistry depends only on the cell's own state;
 each thread advances a disjoint slab and the union equals the serial run.
@@ -202,6 +215,7 @@ each thread advances a disjoint slab and the union equals the serial run.
 | thrust coefficient Cf | 1.102 (vs chamber p0 * throat area) | same | gated |
 | specific impulse | 264 s | same | gated |
 | exit flux Mach | 1.68, supersonic | same | gated |
+| marched minimum throat area vs contour pi*r_throat^2 | 1.2566e-3 vs 1.3338e-3 m2, a 5.79 percent deficit from staircase-cut faces on the 110x40 grid | `cases/chamber-throat/settled/profile.csv` against the case contour | measured |
 
 ## Blown-in film injection
 
