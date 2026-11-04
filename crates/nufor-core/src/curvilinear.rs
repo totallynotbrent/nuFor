@@ -279,9 +279,9 @@ pub fn advance2d_axi_curv(
         } else if !(state.e[k].is_finite()) || state.e[k] < 0.0 {
             // negative/non-finite energy without a bad density: floor the
             // internal part at the closure floor, keep the momentum.
-            let ke = 0.5 * (state.mx[k] * state.mx[k] + state.my[k] * state.my[k])
-                / state.rho[k].max(1e-12);
-            state.e[k] = state.rho[k].max(1e-12) * (ke + 1.0e4);
+            let rho = state.rho[k].max(1e-12);
+            let ke = crate::state2d::specific_kinetic_energy(rho, state.mx[k], state.my[k]);
+            state.e[k] = rho * (ke + 1.0e4);
         }
     }
     let (u, v, et) = crate::state2d::cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
@@ -629,11 +629,11 @@ pub fn advance2d_axi_curv(
                 state.mx[k] = 0.0;
                 state.my[k] = 0.0;
             }
-            let ke_k = 0.5 * (state.mx[k] * state.mx[k] + state.my[k] * state.my[k])
-                / state.rho[k].max(1e-12);
-            let et_k = state.e[k] / state.rho[k].max(1e-12);
+            let rho = state.rho[k].max(1e-12);
+            let ke_k = crate::state2d::specific_kinetic_energy(rho, state.mx[k], state.my[k]);
+            let et_k = state.e[k] / rho;
             if et_k - ke_k < 1.0e4 {
-                state.e[k] = state.rho[k].max(1e-12) * (ke_k + 1.0e4);
+                state.e[k] = rho * (ke_k + 1.0e4);
             }
             resid = resid
                 .max(fmass.abs())

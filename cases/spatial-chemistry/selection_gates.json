@@ -1,0 +1,35 @@
+{
+  "tag": "spatial-selection",
+  "measured": {
+    "cells": 5,
+    "horizon_s": 5e-06,
+    "mean_active_species": 7.6,
+    "min_active_species": 7,
+    "max_active_species": 8,
+    "dense_refusals": 0,
+    "selected_refusals": 0,
+    "worst_major_relative_divergence": 7.063004492049755e-08,
+    "worst_temperature_relative_divergence": 7.259641840646485e-05,
+    "temperatures_before_k": [
+      1200.0,
+      1350.0,
+      1400.0,
+      1600.0,
+      900.0
+    ],
+    "temperatures_after_k": [
+      1199.999411735516,
+      1349.9918737621035,
+      1399.9775582551017,
+      1600.1161542697062,
+      899.9999997546931
+    ]
+  },
+  "checks": {
+    "selection_actually_shrunk_the_set": true,
+    "no_steps_refused_on_either_side": true,
+    "major_species_track_the_dense_reference": true,
+    "temperature_tracks_the_dense_reference": true
+  },
+  "passed": true
+}

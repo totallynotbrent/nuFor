@@ -177,13 +177,17 @@ capsule case at two resolutions:
 The outcome: at 160 cells the run completes but over-reads the
 surface; at 640 it destroys the field within 700 steps, with more than
 ten thousand negative densities along the flank and the wake cut band.
-The C_A gap does not close through this implementation, and the honest
-number remains the staircase C_A of about 0.256, flat across the 320,
-640, and 1280 runs, so that bias is systematic rather than a
-resolution artifact. The next step is a wall-local scheme that keeps
-the shock layer out of the averaging, multi-level flux redistribution
-or an h-box method, and that is research now, not a configuration
-change to the current scheme.
+The C_A gap did not close through the plain cut-cell march: the honest
+staircase C_A of about 0.256 stayed flat across the 320, 640, and 1280
+runs, so the bias was systematic rather than a resolution artifact. The
+follow-ups landed after this passage was written: the h-box donor cap
+keeps the redistribution pool inside the 1 to 2 cell post-shock layer
+(`hbox_redist`), and the supersonic wall now uses the exact slip flux
+instead of the mirror HHLL pair, whose star pressure scaled with
+freestream Mach (pump ratio 1517x at Mach 22 unfixed, exactly 1.0 with
+the branch; `cases/wallpump/gate.json`). The Mach 22 capsule case peaks
+at 822 Pa against the Rayleigh-pitot 624 Pa, ratio 1.32, down from the
+roughly 2x-physical defect (`cases/capsule-peak-q/gate-mach22-fixed.json`).
 
 ## Conservation
 

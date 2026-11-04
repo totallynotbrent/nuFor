@@ -63,7 +63,13 @@ Every milestone closes against an analytical or benchmark case, tracked on the
 - [[numerics/2d/turbulent-plate|Turbulent flat plate]] - the SA layer at correlation Reynolds numbers
 - [[numerics/2d/supersonic-cylinder|Supersonic cylinder]] - the detached bow shock
 - [[numerics/2d/combustion|H2/O2 combustion]] - the nine-species reacting lane, gated against CEA
+- [[numerics/2d/gri30-chemistry|GRI-Mech 3.0 chemistry]] - the 53-species methane mechanism, checked against Cantera reaction by reaction and marched to a matching flame temperature
+- [[numerics/2d/spatial-chemistry|Scheme-width spatial chemistry]] - a 53-species composition carried through conservative transport beside the nine-species lane
+- [[numerics/2d/spatial-reactions|Finite-rate reactions on a spatial composition]] - GRI-Mech source terms per cell, matched to the 0-D reactor to 7e-12
+- [[numerics/2d/spatial-selection|Per-cell reaction-set selection]] - activity-ranked masks shrink the evolved set to ~8 species while majors track the dense run to 7e-8
+- [[numerics/2d/film-injection|Blown-in film injection]] - the coolant that crosses the wall into the gas, accounted against the report
 - [[numerics/2d/chamber-throat|Chamber to throat]] - the choked nozzle in the axisymmetric combustion lane
+- [[numerics/2d/engine-wall-bracket|Engine wall bracket]] - the cold wall against the cooled wall
 - [[numerics/2d/axisymmetric|Axisymmetric Euler]] - bodies of revolution: the annular update and its geometric source
 - [[verification/axisymmetric-sphere|Axisymmetric sphere validation]] - the bow shock standoff vs Ambrosio-Wortman
 - [[aeroshell|Aeroshell cross-check]] - the capsule at peak q: CFD vs modified Newtonian

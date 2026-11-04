@@ -1,0 +1,1 @@
+{"mesh":"triangle","cells":800,"steps":494,"time":0.20031274399110102,"positive":true,"rmax":0.9999999999998452,"rmin":0.12500000000006056,"plateau_i58":0.41345882806852485,"expected_plateau":0.426,"passed":true}

@@ -218,7 +218,9 @@ across the ladder, from 3.75 to 4.89 MW/m2, and the movement is
 smooth, so a measured $\eta$ converts straight into a quoted wall heat
 flux. What it cannot establish is the absolute number, because the
 flow at the wall is out of the range where a continuum solution means
-anything.
+anything. That cutoff is the declared closure for this capability: the
+series is published as a sensitivity shape, and any absolute peak quoted
+from it is non-continuum by construction.
 
 The current state of these figures is tracked in
 [[research/claim-register|the claim register]], and the marched

@@ -1,0 +1,20 @@
+{
+  "tag": "film-injection",
+  "measured": {
+    "mass_flux_kg_per_m2_s": 5.0,
+    "adiabatic_wall_temperature_k": 0.0,
+    "chamber_mass_gain_kg": 5.026548245743675e-05,
+    "reported_mass_flow_kg_per_s": 0.050265482457436686,
+    "booked_mass_kg": 5.0265482457436686e-05,
+    "relative_mass_error": 1.2132853246549671e-15,
+    "film_area_m2": 0.01005309649148734,
+    "received_nitrogen_fraction": 0.029761904761904753
+  },
+  "checks": {
+    "the_adiabatic_wall_admitted_the_coolant": true,
+    "the_chamber_took_the_reported_coolant": true,
+    "the_film_met_a_real_area": true,
+    "the_film_brought_its_own_composition": true
+  },
+  "passed": true
+}

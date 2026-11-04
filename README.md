@@ -10,10 +10,11 @@ A CPU-first computational fluid dynamics research code built in Rust and Fortran
 > closure (CEA table + TGAS1 fits) on the hypersonic 2D paths, and an
 > MPI-parallel Fortran march for the 2D equilibrium-air cases,
 > exercised across a four-station atmospheric-entry sweep with a
-> 1280x640 anchor run. Spalart-Allmaras 3D, two-temperature
-> nonequilibrium, live five-species chemistry, and an MPI-parallel
-> Fortran march, with unstructured meshes next on the
-> [roadmap](docs/roadmap.md). Cases run from the CLI today; the web UI
+> 1280x640 anchor run. The GRI-Mech 3.0 chemistry now burns a
+> zero-dimensional parcel from a case file and matches Cantera's own
+> reactor on the settled flame state. Still ahead: two-temperature
+> nonequilibrium, spatially resolved methane flames, and unstructured
+> meshes, on the [roadmap](docs/roadmap.md). Cases run from the CLI today; the web UI
 > covers the fixed case set with field visualization, probes, and
 > CSV / VTK / HDF5 export.
 

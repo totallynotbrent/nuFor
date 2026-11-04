@@ -83,6 +83,8 @@ silently change a run.
 | `physics.reference` | table | no | rho, p, l > 0 | Nondimensionalization reference state. |
 | `physics.mu` | float | no | > 0 | Molecular dynamic viscosity; required for `rans_2d_sa`. For planar 2D euler cases, any positive value routes the run to the viscous march (see [[numerics/foundations/equilibrium-air#a-way-to-run-viscous|viscous closure]]). |
 | `physics.wall_temperature` | float | no (default 0) | >= 0 | Wall temperature in K for viscous 2D runs; 0 (or absent) means an adiabatic wall, any positive value a fixed-temperature (cold) wall. |
+| `physics.wall_emissivity` | float | no (default 0) | 0 <= epsilon <= 1 | Grey-body emissivity of the wall, for radiative heat exchange with the gas. One is a black wall. At engine temperatures radiation dominates the wall's heat load, so a wall drawn with conduction alone is not representative of a real chamber (see [[numerics/2d/engine-wall-bracket|engine wall bracket]]). Zero leaves the radiative term out. |
+| `physics.wall_film_coefficient` | float | no (default 0) | >= 0 | Film heat-transfer coefficient in W/(m² K), the actively cooled regime: the coolant flowing through the wall's channels takes energy from the gas at a rate set by this coefficient and the gas-to-wall temperature difference. Omitting it leaves the film out and the wall radiates only. |
 | `physics.pr` | float | no (default 0.72) | > 0 | Molecular Prandtl number for the heat flux. |
 | `physics.turbulence.nu_tilde_inf` | float | required with `rans_2d_sa` | > 0 | Freestream SA working variable; the usual convention is three times the molecular kinematic viscosity. |
 | `physics.turbulence.pr_t` | float | no (default 0.9) | > 0 | Turbulent Prandtl number for the eddy heat flux. |

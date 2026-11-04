@@ -1,0 +1,22 @@
+{
+  "tag": "spatial-chemistry",
+  "measured": {
+    "scheme": "gri30",
+    "species": 53,
+    "cells": 72,
+    "inlet_methane_fraction": 0.2,
+    "initial_receiver_methane_fraction": 0.005,
+    "received_methane_fraction": 0.2,
+    "transferred_methane_fraction": 0.195,
+    "maximum_composition_sum_error": 3.774758283726e-15,
+    "minimum_positive_species_fraction": 0.0045,
+    "transport_relative_update": 0.195
+  },
+  "checks": {
+    "gri30_species_count": true,
+    "methane_crossed_the_step": true,
+    "all_species_remained_present": true,
+    "composition_sum_closed": true
+  },
+  "passed": true
+}

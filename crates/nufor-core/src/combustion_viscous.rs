@@ -126,7 +126,9 @@ pub(crate) fn add_combustion_viscous(
             let div = dudx;
             let txx = mu_f * (2.0 * dudx - 2.0 / 3.0 * div);
             let txy = mu_f * dvdx;
-            let qx = k_f * dtdx;
+            // the face stores the physical fourier flux, because the
+            // update takes minus the divergence of the stored flux.
+            let qx = -k_f * dtdx;
             let rho_f = 0.5 * (state.rho[a] + state.rho[b]);
             let mut q_enth = 0.0f64;
             #[allow(clippy::needless_range_loop)]
@@ -137,7 +139,11 @@ pub(crate) fn add_combustion_viscous(
                 fdx[s][k] = js;
                 q_enth += ct::h_mass(s, 0.5 * (tr.t[a] + tr.t[b])) * js;
             }
-            fe[k] = 0.5 * (u[a] + u[b]) * txx + 0.5 * (v[a] + v[b]) * txy + qx - q_enth;
+            // the conservative energy flux is -(u.tau) + q + sum(h_s J_s):
+            // the update takes minus the divergence of this stored flux,
+            // and the diffusing mass carries its own enthalpy, so the
+            // species term joins the physical flux with a plus sign.
+            fe[k] = -(0.5 * (u[a] + u[b]) * txx + 0.5 * (v[a] + v[b]) * txy) + qx + q_enth;
             fxm[k] = txx;
             fym[k] = txy;
         }
@@ -183,7 +189,8 @@ pub(crate) fn add_combustion_viscous(
             let div = dvdy;
             let txy = mu_f * dudy;
             let tyy = mu_f * (2.0 * dvdy - 2.0 / 3.0 * div);
-            let qy = k_f * dtdy;
+            // the physical fourier flux, matching the axial faces.
+            let qy = -k_f * dtdy;
             let rho_f = 0.5 * (state.rho[a] + state.rho[b]);
             let mut q_enth = 0.0f64;
             #[allow(clippy::needless_range_loop)]
@@ -194,7 +201,7 @@ pub(crate) fn add_combustion_viscous(
                 fdy[s][k] = js;
                 q_enth += ct::h_mass(s, 0.5 * (tr.t[a] + tr.t[b])) * js;
             }
-            gye[k] = 0.5 * (u[a] + u[b]) * txy + 0.5 * (v[a] + v[b]) * tyy + qy - q_enth;
+            gye[k] = -(0.5 * (u[a] + u[b]) * txy + 0.5 * (v[a] + v[b]) * tyy) + qy + q_enth;
             gym_x[k] = txy;
             gym_y[k] = tyy;
         }
@@ -224,7 +231,10 @@ pub(crate) fn add_combustion_viscous(
         }
         gym_x[k] = txy;
         gym_y[k] = tyy;
-        gye[k] = u[a] * txy + v[a] * tyy + q;
+        // a stationary no-slip wall sees no viscous work, because the
+        // wall's own velocity vanishes, so only the conductive term rides
+        // on the wall's energy face.
+        gye[k] = q;
         // species at a no-slip wall: zero gradient (the wall neither
         // creates nor absorbs composition), the non-catalytic default.
         #[allow(clippy::needless_range_loop)]
@@ -248,8 +258,14 @@ pub(crate) fn add_combustion_viscous(
             let kfx_w = i * ny + j;
             let kfy_n = i * (ny + 1) + j + 1;
             let kfy_s = i * (ny + 1) + j;
-            let dmx = -(dxi * (fxm[kfx_e] - fxm[kfx_w]) + dyi * (gym_x[kfy_n] - gym_x[kfy_s]));
-            let dmy = -(dxi * (fym[kfx_e] - fym[kfx_w]) + dyi * (gym_y[kfy_n] - gym_y[kfy_s]));
+            // the momentum's viscous increment is the DIVERGENCE of the
+            // viscous stress, so a streamline next to a no-slip wall loses
+            // momentum to the wall's drag instead of gaining it.
+            let dmx = dxi * (fxm[kfx_e] - fxm[kfx_w]) + dyi * (gym_x[kfy_n] - gym_x[kfy_s]);
+            let dmy = dxi * (fym[kfx_e] - fym[kfx_w]) + dyi * (gym_y[kfy_n] - gym_y[kfy_s]);
+            // the energy's viscous increment is the MINUS divergence of
+            // the stored energy flux, because that flux already carries
+            // the fourier term with its physical sign.
             let de = -(dxi * (fe[kfx_e] - fe[kfx_w]) + dyi * (gye[kfy_n] - gye[kfy_s]));
             state.mx[k] += dt * dmx;
             state.my[k] += dt * dmy;
@@ -377,6 +393,199 @@ mod tests {
             assert!((s1.e[k] - st.e[k]).abs() / st.e[k] < 1e-12, "energy moved");
             assert!((s1.mx[k] - st.mx[k]).abs() < 1e-9, "momentum moved");
         }
+    }
+
+    /// conduction must RELAX a hot spot, not amplify it.
+    ///
+    /// a hot cell beside a colder one bleeds energy into it by
+    /// diffusion. a viscous pass that drove the flux the other way
+    /// would sharpen the contrast every step, which is what an
+    /// upside-down fourier sign does.
+    #[test]
+    fn conduction_relaxes_a_hot_spot() {
+        let (nx, ny) = (8, 8);
+        let g = crate::grid2d::grid2d(nx, ny, 0.0, 0.08, 0.0, 0.08).unwrap();
+        let rho = 12.64f64;
+        let p = 7.0e6f64;
+        let e_int = crate::combustion_march::h2o2_ic_energy(rho, p);
+        let n = nx * ny;
+        let mut st = ConservedState2d {
+            rho: vec![rho; n],
+            mx: vec![0.0; n],
+            my: vec![0.0; n],
+            e: vec![rho * e_int; n],
+        };
+        let hot = 4 * ny + 4;
+        let cold = 4 * ny + 5;
+        st.e[hot] = rho * e_int * 1.05;
+        st.e[cold] = rho * e_int * 0.95;
+        let sp = CombustionState::stoich_h2o2(n);
+        let tr = combustion_transport(&st, &sp, &g).unwrap();
+        let mut s1 = st.clone();
+        let mut y1 = sp.clone();
+        let bc = Boundaries2d {
+            west: crate::solver2d::Bc2d::Transmissive,
+            east: crate::solver2d::Bc2d::Transmissive,
+            south: crate::solver2d::Bc2d::Transmissive,
+            north: crate::solver2d::Bc2d::Transmissive,
+        };
+        add_combustion_viscous(
+            &mut s1,
+            &mut y1,
+            &g,
+            &tr,
+            1.0e-6,
+            &bc,
+            CombustionWallOpts { temperature: 0.0 },
+        )
+        .unwrap();
+        let hot_change = s1.e[hot] - st.e[hot];
+        let cold_change = s1.e[cold] - st.e[cold];
+        assert!(
+            hot_change < cold_change,
+            "conduction amplified the spot: the hot cell changed by {hot_change} and the cold one by {cold_change}"
+        );
+        assert!(hot_change < 0.0, "the hot cell gained energy: {hot_change}");
+    }
+
+    /// wall shear must DISSIPATE momentum, not inflate it.
+    ///
+    /// a stream flowing between two no-slip walls slows down, because
+    /// the wall drags on the fluid. a viscous pass whose stress term
+    /// entered with the wrong sign would accelerate the stream
+    /// instead, and the error hides behind a converging-looking
+    /// residual until the flow blows up.
+    #[test]
+    fn wall_shear_damps_the_stream_momentum() {
+        let (nx, ny) = (8, 8);
+        let g = crate::grid2d::grid2d(nx, ny, 0.0, 0.08, 0.0, 0.08).unwrap();
+        let rho = 12.64f64;
+        let u = 100.0f64;
+        let p = 7.0e6f64;
+        let e_int = crate::combustion_march::h2o2_ic_energy(rho, p);
+        let n = nx * ny;
+        let st = ConservedState2d {
+            rho: vec![rho; n],
+            mx: vec![rho * u; n],
+            my: vec![0.0; n],
+            e: vec![rho * (e_int + 0.5 * u * u); n],
+        };
+        let sp = CombustionState::stoich_h2o2(n);
+        let tr = combustion_transport(&st, &sp, &g).unwrap();
+        let mut s1 = st.clone();
+        let mut y1 = sp.clone();
+        let bc = Boundaries2d {
+            west: crate::solver2d::Bc2d::NoSlipWall,
+            east: crate::solver2d::Bc2d::NoSlipWall,
+            south: crate::solver2d::Bc2d::NoSlipWall,
+            north: crate::solver2d::Bc2d::NoSlipWall,
+        };
+        add_combustion_viscous(
+            &mut s1,
+            &mut y1,
+            &g,
+            &tr,
+            1.0e-6,
+            &bc,
+            CombustionWallOpts { temperature: 0.0 },
+        )
+        .unwrap();
+        let before: f64 = st.mx.iter().sum();
+        let after: f64 = s1.mx.iter().sum();
+        assert!(
+            after < before,
+            "the wall accelerated the stream: {after} against {before}"
+        );
+    }
+
+    /// a viscous pass over an adiabatic closed box must conserve the
+    /// TOTAL energy.
+    ///
+    /// the strain in the shear layers lowers the kinetic energy and
+    /// heats the gas by the same amount, and a stationary no-slip wall
+    /// does no work on the fluid. so the sum of the cells' total energy
+    /// densities may not change. a viscous-work or fourier term booked
+    /// with the wrong sign moves that balance instead.
+    #[test]
+    fn the_viscous_pass_conserves_total_energy() {
+        let (nx, ny) = (8, 8);
+        let g = crate::grid2d::grid2d(nx, ny, 0.0, 0.08, 0.0, 0.08).unwrap();
+        let rho = 12.64f64;
+        let p = 7.0e6f64;
+        let n = nx * ny;
+        let e_int = crate::combustion_march::h2o2_ic_energy(rho, p);
+        // a sheared velocity profile, so the viscous stress really works.
+        let mut mx = vec![0.0; n];
+        let mut my = vec![0.0; n];
+        for j in 0..ny {
+            let yfrac = j as f64 / (ny - 1) as f64;
+            for i in 0..nx {
+                let k = j * nx + i;
+                mx[k] = rho * 100.0 * (1.0 - (2.0 * yfrac - 1.0).powi(2));
+                my[k] = rho * 20.0 * (yfrac - 0.5);
+            }
+        }
+        let ke = |mxv: &[f64], myv: &[f64], k: usize| {
+            crate::state2d::specific_kinetic_energy(rho, mxv[k], myv[k])
+        };
+        let st = ConservedState2d {
+            rho: vec![rho; n],
+            mx: mx.clone(),
+            my: my.clone(),
+            e: (0..n).map(|k| rho * (e_int + ke(&mx, &my, k))).collect(),
+        };
+        let sp = CombustionState::stoich_h2o2(n);
+        let tr = combustion_transport(&st, &sp, &g).unwrap();
+        let mut s1 = st.clone();
+        let mut y1 = sp.clone();
+        let bc = Boundaries2d {
+            west: crate::solver2d::Bc2d::NoSlipWall,
+            east: crate::solver2d::Bc2d::NoSlipWall,
+            south: crate::solver2d::Bc2d::NoSlipWall,
+            north: crate::solver2d::Bc2d::NoSlipWall,
+        };
+        add_combustion_viscous(
+            &mut s1,
+            &mut y1,
+            &g,
+            &tr,
+            1.0e-6,
+            &bc,
+            CombustionWallOpts { temperature: 0.0 },
+        )
+        .unwrap();
+        let vol = g.dx * g.dy;
+        let totals = |stt: &ConservedState2d| {
+            let total: f64 = stt.e.iter().sum::<f64>() * vol;
+            // the kinetic energy DENSITY, so it shares the total
+            // energy's units and can be compared with it directly.
+            let kinetic: f64 = (0..n)
+                .map(|k| 0.5 * (stt.mx[k] * stt.mx[k] + stt.my[k] * stt.my[k]) / stt.rho[k])
+                .sum::<f64>()
+                * vol;
+            (total, kinetic)
+        };
+        let (total_before, kinetic_before) = totals(&st);
+        let (total_after, kinetic_after) = totals(&s1);
+        let rel = (total_after - total_before).abs() / total_before.abs().max(1.0);
+        assert!(
+            rel < 1.0e-9,
+            "the viscous pass did not conserve total energy: {total_before} became {total_after}"
+        );
+        // the strain in the shear layer drains kinetic energy and warms
+        // the gas by the same amount. a viscous work term booked with the
+        // wrong sign eats one without crediting the other.
+        let kinetic_drop = kinetic_before - kinetic_after;
+        assert!(
+            kinetic_drop > 0.0,
+            "the shear layer did not drain kinetic energy"
+        );
+        let internal_gain = (total_after - kinetic_after) - (total_before - kinetic_before);
+        let balance = (internal_gain - kinetic_drop).abs() / kinetic_drop.abs().max(1.0e-30);
+        assert!(
+            balance < 0.2,
+            "the dissipated work did not reach the internal energy: internal gain {internal_gain} against kinetic drop {kinetic_drop}"
+        );
     }
 
     /// the isothermal wall pulls the near-wall energy down: a hot field

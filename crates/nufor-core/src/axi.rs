@@ -846,10 +846,12 @@ fn advance2d_model_capped_dts(
                 state.my[k] = 0.0;
                 state.e[k] = 1e-6;
             }
-            let ke = 0.5 * (state.mx[k] * state.mx[k] + state.my[k] * state.my[k])
-                / state.rho[k].max(1e-12);
-            if !state.e[k].is_finite() || state.e[k] - ke < 1e-9 {
-                state.e[k] = ke + 1e-9;
+            // the state's energy is an energy DENSITY, so the guard
+            // works in specific energies and restores the density.
+            let rho = state.rho[k].max(1e-12);
+            let ke = crate::state2d::specific_kinetic_energy(rho, state.mx[k], state.my[k]);
+            if !state.e[k].is_finite() || state.e[k] / rho - ke < 1e-9 {
+                state.e[k] = ke * state.rho[k] + 1e-9;
             }
         }
     }
@@ -1143,18 +1145,23 @@ pub fn advance2d_axi(
             // positivity guard: a step that overshoots can drive the
             // internal energy below the closure's floor, and the
             // closure then reads the cell at its temperature floor.
-            let ke = 0.5 * (state.mx[k] * state.mx[k] + state.my[k] * state.my[k])
-                / state.rho[k].max(1e-12);
+            // the state's energy is an energy DENSITY (rho times the
+            // specific total energy), so the guard compares the
+            // SPECIFIC internal energy against the closure's SPECIFIC
+            // floor, and restores the density to that floor times the
+            // density.
+            let rho = state.rho[k].max(1e-12);
+            let ke = crate::state2d::specific_kinetic_energy(rho, state.mx[k], state.my[k]);
             if let Some(floor) = e_floor {
                 if !state.e[k].is_finite()
                     || !state.rho[k].is_finite()
                     || state.rho[k] <= 0.0
-                    || state.e[k] - ke < floor
+                    || state.e[k] / rho - ke < floor
                 {
                     state.rho[k] = state.rho[k].max(1e-10);
                     state.mx[k] = 0.0;
                     state.my[k] = 0.0;
-                    state.e[k] = ke + floor + 1e-6;
+                    state.e[k] = floor * state.rho[k] + 1e-6;
                 }
             }
             resid = resid
@@ -2134,18 +2141,23 @@ pub fn advance2d_model(
             // positivity guard: a step that overshoots can drive the
             // internal energy below the closure's floor, and the
             // closure then reads the cell at its temperature floor.
-            let ke = 0.5 * (state.mx[k] * state.mx[k] + state.my[k] * state.my[k])
-                / state.rho[k].max(1e-12);
+            // the state's energy is an energy DENSITY (rho times the
+            // specific total energy), so the guard compares the
+            // SPECIFIC internal energy against the closure's SPECIFIC
+            // floor, and restores the density to that floor times the
+            // density.
+            let rho = state.rho[k].max(1e-12);
+            let ke = crate::state2d::specific_kinetic_energy(rho, state.mx[k], state.my[k]);
             if let Some(floor) = e_floor {
                 if !state.e[k].is_finite()
                     || !state.rho[k].is_finite()
                     || state.rho[k] <= 0.0
-                    || state.e[k] - ke < floor
+                    || state.e[k] / rho - ke < floor
                 {
                     state.rho[k] = state.rho[k].max(1e-10);
                     state.mx[k] = 0.0;
                     state.my[k] = 0.0;
-                    state.e[k] = ke + floor + 1e-6;
+                    state.e[k] = floor * state.rho[k] + 1e-6;
                 }
             }
             resid = resid
@@ -2273,10 +2285,17 @@ pub fn advance2d_axi_lts(
             // internal energy negative in one euler step; scaling the
             // increment back to keep the state physical preserves the
             // march instead of aborting it.
+            // the state's energy is an energy DENSITY, so the guard
+            // works in SPECIFIC energies: the new density times the
+            // new specific total energy, less the new specific kinetic
+            // energy.
             let rho_new = state.rho[k] + drho;
-            let e_int_new = state.e[k] + de
-                - 0.5 * (state.mx[k] + dmx).powi(2) / rho_new
-                - 0.5 * (state.my[k] + dmy).powi(2) / rho_new;
+            let e_int_new = (state.e[k] + de) / rho_new
+                - crate::state2d::specific_kinetic_energy(
+                    rho_new,
+                    state.mx[k] + dmx,
+                    state.my[k] + dmy,
+                );
             if rho_new > 0.0 && e_int_new > 0.0 {
                 state.rho[k] = rho_new;
                 state.mx[k] += dmx;
@@ -2291,9 +2310,12 @@ pub fn advance2d_axi_lts(
                 // halve the increment once; if still bad, skip the
                 // cell this pseudo-step.
                 let rho_half = state.rho[k] + 0.5 * drho;
-                let e_half = state.e[k] + 0.5 * de
-                    - 0.5 * (state.mx[k] + 0.5 * dmx).powi(2) / rho_half
-                    - 0.5 * (state.my[k] + 0.5 * dmy).powi(2) / rho_half;
+                let e_half = (state.e[k] + 0.5 * de) / rho_half
+                    - crate::state2d::specific_kinetic_energy(
+                        rho_half,
+                        state.mx[k] + 0.5 * dmx,
+                        state.my[k] + 0.5 * dmy,
+                    );
                 if rho_half > 0.0 && e_half > 0.0 {
                     state.rho[k] = rho_half;
                     state.mx[k] += 0.5 * dmx;

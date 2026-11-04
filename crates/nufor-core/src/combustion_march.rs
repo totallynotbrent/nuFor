@@ -194,9 +194,14 @@ pub fn advance2d_combustion(
             // formation enthalpy puts the internal energy of a burned
             // gas at a large negative value, and a healthy cell sits
             // above that floor by megajoules.
-            let ke = 0.5 * (state.mx[k] * state.mx[k] + state.my[k] * state.my[k])
-                / state.rho[k].max(1e-12);
-            let e_int = state.e[k] - ke;
+            // the state's energy is an energy DENSITY (rho times the
+            // specific total energy), so the guard compares the
+            // SPECIFIC internal energy against the closure's SPECIFIC
+            // floor. comparing the density against a specific floor
+            // would leave the guard blind on every healthy cell.
+            let rho = state.rho[k].max(1e-12);
+            let ke = crate::state2d::specific_kinetic_energy(rho, state.mx[k], state.my[k]);
+            let e_int = state.e[k] / rho - ke;
             if !state.e[k].is_finite()
                 || !state.rho[k].is_finite()
                 || state.rho[k] <= 0.0
@@ -205,7 +210,7 @@ pub fn advance2d_combustion(
                 state.rho[k] = state.rho[k].max(1e-10);
                 state.mx[k] = 0.0;
                 state.my[k] = 0.0;
-                state.e[k] = ke + e_floor[k] * state.rho[k] + 1e-6;
+                state.e[k] = e_floor[k] * state.rho[k] + 1e-6;
             }
             resid = resid
                 .max(drho.abs())
@@ -389,9 +394,14 @@ pub fn advance2d_combustion_axi(
             // formation enthalpy puts the internal energy of a burned
             // gas at a large negative value, and a healthy cell sits
             // above that floor by megajoules.
-            let ke = 0.5 * (state.mx[k] * state.mx[k] + state.my[k] * state.my[k])
-                / state.rho[k].max(1e-12);
-            let e_int = state.e[k] - ke;
+            // the state's energy is an energy DENSITY (rho times the
+            // specific total energy), so the guard compares the
+            // SPECIFIC internal energy against the closure's SPECIFIC
+            // floor. comparing the density against a specific floor
+            // would leave the guard blind on every healthy cell.
+            let rho = state.rho[k].max(1e-12);
+            let ke = crate::state2d::specific_kinetic_energy(rho, state.mx[k], state.my[k]);
+            let e_int = state.e[k] / rho - ke;
             if !state.e[k].is_finite()
                 || !state.rho[k].is_finite()
                 || state.rho[k] <= 0.0
@@ -400,7 +410,7 @@ pub fn advance2d_combustion_axi(
                 state.rho[k] = state.rho[k].max(1e-10);
                 state.mx[k] = 0.0;
                 state.my[k] = 0.0;
-                state.e[k] = ke + e_floor[k] * state.rho[k] + 1e-6;
+                state.e[k] = e_floor[k] * state.rho[k] + 1e-6;
             }
             resid = resid
                 .max(drho.abs())

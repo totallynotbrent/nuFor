@@ -8,6 +8,20 @@ use crate::state2d::{cons_to_prim2d, ConservedState2d};
 use crate::thermo::ThermoModel;
 use crate::ugrid::Ugrid;
 
+/// the smallest specific internal energy a cell may hold.
+///
+/// the freestream's pressure is inverted through the model's own
+/// closure, so the floor is an energy in joules per kilogram for
+/// every model rather than a pressure masquerading as one.
+fn specific_energy_floor(freestream: &[f64; 4], gamma: f64, model: ThermoModel) -> f64 {
+    let rho = freestream[0].max(1e-12);
+    let p = freestream[3].max(1e-3);
+    match model {
+        ThermoModel::EqAir { .. } => eqair_e_from_p(rho, p),
+        _ => p / ((gamma - 1.0) * rho),
+    }
+}
+
 /// invert the eqair table for the internal energy behind a (rho, p):
 /// the same log-energy bisection `eqair_cea::temperature` runs, kept
 /// local so the freestream ghost gets a closure-consistent state.
@@ -217,7 +231,13 @@ pub fn advance_ugrid(
     // are clamped to 1e-3 of the freestream density and internal
     // energy, far below any physical state but well above vacuum.
     let rho_floor = (ug.freestream[0] * 1e-3).max(1e-12);
-    let e_floor = (ug.freestream[3] / (gamma - 1.0) * 1e-3).max(1e-12);
+    // the energy floor is a SPECIFIC internal energy, and it comes
+    // from the freestream STATE the same way the ghosts do: invert
+    // the freestream's pressure to the model's own closure energy.
+    // the freestream's pressure divided by gamma minus one is a
+    // PRESSURE, and comparing it against a specific energy was the
+    // same kind of unit slip the combustion guards had.
+    let e_floor = (specific_energy_floor(&ug.freestream, gamma, model) * 1e-3).max(1e-12);
     let mut resid = 0.0f64;
     for c in 0..nc {
         let s = dt / ug.cell_area[c];
@@ -237,9 +257,14 @@ pub fn advance_ugrid(
         if state.rho[c] < rho_floor {
             state.rho[c] = rho_floor;
         }
-        let ke = 0.5 * (state.mx[c] * state.mx[c] + state.my[c] * state.my[c]) / state.rho[c];
-        if state.e[c] - ke < e_floor {
-            state.e[c] = ke + e_floor;
+        // the state's energy is an energy DENSITY (rho times the
+        // specific total energy), so the floor is applied to the
+        // SPECIFIC internal energy and restored onto the density.
+        let ke = crate::state2d::specific_kinetic_energy(state.rho[c], state.mx[c], state.my[c]);
+        if state.e[c] / state.rho[c] - ke < e_floor {
+            // the restore keeps the cell's kinetic energy and lifts
+            // its internal energy back to the floor.
+            state.e[c] = (ke + e_floor) * state.rho[c];
         }
     }
     Ok((dt, resid))
@@ -512,7 +537,7 @@ pub fn advance_ugrid_recon(
         }
     }
     let rho_floor = (ug.freestream[0] * 1e-3).max(1e-12);
-    let e_floor = (ug.freestream[3] / (gamma - 1.0) * 1e-12).max(1e-12);
+    let e_floor = (specific_energy_floor(&ug.freestream, gamma, model) * 1e-12).max(1e-12);
     let mut resid = 0.0f64;
     for c in 0..nc {
         let s = dt / ug.cell_area[c];
@@ -527,9 +552,14 @@ pub fn advance_ugrid_recon(
         if state.rho[c] < rho_floor {
             state.rho[c] = rho_floor;
         }
-        let ke = 0.5 * (state.mx[c] * state.mx[c] + state.my[c] * state.my[c]) / state.rho[c];
-        if state.e[c] - ke < e_floor {
-            state.e[c] = ke + e_floor;
+        // the state's energy is an energy DENSITY (rho times the
+        // specific total energy), so the floor is applied to the
+        // SPECIFIC internal energy and restored onto the density.
+        let ke = crate::state2d::specific_kinetic_energy(state.rho[c], state.mx[c], state.my[c]);
+        if state.e[c] / state.rho[c] - ke < e_floor {
+            // the restore keeps the cell's kinetic energy and lifts
+            // its internal energy back to the floor.
+            state.e[c] = (ke + e_floor) * state.rho[c];
         }
     }
     Ok((dt, resid))

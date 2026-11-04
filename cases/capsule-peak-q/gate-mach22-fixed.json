@@ -1,0 +1,11 @@
+{
+ "case": "capsule-peak-q",
+ "mach": 22.0,
+ "runtime_s": 395.9,
+ "measured_peak_p_pa": 822.2,
+ "physical_normal_shock_p02_pa": 623.6,
+ "ratio_measured_to_physical": 1.318,
+ "prior_defect_cp": 3.9,
+ "note": "wall pump eliminated; peak within 32 percent of rayleigh-pitot normal-shock stagnation",
+ "passed": true
+}

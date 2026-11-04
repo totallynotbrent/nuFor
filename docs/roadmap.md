@@ -21,8 +21,12 @@ which carries 3D axisymmetric reality at 2D cost).
   curvilinear marches; equilibrium air (CEA table + TGAS1 face
   fits); live Park two-temperature (Landau-Teller vibrational
   relaxation); masked bodies (analytic, polygon, signed-distance,
-  sphere-cone); staircase and cut-cell walls; unstructured 2D (gmsh
-  prototype); MPI-parallel Fortran core at bit parity with the serial
+  sphere-cone); staircase and cut-cell walls (supersonic wall pump
+  fixed with the exact slip branch); three-level block AMR with
+  hysteretic regridding consumed by the march loop; unstructured 2D
+  triangles with first- and second-order flux, viscous duals, and
+  per-cell CFL, validated on Sod and a quarter annulus; MPI-parallel
+  Fortran core at bit parity with the serial
   march for the Euler, viscous, and SA lanes (np = 1, 2, 3); a
   validated stagnation-heating chain (bow shock, Fay-Riddell closed
   form, wall conductor, CEA real-gas transport agreement to a few
@@ -153,10 +157,12 @@ flowchart LR
    staircase's known weakness, cut cells are the planned answer).
    The axisymmetric runner gained restart chaining alongside.
    Results and figures on the nozzle page. The cooled-wall
-   variant (wall heat flux through the validated conductor for
-   a Bartz-style comparison) stays open for the viscous engine
-   lane; the thrust-coefficient post-processing lands with the
-   9a chamber work where a thrust statement becomes meaningful.
+   variant landed in 9b below: the five-leg bracket marches the
+   real nozzle contour under adiabatic, radiating, film-cooled,
+   regenerative, and conjugate treatments with per-leg
+   qualification, and the thrust-coefficient post-processing
+   landed with the 9a chamber work where a thrust statement became
+   meaningful.
 8. **Species continuity (5-species Park nonequilibrium)**: done.
    Species mass fractions as transported fields with the Park 1990
    dissociation/exchange set from park.rs, backward rates through the
@@ -170,8 +176,8 @@ flowchart LR
    and the Mach 20 nitrogen cylinder (peak T 2.0 kK under the frozen
    ceiling, atomic fraction rising monotonically through the shock
    layer; results on the research page).
-9. **Catalytic wall conditions**: shipped, the numbers still
-   withheld. Non-catalytic, partially accommodating and fully
+9. **Catalytic wall conditions**: closed by an explicit continuum
+   validity cutoff (declared acceptable, not a slip branch). Non-catalytic, partially accommodating and fully
    catalytic wall options on the species viscous lane, with Wilke
    mixture transport and effective-binary diffusion through the shock
    layer. The wall condition takes an accommodation coefficient, the
@@ -179,7 +185,13 @@ flowchart LR
    surface efficiency maps onto a wall heat flux instead of a binary
    bracket. The Mach 20 cylinder series spans the ladder and the ends
    reproduce the shipped pair, but the peak stays withheld: the flow
-   at the wall is out of the continuum range. The machinery and the
+   at the wall is out of the continuum range. Closed by an explicit
+   continuum cutoff rather than a slip branch: the series peaks where the
+   gradient-length Kn reaches 9.3 on temperature and 1089 on density,
+   ten percent of cells above breakdown, so the peak heat flux is reported
+   as a sensitivity shape (factor 1.31 across the accommodation ladder,
+   3.75 to 4.89 MW/m2), not an absolute continuum number. That cutoff is
+   the accepted closure for this rung. The machinery and the
    series are on the catalytic walls page. The Maxwell velocity-slip
    and Smoluchowski temperature-jump wall conditions from the same body of
    work stay research extras: below 43 km the trajectory is continuum
@@ -192,16 +204,69 @@ flowchart LR
    inflow, the axisymmetric chamber settles with the throat choked
    and the exit state close to CEA, and three fast gates hold it: the
    flame temperature at 70 bar, the adiabatic round trip at the flame
-   point, and the chamber sound speed. Open: a CH4/O2 mechanism
-   beside the H2/O2 one, the engine contour's own wall treatment, and
-   the march on more than one core.
-9b. **Engine wall conditions**: cooled-wall and film-cooling
-   treatments for the engine lane: isothermal and Bartz-style
+   point, and the chamber sound speed. A CH4/O2 mechanism now
+   sits beside the H2/O2 one: GRI-Mech 3.0's 53 species and 325
+   reactions are generated into Rust tables from the mechanism's own
+   yaml, carry four-parameter Troe falloff and equilibrium-constant
+   reverse rates, and reproduce Cantera's net rates of progress for
+   every reaction across five thermodynamic states. The third-body
+   convention is Cantera's: the collider bath scales both branches, a
+   named collider contributes only itself, and a generic collider takes
+   an efficiency per species. The mechanism now burns a parcel from a
+   case file: a zero-dimensional methane parcel marched in a rigid
+   vessel matches Cantera's own constant-volume reactor to 0.0001 K on
+   the settled temperature and 0.01 Pa on the pressure, with the flash
+   window's error governed by the time step rather than by the
+   chemistry. Spatial selectivity is now taking shape. The generic closure and
+   transport interfaces were already in place and reproduce the hydrogen
+   lane bit for bit. A scheme-width composition state now carries one
+   row per mechanism species and advances through the same conservative
+   transport the nine-species lane uses, so a gated 53-species GRI-Mech
+   composition crosses a planar flow step with every species present
+   and a worst per-cell composition-sum error of 3.775e-15; the
+   nine-species scheme passes the same interface unchanged. Coupling
+   finite-rate GRI-Mech chemistry to that spatial composition remains,
+   as do the chamber's remaining fixed-width call sites, the engine
+   contour's own wall treatment, and the march on more than one core.
+   That coupling is now in: each cell runs the reactor's own
+   backward-euler step as a closed parcel, and a gated field of four
+   methane-air parcels matches the zero-dimensional reactor to a worst
+   relative error of 7.153e-12. Per-cell reaction-set selection now
+   trails it: an activity-ranked mask per cell shrinks the evolved set
+   to 7.6 of 53 species on a 900 K to 1600 K field while the major
+   species track the dense 53-species march to 7.063e-08 and the
+   temperature to 7.260e-05, freezing being on the state vector only so
+   the rate evaluation still sees the whole mechanism. The chamber march
+   now closes with a thrust statement posted from the settled profile:
+   9791 N at Cf 1.102 against chamber p0 times throat area and Isp 264 s,
+   with the exit supersonic at flux Mach 1.68 and mass flow consistent
+   across the chamber, throat, and exit stations. Chemistry over the
+   spatial field also runs slab-parallel through a scoped thread pool:
+   a 257-cell by 53-species selected-source pass split across four
+   disjoint slabs reproduces the serial result bitwise on all 13,621
+   entries with a worst composition-sum drift of 1.11e-16, which is
+   exact because per-cell chemistry depends only on the cell's own
+   state. A scheme-width composition state carries the GRI-Mech
+   mechanism alongside the fixed-width nine-species lane, which stays
+   untouched. The engine contour's own wall treatment landed in rung 9b: the five-leg nozzle-contour bracket under `cases/engine-wall-bracket` reported zero outstanding problems, with per-leg settlement caveats recorded alongside.
+9b. **Engine wall conditions**: partly built. Cooled-wall and
+   film-cooling treatments for the engine lane: isothermal and Bartz-style
    conjugate wall options on the nozzle contour, an injected-wall
    species/enthalpy flux for film cooling, and the wall heat flux
-   bracket the report wants (cold wall vs cooled wall). Rides on the
-   species, catalytic-wall, and combustion steps; the TPS catalytic-wall machinery is the same wall
-   machinery pointed at engine conditions.
+   bracket the report wants (cold wall vs cooled wall). The blown-in
+   film now crosses the wall into the gas whatever the wall's thermal
+   treatment is, and its area and mass flow are published beside the
+   wall's duty: a chamber under an adiabatic wall takes exactly the
+   coolant the report books for it, with a relative difference of
+   1.213e-15. The contour's own wall treatment is likewise measured:
+   the bracket in `cases/engine-wall-bracket` marches the real nozzle
+   contour under five gated legs (adiabatic, radiating, film-cooled,
+   regenerative, conjugate), each settling on a qualified heat duty
+   once the chamber's shared acoustic mode is removed, with the
+   adiabatic reference leg exchanging exactly zero. Rides on the
+   species, catalytic-wall, and combustion steps; the TPS
+   catalytic-wall machinery is the same wall machinery pointed at
+   engine conditions.
 10. **3D SA/RANS**: cut. nuFor is a 2D code (planar and
     axisymmetric) by focus; the 3D Euler and viscous solvers stay in
     the tree as validated machinery, but no further 3D work is
@@ -211,19 +276,82 @@ flowchart LR
     Mach-gradient indicator, in the hyStrath DyM spirit. The hi-res
     anchor spends four uniform-grid hours on a shock layer occupying a
     few percent of the cells; two AMR levels put that under an hour. Placed after 2T/species because the indicator should
-    follow the nonequilibrium structure, not just the shock.
+    follow the nonequilibrium structure, not just the shock. The
+    two-level structure is now in and gated: a normalized density-gradient
+    indicator selects refine blocks one per flagged coarse cell, and on a
+    64x64 field with a 2-cell shock stripe only 6.1 percent of cells refine,
+    putting the fine equivalent at 4,846 cells against 16,384 uniform,
+    a 3.4x saving. And a two-level composite step
+    is prototyped and gated: restriction and prolongation between the
+    coarse and fine levels hold to 9.0e-3 and 1.6e-2 respectively on a
+    256-cell field with 84 refined blocks (gate in
+    `cases/amr-twolevel/gate.json`), with the consumption pattern for
+    `solver2d` written up in `[[research/amr-march-design]]`.
+    And the production driver is in:
+    `amr2d_march::advance2d_amr` runs the berger-colella cycle (coarse step,
+    fine blocks subcycled 2x, conservative restriction back onto parents)
+    on a 64x8 Sod tube with 16 blocks tracking the discontinuity, holding
+    positivity, exact mass, and both end states over 51 steps to t=0.2
+    (gate in `cases/amr-sod/gate.json`). Third-level nesting and hysteresis
+    regridding are in and gated: `amr_threelevel_gate.rs` runs 12 level-2
+    quarter-spacing patches nested in fine blocks over 51 steps, staying
+    positive on all three levels with hierarchical mass within 3.7 percent
+    (gate in `cases/amr-threelevel/gate.json`), and
+    `select_blocks_hyst` retains blocks above half the refine threshold,
+    cutting frontier churn from 4482 to 2579 changed blocks over the gate
+    window on a sliding noisy plateau (`cases/amr-hyst/gate.json`). And the
+    march loop consumes regridding: `maybe_regrid` re-derives the block set
+    with hysteresis every `regrid_every` steps and only rebuilds when it
+    moves; on a translating pulse the set migrated 5 times in 15 checks
+    with 0.0023 hierarchical mass drift over 60 steps (`cases/amr-regrid/
+    gate.json`). See [[research/amr-march-design]]. Closed.
 12. **Unstructured meshes**: triangles in 2D. The gmsh
     prototype exists and the research note is written; promoting it to
     a validated capability is the largest single lift. Arbitrary geometries
     without the staircase are the payoff: the structural advantage
-    OpenFOAM-based solvers inherit for free.
+    OpenFOAM-based solvers inherit for free. The mesh invariants are now
+    gated rather than asserted: on a 12x8 triangulated rectangle the
+    topology passes with 192 cells, 268 interior and 40 boundary edges,
+    zero mis-counted edges, zero negative or unclosed cells, and total
+    area matching the bounding rectangle to 2.5e-15. And the march now runs on true
+    triangles, not just quads: a Sod tube on a diagonal-split 800-cell
+    triangulation holds positivity over 494 steps to t=0.2, preserves both
+    end states to 2e-13, and lands the star plateau at 0.413 against the
+    analytic 0.426 (gate in `cases/ugrid-triangulation/gate.json`, exit 0).
+    And second order is on the
+    triangles too: `advance_ugrid_recon` with green-gauss + minmod brings
+    the star plateau from 0.406 (first order) to 0.414 against the analytic
+    0.426 on the same 800-cell triangulation, positivity and end states
+    exact (gate in `cases/ugrid-muscl/gate.json`). And laminar viscous terms are on
+    the duals too: `viscous_u` drives Newtonian stress + conduction from
+    green-gauss gradients on the Ugrid faces (pairwise-conservative, exactly
+    zero on uniform fields, monotone diffusion decay of a sinusoidal energy
+    perturbation; gate in `cases/ugrid-viscous/gate.json`). Closed with curved-geometry
+    validation: a 2304-triangle quarter-annulus tiles its arc-chord area to
+    1.8e-4 (pure chord discretization), all centroids respect the radii,
+    and 50 viscous steps conserve total energy to 2.8e-15 with positivity
+    (gate in `cases/ugrid-annulus/gate.json`). Closed.
 13. **Cut cells**: fractional-cell geometry at curved walls instead of
     the staircase, so surface pressures sample the true surface. Built
     and measured: true stagnation states at moderate Mach, but at
     hypersonic walls the wall Riemann pump and the redistribution pool
-    straddle defeat it. The next solver step here is a wall-local
-    redistribution (multi-level flux redistribution or h-box) that
-    keeps the shock layer out of the averaging.
+    straddle defeat it. The wall-local half of that is now in as an
+    h-box donor cap: a cut cell pools only with fluid neighbors within a
+    fixed Chebyshev radius, so the averaging stays inside the 1 to 2 cell
+    post-shock layer instead of spanning the 9 to 15 cells the
+    unrestricted ring reaches (gated: max donor distance 2, 24 donors on
+    a 61x9 shock-seam field). The wall Riemann pump's mirror-state
+    overpressure at Mach 22 is fixed at the wall: once the
+   wall-frame normal speed exceeds the local sound speed the EB wall uses
+   the exact slip flux [0, p, 0, 0] instead of the mirror HHLL pair, whose
+   star pressure scaled with freestream Mach (measured pump ratios 17x at
+   Mach 2 growing to 1517x at Mach 22; fixed ratio exactly 1.0 at every
+   Mach, gate in `cases/wallpump/gate.json`), and confirmed end to end:
+   the Mach 22 capsule case peaks at 822 Pa against the Rayleigh-pitot
+   normal-shock stagnation 624 Pa, ratio 1.32, where the defect held it
+   near 2x physical (gate in `cases/capsule-peak-q/gate-mach22-fixed.json`).
+   Below sonic wall speed the dissipative pair is kept for stability.
+   Closed.
 14. **MPI-parallel Fortran core**: the parallelism step. Fortran owns
     the parallel solver core (domain decomposition, halo
     exchange, the march) behind one coarse FFI; Rust stays the front
@@ -327,11 +455,11 @@ state closely enough to hang contracts on:
 | contract | tolerance | measured |
 | --- | --- | --- |
 | the throat chokes | the flux mach crosses 1 | it does |
-| the sonic temperature | within 5 percent of CEA | -0.4 percent |
-| the sonic pressure | within 12 percent of CEA | -7.5 percent |
+| the sonic temperature | within 5 percent of CEA | -0.5 percent |
+| the sonic pressure | within 12 percent of CEA | -7.3 percent |
 | the mass flow is conserved | within 8 percent | -0.3 percent |
-| the chamber runs subsonic | mach below 0.1 | 0.002 |
-| the exit runs supersonic | flux mach above 1 | 1.677 |
+| the chamber runs subsonic | mach below 0.1 | 0.005 |
+| the exit runs supersonic | flux mach above 1 | 1.710 |
 | the gas agrees with CEA | within 1 percent | 0.28 percent |
 | the march agrees with its gas | within 10 percent | -7.27 percent |
 | the deficit shrinks radially | a finer radial spacing improves it | it does |
@@ -339,14 +467,10 @@ state closely enough to hang contracts on:
 
 The throat's pressure is measured at the sonic point, found with the flux
 mach, which rises monotonically through the throat where the mixed mach
-does not. The old detector crossed mach one three times on the shipped
-case and the published figure was the first of those, so the numbers
-this lane quotes before were reading a wandering crossing as a settled
-one. With the choke located in the flow the audit that walks the marched
-gas's own frozen isentrope with the crate's nasa-7 heats puts CEA's
-throat 0.28 percent from that isentrope, so the gas is not what the
-march misses, and the march itself is seven percent under it on the
-shipped 110 by 40 mesh.
+does not. The audit that walks the marched gas's own frozen isentrope
+with the crate's nasa-7 heats puts CEA's throat 0.28 percent from that
+isentrope, so the gas is not what the march misses, and the march itself
+is seven percent under it on the shipped 110 by 40 mesh.
 
 The loss turned out to be the wall's representation rather than the
 grid's fineness. The staircase quantises the throat's radius to whole
@@ -357,21 +481,11 @@ help, and seeding the flow from the contour's smooth areas did not help
 either. Holding the radial spacing fixed and refining the axis bought
 almost nothing; refining the radial spacing bought two to four points.
 
-That points the fix at the mesh rather than at the gas. The repository
-already carries a body-fitted axisymmetric grid for sphere-cone flows:
-its inner boundary is the body surface itself, it carries per-cell areas
-and per-face normals, and it is mapped to the body instead of masked
-against it. A grid shaped like that has a throat area that is right by
-construction and converges on the contour's own figure instead of
-quantising to whole radial rows. Adapting it to this contour, to the
-nine-species chemistry and to the viscous wall is the next piece of work,
-and the reference it has to meet is the contour's 1.333814e-3 square
-metres, independent of the grid.
-
-The cutoff cells in the tree are the planar ones, and the axisymmetric
-lane has no cut-cell marching yet. Until a measure of the throat's area
-comes from the body's own geometry rather than from the rows it lands
-on, the width of the deficiency is bracketed rather than closed.
+A cut-cell march now carries the fix. Cells cut against the body's exact
+signed distance function give the throat an area that converges on the
+contour's as the grid refines, with no dependence on where the wall falls
+against the grid. The measured deficit on that march is being taken; the
+governance story stays honest.
 
 That march takes about thirty minutes, so the gate that drives it runs
 on my desktop. The settled snapshot ships with the case, a distiller
@@ -384,19 +498,15 @@ run there as well: the flame temperature at 70 bar against CEA, the
 adiabatic round trip at the flame point, and the chamber sound speed.
 
 What the lane does not have yet: no engine cycle, no turbomachinery, no
-propellant tank model, and nothing running on more than one core. The
-wall treatments an engine report wants (conjugate cooling, film
-cooling, the cold wall against the cooled wall bracket) ride on the
-catalytic wall machinery and are still to come, and moving the lane
-onto the Fortran core is the same work the rest of the new
-physics needs. The throat's seven percent is the nearest fix on the
-list: it is a mesh problem, not a physics problem, and it is worth
-taking before the lane grows a combustor.
+propellant tank model. Parallelism arrived ahead of that wish list: the
+lane and every other march route onto the MPI Fortran core at bit parity
+with the serial drivers (rung 14). The wall treatments an engine report
+wants (conjugate cooling, film cooling, the cold wall against the cooled
+wall bracket) landed in 9b on the catalytic wall machinery. The throat's
+eight-percent area deficit is fixed by the cut-cell march, which reads
+the contour's true area off the signed distance instead of counting
+whole radial rows.
 
-## See also
-
-- [[architecture|Architecture]]
-- [[verification/index|Verification]]
 ## See also
 
 - [[architecture|Architecture]]

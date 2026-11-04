@@ -84,6 +84,94 @@ pub struct Physics {
     /// correlations (fay-riddell) are posed at a fixed wall temperature.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wall_temperature: Option<f64>,
+    /// the wall's grey-body emissivity for radiative heat exchange.
+    ///
+    /// a wall at 3690 k sees the chamber overwhelmingly through
+    /// radiation: the blackbody flux at that temperature is 10.5 mw per
+    /// square metre, while the fourier conduction through a near-wall
+    /// cell is a small fraction of that. omitting this, or setting it
+    /// to zero, leaves the wall with conduction only, which exchanges
+    /// far less heat than a real chamber wall and cannot move the
+    /// flow. one means a black wall.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wall_emissivity: Option<f64>,
+    /// the wall's film heat-transfer coefficient in w per square metre
+    /// kelvin. this is the actively-cooled regime: the coolant flowing
+    /// through the wall's channels takes energy from the gas at a rate
+    /// set by the film coefficient and the gas-to-wall temperature
+    /// difference. omitting this leaves the film out and the wall
+    /// radiates only.
+    ///
+    /// this coefficient is the GAS-SIDE resistance of the film. the
+    /// coolant's own capacity rate, set by
+    /// `wall_coolant_mass_flux` and `wall_coolant_capacity`, is the
+    /// second resistance, and the two in series bound the duty the
+    /// wall can draw.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wall_film_coefficient: Option<f64>,
+
+    /// the regenerative coolant's mass flux through the wall, in kg per
+    /// square metre second.
+    ///
+    /// this coolant stays inside the wall's passages. it takes energy
+    /// from the wall and leaves by the chamber's own circuit, so it
+    /// changes the chamber's ENERGY balance and not its mass balance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wall_coolant_mass_flux: Option<f64>,
+    /// the regenerative coolant's specific heat capacity, in j per
+    /// kilogram kelvin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wall_coolant_capacity: Option<f64>,
+    /// the regenerative coolant's inlet temperature, in k.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wall_coolant_temperature: Option<f64>,
+    /// the wall liner's thickness in metres.
+    ///
+    /// the liner's conduction stands in series between the gas-side
+    /// film and the coolant's capacity rate, so a thicker liner lowers
+    /// the duty the wall draws and runs its inner surface hotter.
+    /// omitting this leaves the wall without a liner.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wall_liner_thickness: Option<f64>,
+    /// the wall liner's conductivity in w per metre kelvin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wall_liner_conductivity: Option<f64>,
+    /// the blowing-in film's mass flux into the chamber, in kg per
+    /// square metre second.
+    ///
+    /// unlike the regenerative coolant, this one CROSSES the wall into
+    /// the gas. the chamber's mass balance carries it, and the gas's
+    /// composition and enthalpy change with it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wall_film_injection_mass_flux: Option<f64>,
+    /// the blowing-in coolant's inlet temperature, in k.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wall_film_injection_temperature: Option<f64>,
+    /// the blowing-in coolant's composition: "h2", "o2", "n2", "water",
+    /// or "stoich" for the unburned stoichiometric charge.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wall_film_injection_composition: Option<String>,
+    /// the axisymmetric wall's representation: "mask" (the staircase,
+    /// a cell is solid when its centre is inside the body) or "cut"
+    /// (the wall is resolved by real apertures, each cell cut against
+    /// the body's exact signed distance function). the staircase
+    /// quantises the throat's area to whole radial rows, so the
+    /// choked pressure pays for it; the cut-cell representation gives
+    /// the throat an area that does not depend on where the wall falls
+    /// against the grid. "cut" needs a signed-distance body and it
+    /// costs more per step.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wall_representation: Option<String>,
+    /// which areas the quasi1d seed walks: "mesh" (the axisymmetric
+    /// lane's default, the staircase's own annular areas) or "contour"
+    /// (the polygon body's true smooth area). the mesh areas are the
+    /// capacity the discretised flow really has, but they quantise the
+    /// throat to whole radial rows, and a seed built on a quantised
+    /// throat hands the marching flow an inception state that already
+    /// owes the geometry's area error. "contour" seeds the flow from the
+    /// geometry the case actually draws.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quasi1d_seed_areas: Option<String>,
     /// catalytic wall recombination for the park5 viscous lane:
     /// "none" (dY/dn = 0 at the wall, the default) or "full" (the wall
     /// composition is the equilibrium value at the wall temperature;
@@ -527,6 +615,14 @@ pub struct Output {
     pub formats: Vec<OutputFormat>,
     /// fields written, e.g. rho, u, p.
     pub fields: Vec<String>,
+    /// keep every interval field as `vtk-<step>.vtk` beside the case.
+    ///
+    /// the march overwrites `<name>.vtk` on each interval, so a study that
+    /// needs the field history has to rescue each snapshot. doing it in
+    /// the march itself avoids the race a filesystem watcher has with the
+    /// overwrite. off by default because the history costs disk.
+    #[serde(default)]
+    pub keep_interval_fields: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

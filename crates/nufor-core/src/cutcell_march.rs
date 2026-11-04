@@ -227,6 +227,15 @@ pub fn advance2d_axi_cut(
                 let (enx, eny) = (-cut.eb_nx[k], -cut.eb_ny[k]);
                 let un = u[k] * enx + v[k] * eny;
                 let ut = -u[k] * eny + v[k] * enx;
+                // the mirror ghost's star pressure grows like rho*a*|un|, so
+                // at hypersonic Mach the wall riemann problem pumps ram-scale
+                // momentum into the cut cell. once the wall-frame normal
+                // speed exceeds the local sound speed the wall is a slip
+                // surface exchanging no mass, so use the exact pressure-only
+                // wall flux [0, p, 0, 0]; below it keep the dissipative hhll
+                // pair, which stabilizes gentle subsonic wall interactions.
+                let a_loc = (gamma * p[k] / state.rho[k].max(1e-12)).sqrt();
+                let supersonic_wall = un.abs() > a_loc;
                 let (wl, wr) = match model {
                     crate::thermo::ThermoModel::Perfect { gamma } => (
                         FacePrim::perfect(state.rho[k], un, ut, p[k], gamma),
@@ -262,7 +271,18 @@ pub fn advance2d_axi_cut(
                         unreachable!("park5 rejected before the cutcell march")
                     }
                 };
-                let q = hllc_flux(gamma, wl, wr, 0);
+                let q = if supersonic_wall {
+                    // exact slip wall in the face frame: no mass, no normal
+                    // momentum beyond the pressure force, no energy carry.
+                    crate::hllc2d::Flux4 {
+                        mass: 0.0,
+                        mx: p[k],
+                        my: 0.0,
+                        e: 0.0,
+                    }
+                } else {
+                    hllc_flux(gamma, wl, wr, 0)
+                };
                 let l = dt * cut.eb_len[k];
                 wmass = q.mass * l;
                 wmx = (q.mx * enx - q.my * eny) * l;

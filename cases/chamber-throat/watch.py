@@ -1,8 +1,19 @@
-"""follow a chamber-throat march and keep its interval snapshots.
+"""follow a chamber-throat march and record its throat state.
 
-the cli overwrites its snapshot file every interval, so a run that is
-watched in flight is the only way to keep the settling history. this
-copies each new snapshot aside and writes the throat's state beside it.
+the cli overwrites its single snapshot file every interval, and it also
+keeps a numbered copy plus a `snapshots.csv` index when
+`output.keep_interval_fields` is on. the index carries the exact step
+and time of each numbered field, written by the march itself. this
+script reads that index, so every sample is labelled with the step the
+field really belongs to instead of the laggy step in `progress.json`.
+
+if the case does not keep numbered fields, the watcher observes the
+single overwritten snapshot and records each sample against the step the
+march reports at that moment. it never writes a numbered field of its
+own: a file named `vtk-<step>.vtk` implies the march authored that
+step, and only the march can honour that claim. samples taken this way
+are logged with the snapshot's own name so downstream readers can tell
+them apart from marched fields.
 
     python3 watch.py <run-dir> <case.toml> [seconds]
 
@@ -12,9 +23,11 @@ there:
 
     throat-history.csv   step,t,throat_col,throat_area,throat_mdot,
                          throat_p,throat_T,throat_M,chamber_mdot,
-                         chamber_p,chamber_T,chamber_M
-    vtk-XXXXXX.vtk       one snapshot per interval
+                         chamber_p,chamber_T,chamber_M,vtk
     watch.log            the watcher's own notes
+
+when the cli keeps numbered fields the watcher only reads them; it
+never rewrites a field, so a sampled field and its label always agree.
 
 the figures script reads exactly these.
 """
@@ -59,6 +72,7 @@ def read_case(path):
         sections[current][k.strip()] = v.split("#")[0].strip()
     mesh = sections["mesh"]
     body = sections["body"]
+    output = sections.get("output", {})
     return {
         "name": sections["metadata"]["name"].strip('"'),
         "nx": int(mesh["nx"]),
@@ -68,6 +82,8 @@ def read_case(path):
         "y0": float(mesh.get("y0", 0.0)),
         "y1": float(mesh.get("y1", 0.1)),
         "verts": ast.literal_eval(body["verts"]),
+        "keep_interval_fields": output.get("keep_interval_fields", "").lower()
+        == "true",
     }
 
 
@@ -185,6 +201,55 @@ def march_clock(path, fallback):
         return fallback, 0.0
 
 
+def read_index(path):
+    """the march's own snapshot index: step, time and file name.
+
+    the cli appends one row per numbered field, so the step here is the
+    step the field was written at, not the step a poller observed.
+    """
+    rows = []
+    try:
+        with open(path, newline="") as fh:
+            for row in csv.DictReader(fh):
+                try:
+                    rows.append((int(row["step"]), float(row["t"]), row["vtk"]))
+                except (KeyError, TypeError, ValueError):
+                    continue
+    except OSError:
+        return rows
+    rows.sort()
+    return rows
+
+
+def append_row(history, case, ti, ci, ny, fluid, fields, step, t, name):
+    """write one throat sample for a field the march labelled itself."""
+    throat = station(case, ti, fields, [fluid[j][ti] for j in range(ny)])
+    chamber = station(case, ci, fields, [fluid[j][ci] for j in range(ny)])
+    write_header = not os.path.exists(history) or os.path.getsize(history) == 0
+    with open(history, "a", newline="") as fh:
+        writer = csv.writer(fh, lineterminator="\n")
+        if write_header:
+            writer.writerow(HEADER + ["vtk"])
+        writer.writerow(
+            [
+                step,
+                f"{t:.3e}",
+                ti,
+                f"{throat['area']:.9e}",
+                f"{throat['m_dot']:.6f}",
+                f"{throat['p']:.6f}",
+                f"{throat['T']:.4f}",
+                f"{throat['M']:.6f}",
+                f"{chamber['m_dot']:.6f}",
+                f"{chamber['p']:.6f}",
+                f"{chamber['T']:.4f}",
+                f"{chamber['M']:.6f}",
+                name,
+            ]
+        )
+    return throat, chamber
+
+
 def main():
     if len(sys.argv) < 3:
         print(__doc__)
@@ -207,20 +272,54 @@ def main():
     ci = max(1, ti // 2)
     source = os.path.join(run_dir, f"{case['name']}.vtk")
     progress = os.path.join(run_dir, "progress.json")
+    index_path = os.path.join(run_dir, "snapshots.csv")
     history = os.path.join(run_dir, "throat-history.csv")
     log = open(os.path.join(run_dir, "watch.log"), "a")
-    seen = set()
+    seen_fields = set()
+    seen_stamps = set()
     if os.path.exists(history):
         with open(history) as fh:
-            seen = {row["vtk"] for row in csv.DictReader(fh) if row.get("vtk")}
+            seen_fields = {
+                row["vtk"] for row in csv.DictReader(fh) if row.get("vtk")
+            }
     deadline = time.time() + budget
     print(f"watching {source} for the throat at column {ti}", file=log, flush=True)
     while time.time() < deadline:
+        indexed = read_index(index_path)
+        if indexed:
+            # the march labelled its own fields: read them in order and
+            # never write one, so a field and its step cannot disagree.
+            pending = [
+                (step, t, name)
+                for step, t, name in indexed
+                if name not in seen_fields
+            ]
+            for step, t, name in pending:
+                field_path = os.path.join(run_dir, name)
+                try:
+                    fields, gnx, gny = read_fields(field_path)
+                except (OSError, ValueError):
+                    continue
+                if gnx != nx or gny != ny:
+                    continue
+                seen_fields.add(name)
+                throat, chamber = append_row(
+                    history, case, ti, ci, ny, fluid, fields, step, t, name
+                )
+                print(
+                    f"step {step}: throat M {throat['M']:.4f} "
+                    f"p {throat['p']/1e6:.4f} MPa, chamber M {chamber['M']:.4f} "
+                    f"p {chamber['p']/1e6:.4f} MPa",
+                    file=log,
+                    flush=True,
+                )
+            time.sleep(5.0)
+            continue
         if not os.path.exists(source):
             time.sleep(5.0)
             continue
         stamp = os.path.getmtime(source)
-        if stamp in seen:
+        if stamp in seen_stamps:
             time.sleep(5.0)
             continue
         try:
@@ -231,35 +330,14 @@ def main():
         if gnx != nx or gny != ny:
             time.sleep(5.0)
             continue
-        seen.add(stamp)
-        step, t = march_clock(progress, len(seen))
-        throat = station(case, ti, fields, [fluid[j][ti] for j in range(ny)])
-        chamber = station(case, ci, fields, [fluid[j][ci] for j in range(ny)])
-        new = os.path.join(run_dir, f"vtk-{step:06d}.vtk")
-        with open(new, "w") as out:
-            out.write(open(source).read())
-        write_header = not os.path.exists(history) or os.path.getsize(history) == 0
-        with open(history, "a", newline="") as fh:
-            writer = csv.writer(fh, lineterminator="\n")
-            if write_header:
-                writer.writerow(HEADER + ["vtk"])
-            writer.writerow(
-                [
-                    step,
-                    f"{t:.3e}",
-                    ti,
-                    f"{throat['area']:.9e}",
-                    f"{throat['m_dot']:.6f}",
-                    f"{throat['p']:.6f}",
-                    f"{throat['T']:.4f}",
-                    f"{throat['M']:.6f}",
-                    f"{chamber['m_dot']:.6f}",
-                    f"{chamber['p']:.6f}",
-                    f"{chamber['T']:.4f}",
-                    f"{chamber['M']:.6f}",
-                    os.path.basename(new),
-                ]
-            )
+        seen_stamps.add(stamp)
+        step, t = march_clock(progress, len(seen_stamps))
+        # the snapshot's own name identifies it; the march did not author
+        # a numbered field for this step, so none is minted here.
+        name = os.path.basename(source)
+        throat, chamber = append_row(
+            history, case, ti, ci, ny, fluid, fields, step, t, name
+        )
         print(
             f"step {step}: throat M {throat['M']:.4f} p {throat['p']/1e6:.4f} MPa, "
             f"chamber M {chamber['M']:.4f} p {chamber['p']/1e6:.4f} MPa",

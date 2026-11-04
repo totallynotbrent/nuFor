@@ -72,4 +72,5 @@ max_steps = 6000
 [output]
 formats = ["vtk"]
 interval_steps = 250
+keep_interval_fields = true
 fields = ["rho", "p", "T", "mach"]

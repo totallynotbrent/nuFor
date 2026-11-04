@@ -1,0 +1,32 @@
+# Cantera's ignition delays for the stoichiometric methane-air parcel
+#
+# the chemistry page quotes these delays, so the scan that produces them
+# is kept here for reference and can be reproduced with:
+#
+#   env -u PYTHONPATH /usr/bin/python3.12 tools/scan_ignition_delays.py
+#
+# the mixture is stoichiometric methane and air at one atmosphere, in a
+# rigid adiabatic vessel. ignition is marked the way the solver marks it:
+# a rise of 400 K over the initial temperature. the horizons are long
+# enough to see the delayed cases ignite.
+#
+#   T0 (K)      delay (s)  horizon reached
+#     1000    no ignition  yes (1.0000 s)
+#     1200   4.335000e-02  no
+#     1500   1.105000e-03  no
+#     2000   3.500000e-05  no
+#
+# cantera 3.2.0, against the mechanism pinned at
+# plans/combustion_research/sources/gri30.yaml.
+#
+# our own march at 1200 K, from the same +400 K definition:
+#
+#   nufor ignite cases/chemistry/gri30-stoich-ignition-1200k/case.toml
+#
+#   march 4.325103e-02 s (trace-interpolated), 4.325580e-02 s (solver)
+#   cantera 4.335e-02 s
+#   difference -0.23 %
+#
+# the trace's own numbers: 2,361,362 steps, worst newton 40 iterations,
+# final temperature 2822.6182 K, final pressure 248648.1878 Pa.
+# the march took about three hours on one core of this box.

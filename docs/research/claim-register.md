@@ -141,6 +141,85 @@ Published in `research/results.md` and the nozzle-cold-flow page.
 | pe/pt = 0.16 exit Mach and mass flux spread | 1.742 mass-average vs 1.854, 0.07% | same | gated |
 | pe/pt = 0.75 shock stand-off | shock at x ~ 6 against 1D 7.56 | same | gated |
 
+## Scheme-width spatial composition
+
+Published in `numerics/2d/spatial-chemistry.md`.
+
+| claim | value | source | state |
+|---|---|---|---|
+| species in the gated spatial composition | 53 | `cases/spatial-chemistry/gates.py` | gated |
+| methane transferred across one planar flow step | 0.195 mass fraction | same | gated |
+| least-positive species fraction after the step | 0.0045 | same | gated |
+| worst cell composition-sum error | 3.775e-15 | same | gated |
+| nine-species scheme through the same interface | accepted unchanged | `chem_spatial` core tests | gated |
+
+The gate measures the public composition and transport path with a real
+GRI-Mech 3.0 composition. Finite-rate GRI-Mech chemistry is not yet coupled
+to the spatial composition, so this establishes the transport and closure
+seam rather than a burning 53-species flow.
+
+## Spatial reactions
+
+Published in `numerics/2d/spatial-reactions.md`.
+
+| claim | value | source | state |
+|---|---|---|---|
+| cells advanced on the spatial pass | 4 of 4, none deferred | `cases/spatial-chemistry/reaction_gate.py` | gated |
+| worst relative error vs the 0-D reactor step | 7.153e-12 | same | gated |
+| worst composition-sum error after the pass | 1.110e-16 | same | gated |
+
+Both sides run the same `backward_euler_step`, so the match is
+exact up to rounding; the gate asserts it stays below 1e-9.
+
+## Per-cell reaction-set selection
+
+Published in `numerics/2d/spatial-selection.md`.
+
+| claim | value | source | state |
+|---|---|---|---|
+| mean evolved species per cell | 7.6 of 53 | `cases/spatial-chemistry/selection_gate.py` | gated |
+| worst major-species divergence vs dense run | 7.063e-08 relative | same | gated |
+| worst temperature divergence vs dense run | 7.260e-05 relative | same | gated |
+
+Freezing is on the state vector only; rates still see all 53 species.
+
+## Threaded slab-parallel chemistry
+
+| claim | value | source | state |
+|---|---|---|---|
+| slab-parallel selected source over 257 cells x 53 species matches serial bitwise | 13,621 of 13,621 entries, zero differing | `crates/nufor-core/examples/par_slabs_gate.rs` | gated |
+| worst composition-sum drift after threaded pass | 1.11e-16 | same | gated |
+| slabs | 4 on 4 threads, contiguous partition | same | gated |
+
+Valid because per-cell chemistry depends only on the cell's own state;
+each thread advances a disjoint slab and the union equals the serial run.
+
+## Chamber-throat thrust statement
+
+| claim | value | source | state |
+|---|---|---|---|
+| exit-plane thrust | 9791 N | `cases/chamber-throat/thrust.json` | gated |
+| thrust coefficient Cf | 1.102 (vs chamber p0 * throat area) | same | gated |
+| specific impulse | 264 s | same | gated |
+| exit flux Mach | 1.68, supersonic | same | gated |
+
+## Blown-in film injection
+
+Published in `numerics/2d/film-injection.md`.
+
+| claim | value | source | state |
+|---|---|---|---|
+| coolant admitted under a wall stating no temperature | 5.027e-05 kg per millisecond | `cases/film-injection/gates.py` | gated |
+| reported coolant mass flow | 0.050265 kg per second | same | gated |
+| chamber gain against the film's own booking | 1.213e-15 relative | same | gated |
+| film's area on the gated wall | 0.010053 m² | same | gated |
+| nitrogen fraction in the receiving cell | 0.029762 | same | gated |
+
+The gate drives the solver's own wall application and the report through
+the same film enumeration, so the published mass flow is the mass the
+chamber took. The film crosses the wall independently of the wall's
+thermal treatment.
+
 ## Scale and momentum
 
 Not published, tracked here so the distinction is explicit.

@@ -1,0 +1,1 @@
+{"coarse_cells":256,"refined_blocks":84,"dt":1.953e-2,"restriction_max_err":9.020e-3,"prolongation_max_err":1.598e-2,"tol":2.0e-2,"ok":true}

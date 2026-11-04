@@ -1,9 +1,14 @@
 //! typed case.toml schema and validation; strict serde types reject unknown keys.
 
+pub mod ignition;
 pub mod schema;
 
 mod validate;
 
+pub use ignition::{
+    load_ignition_case, parse_ignition_toml, validate as validate_ignition_case, IgnitionCase,
+    IgnitionError, IGNITION_SCHEMA_VERSION,
+};
 pub use schema::{
     BodySection, Boundaries, BoundaryKind, CaseConfig, Eos, Equations, FluxScheme,
     InflowProfileSpec, InitialCondition, Mesh, Metadata, Numerics, Output, OutputFormat, Physics,

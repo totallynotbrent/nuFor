@@ -1,0 +1,10 @@
+case gri30-stoich-ignition
+             steps 45685
+             worst newton iterations 18
+             final temperature 3022.5617 K
+             final pressure 165516.7774 Pa
+             ignition delay 3.400000e-5
+             density 0.168379 kg/m3
+             initial temperature 2000.0000 K
+             trace cases/chemistry/gri30-stoich-ignition/ignition-trace.csv
+             summary cases/chemistry/gri30-stoich-ignition/ignition-summary.txt

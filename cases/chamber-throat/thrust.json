@@ -1,0 +1,23 @@
+{
+  "tag": "chamber-throat-thrust",
+  "chamber_p0_pa": 7071231.00150402,
+  "throat_area_m2": 0.001256637061,
+  "throat_x_m": 0.14175,
+  "exit_area_m2": 0.002827433388,
+  "exit_p_pa": 1069112.568056,
+  "ambient_p_pa": 542900.0,
+  "exit_velocity_m_s": 2194.648014,
+  "mass_flow_exit_kg_s": 3.783359,
+  "mass_flow_throat_kg_s": 3.778609,
+  "mass_flow_chamber_kg_s": 3.92077328,
+  "thrust_n": 9790.972299705782,
+  "thrust_coefficient": 1.101846085485761,
+  "specific_impulse_s": 263.89283160355063,
+  "checks": {
+    "exit_supersonic": true,
+    "mass_conserved_across_stations": true,
+    "positive_thrust": true,
+    "reasonable_cf": true
+  },
+  "passed": true
+}

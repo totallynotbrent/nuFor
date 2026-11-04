@@ -29,6 +29,7 @@ use nufor_core::{
 use nufor_core::{model_from_config, park2t, ThermoModel};
 
 mod casework;
+mod ignite;
 mod mesh_io;
 mod progress;
 mod quasi1d;
@@ -37,6 +38,13 @@ mod watch;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const GAMMA: f64 = 1.4;
+
+/// how often the wall duty series takes a sample, in steps.
+///
+/// the duty costs a walk over the wall's stencil, so it cannot be
+/// taken every step. fifty steps puts a usable stationarity window
+/// on a run of a few thousand steps without crowding the solver.
+const WALL_DUTY_STRIDE: usize = 50;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -51,6 +59,7 @@ fn main() {
         "mesh" => mesh(&args),
         "mesh-check" => mesh_check(&args),
         "run" => run(&args),
+        "ignite" => ignite::ignite(&args),
         "inspect" => inspect(&args),
         "export" => export(&args),
         "history" => history(&args),
@@ -80,6 +89,7 @@ fn usage(prog: &str) {
          \x20 mesh-check file.msh         run the mesh quality diagnostics\n\
          \x20 run       <case.toml> | N t [sod|lax] [rst]\n\
          \x20                        run a case file, or a shock tube to time t\n\
+         \x20 ignite   <case.toml>       march a zero-dimensional ignition case\n\
          \x20 inspect   file.rst           show a restart's header and min/max density\n\
          \x20 export    in.rst out.vtk|h5  write a vtk or hdf5 snapshot\n\
          \x20 history   N [file.csv]       run sod to t=0.2 and write a csv snapshot\n\
@@ -972,6 +982,36 @@ fn catalytic_wall_choice(cfg: &CaseConfig) -> Result<nufor_core::catalytic::Cata
     }
 }
 
+/// the wall's treatment options, read from the case's physics section.
+///
+/// the regenerative coolant and the blowing-in film are separate
+/// physics: the first stays inside the wall's passages and moves only
+/// energy, the second crosses into the gas and moves mass, energy and
+/// species with it.
+fn wall_options(cfg: &nufor_config::CaseConfig) -> nufor_core::combustion_viscous_axi::AxiWallOpts {
+    let mut composition = [0.0f64; nufor_core::combustion_thermo::NS];
+    composition.copy_from_slice(&nufor_core::film_cooling::coolant_composition(
+        cfg.physics
+            .wall_film_injection_composition
+            .as_deref()
+            .unwrap_or("h2"),
+    ));
+    nufor_core::combustion_viscous_axi::AxiWallOpts {
+        temperature: cfg.physics.wall_temperature.unwrap_or(0.0),
+        emissivity: cfg.physics.wall_emissivity.unwrap_or(0.0),
+        film_coefficient: cfg.physics.wall_film_coefficient.unwrap_or(0.0),
+        coolant_mass_flux: cfg.physics.wall_coolant_mass_flux.unwrap_or(0.0),
+        coolant_capacity: cfg.physics.wall_coolant_capacity.unwrap_or(0.0),
+        regenerative_coolant_temperature: cfg.physics.wall_coolant_temperature.unwrap_or(0.0),
+        film_injection_mass_flux: cfg.physics.wall_film_injection_mass_flux.unwrap_or(0.0),
+        film_injection_temperature: cfg.physics.wall_film_injection_temperature.unwrap_or(0.0),
+        film_injection_composition: composition,
+        liner_thickness: cfg.physics.wall_liner_thickness.unwrap_or(0.0),
+        liner_conductivity: cfg.physics.wall_liner_conductivity.unwrap_or(0.0),
+        max_energy_fraction_per_step: 0.25,
+    }
+}
+
 /// the case body section as (dist, normal) closures the mask machinery
 /// already takes. absent body: None.
 pub fn case_body_fns(body: &Option<nufor_config::BodySection>) -> Option<CaseBodyFns> {
@@ -1315,25 +1355,119 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
     } else {
         1_000_000
     };
+    // the cut-cell geometry is STATIC: the grid and the body's signed
+    // distance function do not change over the march, so the dissection
+    // is built once and reused. rebuilding it every step re-measured
+    // 110 by 40 cells against 16 by 16 sub-lattices ten thousand times,
+    // which cost more than the solve itself.
+    let cut_geom = if cfg.physics.wall_representation.as_deref() == Some("cut") {
+        let cb = match case_body_fns(&cfg.body) {
+            Some(cb) => cb,
+            None => {
+                eprintln!("wall_representation = \"cut\" needs a body in the case");
+                return 2;
+            }
+        };
+        // the axisymmetric geometry: the volume fractions and the face
+        // openings are measured in the annulus, so the conservation law
+        // and the geometry agree.
+        Some(nufor_core::cutcell_axi_geom::AxiCutGeom::from_sdf(
+            cb.0.as_ref() as &dyn Fn(f64, f64) -> f64,
+            &g,
+        ))
+    } else {
+        None
+    };
+
     let t0 = Instant::now();
     let mut t = restart_time;
     let mut steps = 0usize;
     let mut ok = true;
     let mut prog = progress::Progress::new(path, "2d-axi");
     while t < t_end && steps < max_steps {
+        // the viscosity scale is computed BEFORE the mutable borrows: it
+        // needs the state and the composition, and the march needs both
+        // mutably.
+        let vis_scale_pre = match (&st, &combustion_state) {
+            (_, Some(spec)) => nufor_core::cutcell_viscous::viscosity_scale(
+                &st,
+                spec,
+                cfg.physics.mu.unwrap_or(0.0),
+            ),
+            _ => 1.0,
+        };
         let stepped_axi = if let Some(sp) = combustion_state.as_mut() {
-            nufor_core::combustion_march::advance2d_combustion_axi_rk2(
-                &mut st,
-                sp,
-                &g,
-                cfl,
-                true,
-                &bc,
-                cfg.numerics.threads,
-                body.as_ref()
-                    .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
-                combustion_react,
-            )
+            // the CUT-CELL lane. the staircase quantises the throat's
+            // area to whole radial rows and the marched gas pays for it
+            // with a lost total pressure, so the wall can instead be
+            // resolved by real apertures: each cell cut against the
+            // body's exact signed distance function.
+            //
+            // the cut-cell lane and the viscous lane do not combine
+            // yet: the viscous wall stencil wants the staircase's
+            // crossed faces, and the cut-cell lane brings its own
+            // immersed-boundary flux. a case that asks for both says
+            // so, and the run refuses rather than pretending.
+            let mu_case = cfg.physics.mu.unwrap_or(0.0);
+            let cut_wall = cfg.physics.wall_representation.as_deref() == Some("cut");
+            if cut_wall {
+                let cut = cut_geom.as_ref().expect("the cut geometry was built above");
+                nufor_core::cutcell_combustion::advance2d_combustion_axi_cut_rk2(
+                    &mut st,
+                    sp,
+                    &g,
+                    cut,
+                    cfl,
+                    true,
+                    &bc,
+                    cfg.numerics.threads,
+                    body.as_ref()
+                        .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
+                    cfg.physics.wall_temperature.unwrap_or(0.0),
+                    cfg.physics.wall_emissivity.unwrap_or(0.0),
+                    cfg.physics.wall_film_coefficient.unwrap_or(0.0),
+                    // the case's viscosity is an ABSOLUTE value, while
+                    // the closure's is the molecule's. the scale is the
+                    // ratio, so the cut-cell lane transports the gas
+                    // with the viscosity the case asked for and the
+                    // molecular diffusivities in proportion.
+                    vis_scale_pre,
+                    combustion_react,
+                )
+            } else if mu_case > 0.0 {
+                let tw = cfg.physics.wall_temperature.unwrap_or(0.0);
+                nufor_core::combustion_viscous_axi::advance2d_combustion_axi_visc_rk2(
+                    &mut st,
+                    sp,
+                    &g,
+                    cfl,
+                    true,
+                    &bc,
+                    nufor_core::combustion_viscous_axi::AxiWallOpts {
+                        temperature: tw,
+                        emissivity: cfg.physics.wall_emissivity.unwrap_or(0.0),
+                        film_coefficient: cfg.physics.wall_film_coefficient.unwrap_or(0.0),
+                        ..wall_options(cfg)
+                    },
+                    cfg.numerics.threads,
+                    body.as_ref()
+                        .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
+                    combustion_react,
+                )
+            } else {
+                nufor_core::combustion_march::advance2d_combustion_axi_rk2(
+                    &mut st,
+                    sp,
+                    &g,
+                    cfl,
+                    true,
+                    &bc,
+                    cfg.numerics.threads,
+                    body.as_ref()
+                        .map(|b| b.0.as_ref() as &dyn Fn(f64, f64) -> f64),
+                    combustion_react,
+                )
+            }
         } else if cfg.numerics.local_time_stepping {
             advance2d_axi_lts(
                 &mut st,
@@ -1423,6 +1557,17 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
                 t0.elapsed().as_secs_f64()
             );
         }
+        // the wall duty is the bracket's discriminating observable. it
+        // costs a wall stencil walk, so it rides the kept sample's
+        // fifty step cadence rather than every step, and it does NOT
+        // wait for the vtk interval: the interval is an output choice,
+        // and the duty's cadence belongs to the measurement, not to the
+        // output volume.
+        if steps % WALL_DUTY_STRIDE == 0 {
+            if let Some(sample) = wall_duty_sample(cfg, &st, &g, combustion_state.as_ref()) {
+                write_wall_duty_row(&case_dir(path), steps, t, &sample);
+            }
+        }
         // interval snapshots: a long march should not lose everything
         // when a late step goes bad; the interval vtk keeps the last
         // checkpoint on disk (same name as the final write).
@@ -1439,6 +1584,9 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
             );
             if rc != 0 {
                 eprintln!("interval output failed at step {steps}");
+            }
+            if cfg.output.keep_interval_fields {
+                keep_numbered_snapshot(path, &cfg.metadata.name, steps, t);
             }
             // the run-log ride-along is the expensive half of the
             // interval write (it walks the field again); keep it on
@@ -2647,6 +2795,17 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
                 t0.elapsed().as_secs_f64()
             );
         }
+        // the wall duty is the bracket's discriminating observable. it
+        // costs a wall stencil walk, so it rides the kept sample's
+        // fifty step cadence rather than every step, and it does NOT
+        // wait for the vtk interval: the interval is an output choice,
+        // and the duty's cadence belongs to the measurement, not to the
+        // output volume.
+        if steps % WALL_DUTY_STRIDE == 0 {
+            if let Some(sample) = wall_duty_sample(cfg, &st, &g, combustion_state.as_ref()) {
+                write_wall_duty_row(&case_dir(path), steps, t, &sample);
+            }
+        }
         // interval snapshots: a long march should not lose everything
         // when a late step goes bad; the interval vtk keeps the last
         // checkpoint on disk (same name as the final write).
@@ -2663,6 +2822,9 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
             );
             if rc != 0 {
                 eprintln!("interval output failed at step {steps}");
+            }
+            if cfg.output.keep_interval_fields {
+                keep_numbered_snapshot(path, &cfg.metadata.name, steps, t);
             }
             // the run-log ride-along is the expensive half of the
             // interval write (it walks the field again); keep it on
@@ -2751,6 +2913,123 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
             p.finish(false, steps as u64, t);
         }
         1
+    }
+}
+
+/// the axisymmetric combustion lane's wall accounting, measured.
+///
+/// this is the engine wall bracket's discriminating observable: the
+/// duty leaving the gas separates the bracket's legs, while the bulk
+/// gas barely moves. an ADIABATIC wall leaves no duty by definition,
+/// and the core's report agrees with the solver by charging it
+/// nothing, but it still reports the wall's footprint and the
+/// temperature the gas saw there, so the adiabatic leg stays
+/// comparable with the cooled ones.
+fn axi_wall_diagnostics(
+    cfg: &CaseConfig,
+    st: &ConservedState2d,
+    g: &nufor_core::Grid2d,
+    combustion: Option<&nufor_core::combustion_march::CombustionState>,
+) -> Option<nufor_core::combustion_viscous_axi::WallDiagnostics> {
+    let visc = cfg.physics.mu.map(|m| m > 0.0).unwrap_or(false);
+    if !visc || cfg.physics.equations != Equations::EulerAxi {
+        return None;
+    }
+    let cb = case_body_fns(&cfg.body)?;
+    let spec = combustion?;
+    let diag = nufor_core::combustion_viscous_axi::wall_diagnostics(
+        st,
+        spec,
+        g,
+        12,
+        Some(cb.0.as_ref() as &dyn Fn(f64, f64) -> f64),
+        wall_options(cfg),
+    )
+    .ok()?;
+    Some(diag)
+}
+
+/// one row of the wall duty series.
+#[derive(Clone, Copy, Debug, Default)]
+struct WallDutySample {
+    /// the total power leaving the gas, W.
+    heat_watts: f64,
+    /// the conductive share, W.
+    conductive_watts: f64,
+    /// the radiative share, W.
+    radiative_watts: f64,
+    /// the film's share, W.
+    film_watts: f64,
+    /// the wall's mean surface temperature the gas saw, K.
+    surface_temperature_k: f64,
+    /// the perimeter the surface temperature was averaged over, m.
+    surface_perimeter_metres: f64,
+    /// the wall area the blown-in film crossed, m².
+    film_injection_area_square_metres: f64,
+    /// the blown-in film's mass flow into the chamber, kg/s.
+    film_injection_mass_flow_kg_per_second: f64,
+}
+
+/// the wall duty at this moment, or NONE when the case has no wall.
+///
+/// the duty is the bracket's discriminating observable, so it is
+/// recorded as its own time series: the run log's text summary only
+/// holds the last interval's value, and a run that ends before its
+/// final summary leaves no duty behind at all.
+fn wall_duty_sample(
+    cfg: &CaseConfig,
+    st: &ConservedState2d,
+    g: &nufor_core::Grid2d,
+    combustion: Option<&nufor_core::combustion_march::CombustionState>,
+) -> Option<WallDutySample> {
+    let visc = cfg.physics.mu.map(|m| m > 0.0).unwrap_or(false);
+    if !visc || cfg.physics.equations != Equations::EulerAxi {
+        return None;
+    }
+    cfg.physics.chemistry.as_ref()?;
+    // every leg is measured the same way. an adiabatic wall draws no
+    // duty, so its duties read zero, but its footprint and the
+    // temperature the gas saw there are still real quantities and
+    // they keep the series comparable across the bracket's legs.
+    let diag = axi_wall_diagnostics(cfg, st, g, combustion)?;
+    Some(WallDutySample {
+        heat_watts: diag.heat_watts,
+        conductive_watts: diag.conductive_watts,
+        radiative_watts: diag.radiative_watts,
+        film_watts: diag.film_watts,
+        surface_temperature_k: diag.surface_temperature_k,
+        surface_perimeter_metres: diag.surface_perimeter_metres,
+        film_injection_area_square_metres: diag.film_injection_area_square_metres,
+        film_injection_mass_flow_kg_per_second: diag.film_injection_mass_flow_kg_per_second,
+    })
+}
+
+/// append one row to the wall duty series beside the case.
+fn write_wall_duty_row(dir: &std::path::Path, steps: usize, t: f64, s: &WallDutySample) {
+    use std::io::Write;
+    let path = dir.join("wall-duty.csv");
+    if !path.exists() {
+        let _ = std::fs::write(
+            &path,
+            "case,steps,time,heat_mw,conduction_mw,radiation_mw,film_mw,surface_t_k,perimeter_m,film_area_m2,film_mass_flow_kg_s\n",
+        );
+    }
+    let row = format!(
+        "{},{},{:.6},{:.6},{:.6},{:.6},{:.6},{:.2},{:.6},{:.9},{:.9}\n",
+        "axisym-combustion",
+        steps,
+        t,
+        s.heat_watts / 1e6,
+        s.conductive_watts / 1e6,
+        s.radiative_watts / 1e6,
+        s.film_watts / 1e6,
+        s.surface_temperature_k,
+        s.surface_perimeter_metres,
+        s.film_injection_area_square_metres,
+        s.film_injection_mass_flow_kg_per_second
+    );
+    if let Ok(mut fh) = std::fs::OpenOptions::new().append(true).open(&path) {
+        let _ = fh.write_all(row.as_bytes());
     }
 }
 
@@ -2866,6 +3145,54 @@ fn write_run_log_2d(
     // one-sided quadratic the march's conductor applies, scaled by the
     // same per-cell viscosity the march uses. only emitted for viscous
     // runs with a finite wall temperature.
+    // the axisymmetric combustion lane's OWN wall accounting: the
+    // conductive power leaving the gas at every wall face, summed and
+    // bucketed along the axis. the engine's wall bracket needs a
+    // measured duty, not a qualitative claim that a colder wall cooled
+    // the gas, and the bracket compares the duty between an adiabatic
+    // wall and a cooled one.
+    let mut axi_wall_s = String::new();
+    let wall_diag = axi_wall_diagnostics(cfg, st, g, combustion);
+    if let Some(diag) = wall_diag.as_ref() {
+        // the wall's nature follows its own temperature: an adiabatic
+        // wall states none and draws nothing, so it is named as such
+        // rather than as a wall at absolute zero.
+        let kind = if tw > 0.0 {
+            format!("a {tw:.0} K wall")
+        } else {
+            String::from("an adiabatic wall")
+        };
+        axi_wall_s.push_str(&format!(
+            "wall duty: {:.4} MW leaving the gas into {kind}\n\
+(conduction {:.4} MW, radiation {:.4} MW, film {:.4} MW)\n",
+            diag.heat_watts / 1e6,
+            diag.conductive_watts / 1e6,
+            diag.radiative_watts / 1e6,
+            diag.film_watts / 1e6,
+        ));
+        // the surface temperature is what the gas saw, which
+        // differs from the stated one when the wall carries a
+        // liner or a coolant of its own.
+        axi_wall_s.push_str(&format!(
+            "wall surface: {:.1} K, averaged over the wall's {:?} m of perimeter\n",
+            diag.surface_temperature_k, diag.surface_perimeter_metres
+        ));
+        axi_wall_s.push_str("wall duty by station (MW):\n");
+        for b in &diag.buckets {
+            if b.perimeter_metres <= 0.0 {
+                continue;
+            }
+            axi_wall_s.push_str(&format!(
+                "  x {:7.4}..{:7.4}  {:9.5}  perimeter {:6.4} m\n",
+                b.x0,
+                b.x1,
+                b.heat_watts / 1e6,
+                b.perimeter_metres
+            ));
+        }
+        axi_wall_s.push('\n');
+    }
+
     let mut qwall_s = String::new();
     if visc && tw > 0.0 {
         let cb = case_body_fns(&cfg.body);
@@ -3068,6 +3395,9 @@ fn write_run_log_2d(
         txt.push_str(&noneq_line);
     }
     txt.push_str(&continuum_line);
+    if !axi_wall_s.is_empty() {
+        txt.push_str(&axi_wall_s);
+    }
     if !qwall_s.is_empty() {
         txt.push('\n');
         txt.push_str(&qwall_s);
@@ -3779,12 +4109,19 @@ fn ic2d_from_case_model(
                 }
                 _ => gamma,
             };
-            // the axisymmetric lane marches the mesh's annular areas:
-            // the staircase is the capacity the flow really has, so
-            // the seed is built on it and the seeded mass flux is what
-            // the mesh can pass. the planar lane keeps the contour's
-            // smooth area.
-            let stations = if cfg.physics.equations == Equations::EulerAxi {
+            // which areas the seed walks. the axisymmetric lane can walk
+            // the mesh's own annular areas, which are the capacity the
+            // discretised flow really has; the contour's smooth area is
+            // the geometry the case actually draws. the choice is the
+            // case's, because the two give materially different throats:
+            // the mesh areas quantise the throat radius to whole radial
+            // rows, and a seed built on a quantised throat hands the
+            // marching flow an inception state that already owes the
+            // area error.
+            let seed_on_mesh = cfg.physics.quasi1d_seed_areas.as_deref() == Some("mesh")
+                || (cfg.physics.quasi1d_seed_areas.is_none()
+                    && cfg.physics.equations == Equations::EulerAxi);
+            let stations = if seed_on_mesh {
                 let mask = case_body_fns(&cfg.body).map(|b| {
                     let band = 1.5 * g.dx.min(g.dy);
                     body_cache(g, b.0.as_ref() as &dyn Fn(f64, f64) -> f64, band)
@@ -4072,6 +4409,54 @@ fn write_case_vtk2d_model(
             eprintln!("output error: {e}");
             1
         }
+    }
+}
+
+/// keep a numbered copy of the snapshot the interval writer just wrote.
+///
+/// the march overwrites `<name>.vtk` every interval, so a study that needs
+/// the field history has to rescue each snapshot before the next write.
+/// the watcher that used to do this raced the march: it named each copy
+/// from the progress file's step, which lags the march and repeats, so
+/// copies collided and some intervals vanished. the march knows its own
+/// step, so it names them here.
+fn keep_numbered_snapshot(path: &str, name: &str, step: usize, t: f64) {
+    let src = case_dir(path).join(format!("{name}.vtk"));
+    let file = format!("vtk-{step:06}.vtk");
+    let dst = case_dir(path).join(&file);
+    match std::fs::copy(&src, &dst) {
+        Ok(_) => {
+            record_snapshot_index(path, step, t, &file);
+            println!("kept: {}", dst.display());
+        }
+        Err(e) => eprintln!("numbered snapshot failed at step {step}: {e}"),
+    }
+}
+
+/// records the exact step and time of every numbered snapshot.
+///
+/// the analysis scripts sort the snapshot files by name and read the step
+/// back out of the file name, so the name has to be truthful. an outside
+/// watcher cannot promise that: the progress file lags the march, and a
+/// copied field would carry a step it never reached. the march writes the
+/// index instead, so the mapping between a field and its time never rests
+/// on a polled timestamp.
+fn record_snapshot_index(path: &str, step: usize, t: f64, file: &str) {
+    let dir = case_dir(path);
+    let index = dir.join("snapshots.csv");
+    let fresh = !index.exists();
+    let mut text = String::new();
+    if fresh {
+        text.push_str("step,t,vtk\n");
+    } else if let Ok(old) = std::fs::read_to_string(&index) {
+        text.push_str(&old);
+    }
+    if !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text.push_str(&format!("{step},{t:.9e},{file}\n"));
+    if let Err(e) = std::fs::write(&index, text) {
+        eprintln!("snapshot index failed at step {step}: {e}");
     }
 }
 

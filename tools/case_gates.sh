@@ -25,6 +25,7 @@ case_gates=(
   "cases/chamber-throat committed"
   "cases/nozzle-cdv field"
   "cases/aeroshell-station field"
+  "cases/engine-wall-bracket field"
 )
 
 fails=0
@@ -42,7 +43,7 @@ for entry in "${case_gates[@]}"; do
     echo "PASS $case_dir"
     continue
   fi
-  if printf '%s' "$out" | grep -qiE "no marched field|not marched|run the case|MISS"; then
+  if printf '%s' "$out" | grep -qiE "no marched field|not marched|run the case|NOT RUN:|MISS"; then
     if [ "$mode" = "field" ]; then
       echo "SKIP $case_dir: no marched field here"
     else

@@ -1,0 +1,17 @@
+# the stoichiometric methane parcel at 1200 K, ignited in a rigid vessel.
+#
+# this is the cool-start companion to the 2000 K case: the induction
+# period is long, so the march measures the ignition delay rather than
+# the flash. the delay is the +400 K rise the cantera scan also uses.
+schema_version = 1
+name = "gri30-stoich-ignition-1200k"
+
+[parcel]
+mechanism = "gri30"
+fuel = "CH4"
+initial_temperature_k = 1200.0
+pressure_pa = 101325.0
+final_time_s = 0.06
+sample_interval_s = 5.0e-5
+max_step_s = 5.0e-5
+ignition_threshold_k = 400.0

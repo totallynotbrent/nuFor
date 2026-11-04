@@ -1,0 +1,1 @@
+{"mesh":"triangle","cells_order1":100,"cells_muscl":100,"steps":[494,496],"plateau_o1":0.40639104913363905,"plateau_muscl":0.4135337398598628,"left_o1":0.9999999999955111,"left_muscl":0.9999999999999999,"right_muscl":0.12500000000000036,"positive":true,"sharpened":true,"passed":true}

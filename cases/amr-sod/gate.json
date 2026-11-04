@@ -1,0 +1,1 @@
+{"coarse_cells":512,"refine_blocks":16,"steps":51,"time":0.20204468902103612,"positive":true,"mass_rel_err":0.0,"rmax":1.0,"rmin":0.125,"plateau":0.125,"expected":0.426,"passed":true}

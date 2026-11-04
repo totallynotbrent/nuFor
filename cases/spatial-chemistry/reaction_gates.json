@@ -1,0 +1,31 @@
+{
+  "tag": "spatial-reaction",
+  "measured": {
+    "cells": 4,
+    "cells_reacted": 4,
+    "cells_deferred": 0,
+    "worst_iterations": 8,
+    "max_sum_error": 1.1102230246251565e-16,
+    "worst_relative_error_vs_reactor": 7.1527842168924665e-12,
+    "chosen_dts_s": [
+      1e-06,
+      2.5e-07,
+      1e-06,
+      6.25e-08
+    ],
+    "worst_absolute_error_vs_reactor": 5.183409257369931e-12,
+    "temperatures_before_k": [
+      900.0000000001168,
+      1400.0000000002312,
+      1200.0000000001457,
+      1700.0000000000628
+    ]
+  },
+  "checks": {
+    "every_cell_reacted": true,
+    "nothing_deferred": true,
+    "field_matches_reactor_within_rounding": true,
+    "compositions_stay_normalized": true
+  },
+  "passed": true
+}
