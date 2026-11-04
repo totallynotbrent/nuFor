@@ -411,6 +411,65 @@ contains
     ierr = 0
   end subroutine
 
+  ! general nf-field gather: each of the `nf` planes (plane-major, plane*padded
+  ! followed by cells) is scattered into the global row-major layout, field
+  ! f occupying out((f-1)*nx*ny_ + k_dst). lets non-conserved planes (the
+  ! species compositions) ride the same slab layout as the conserved four.
+  subroutine nfor_mpi_gather_nf(fields, nf, nloc, nx, ny_, out, ierr) &
+      bind(c, name="nfor_mpi_gather_nf")
+    integer(c_int), value, intent(in) :: nf, nloc, nx, ny_
+    real(c_double), intent(in) :: fields(*)
+    real(c_double), intent(out) :: out(*)
+    integer(c_int), intent(out) :: ierr
+    real(RP), allocatable :: send(:), recv(:)
+    integer :: counts(g_decomp%nranks), disps(g_decomp%nranks)
+    integer :: r, base, rem, e2, f, k, l_src, l_recv, k_dst, nxl_r, i0_r, i_l, j
+    allocate(send(nf*nloc), recv(nf*nx*ny_))
+    base = nx / g_decomp%nranks
+    rem = mod(nx, g_decomp%nranks)
+    do r = 1, g_decomp%nranks
+      if (r-1 < rem) then
+        counts(r) = (base+1) * ny_
+      else
+        counts(r) = base * ny_
+      end if
+    end do
+    disps(1) = 0
+    do r = 2, g_decomp%nranks
+      disps(r) = disps(r-1) + nf*counts(r-1)
+    end do
+    ! flatten (k, f) column-major pairs into field-contiguous blocks: send
+    ! holds field f's slab at [(f-1)*nloc + k], matching the rust caller's
+    ! plane-major buffer.
+    do f = 1, nf
+      do k = 1, nloc
+        send((f-1)*nloc + k) = fields((f-1)*nloc + k)
+      end do
+    end do
+    call mpi_gatherv(send, nf*nloc, MPI_DOUBLE_PRECISION, recv, nf*counts, disps, &
+                     MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, e2)
+    if (g_decomp%rank == 0) then
+      ! recv holds rank r's field f block at disps(r) + (f-1)*counts(r) + l;
+      ! scatter into the global row-major, field-major out buffer.
+      do r = 1, g_decomp%nranks
+        nxl_r = counts(r) / ny_
+        i0_r = (r-1)*base + min(r-1, rem) + 1
+        do j = 1, ny_
+          do i_l = 1, nxl_r
+            l_src = (j-1)*nxl_r + i_l
+            k_dst = (j-1)*nx + (i0_r - 1) + i_l
+            do f = 1, nf
+              l_recv = disps(r) + (f-1)*counts(r) + l_src
+              out((f-1)*nx*ny_ + k_dst) = recv(l_recv)
+            end do
+          end do
+        end do
+      end do
+    end if
+    deallocate(send, recv)
+    ierr = 0
+  end subroutine
+
   ! 4-field halo exchange for the conserved slab (rho, mx, my, e)
   subroutine halo_exchange_cons(rho, mx, my, e, nx_l, ny_)
     real(RP), intent(inout) :: rho(nx_l+4, ny_), mx(nx_l+4, ny_), &

@@ -17,7 +17,7 @@ pub fn alternating_amplitude(profile: &[f64]) -> f64 {
         return 0.0;
     }
     let mean = profile.iter().sum::<f64>() / n as f64;
-    if !(mean > 0.0) {
+    if mean.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
         return 0.0;
     }
     let mut amp = 0.0f64;

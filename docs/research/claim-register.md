@@ -186,14 +186,18 @@ Freezing is on the state vector only; rates still see all 53 species.
 
 ## Feed-system tanks
 
-Not in a marched case yet; the module and its conservation contracts are
-gated, the coupling to a chamber march is the open seam.
+Coupled into the chamber march through the optional `physics.tank_feed`
+case stanza: the west `reservoir_inflow` face's stagnation state is stepped
+once per march step against the chamber's inlet-column pressure, so the
+injected reservoir decays as the tank drains. Without the stanza the
+historic constant reservoir runs unchanged.
 
 | claim | value | source | state |
 |---|---|---|---|
 | choked blowdown step mass | equals the choked-nozzle flux times area times dt | `feed_system` core tests | gated |
 | polytropic invariant p/rho^n | preserved to 1e-9 relative over 100 steps | same | gated |
-| drawn-mass accounting | sum of m_dot*dt equals the tank level drop to 1e-9 | same | gated |
+| drawn-mass accounting | sum of dm equals the tank level drop to 1e-9 | same | gated |
+| coupled smoke march | 23 steps, tank drew 2.489e-5 kg of a 1.857e-2 kg fill, p_t fell 1.200e7 to 1.198e7 pa | chamber-tank run log | measured |
 
 ## Threaded slab-parallel chemistry
 

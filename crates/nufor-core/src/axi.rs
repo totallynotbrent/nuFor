@@ -108,24 +108,17 @@ pub fn reservoir_real_gas(
 /// real-gas lane's gamma comes from the mixture's own heat capacity,
 /// and the reservoir's composition is what the tank holds.
 fn reservoir_gamma_and_r(bc: &Bc2d, model: ThermoModel, tt: f64) -> Option<(f64, f64)> {
-    let Bc2d::ReservoirInflowRealGas {
-        fill, n_species, ..
-    } = bc
-    else {
+    let Bc2d::ReservoirInflowRealGas { fill, .. } = bc else {
         return None;
     };
     match model {
         ThermoModel::Perfect { gamma } => Some((gamma, 287.05)),
         ThermoModel::Combustion9 { gamma_shaping } => {
-            if *n_species != crate::combustion_thermo::NS
-                || fill.len() != crate::combustion_thermo::NS
-            {
-                return None;
-            }
-            let mut y = [0.0f64; crate::combustion_thermo::NS];
-            for (dst, src) in y.iter_mut().zip(fill.iter()) {
-                *dst = *src;
-            }
+            // the lane speaks nine species, but the boundary may carry a
+            // wider composition (a gri30 reservoir, say). reduce it by
+            // species symbol, refusing non-li mass, so a wide vector can
+            // never be reinterpreted positionally as the nine.
+            let y = crate::chem_convert::coerce_to_li(fill)?;
             let rmix = crate::combustion_closure::mix_gas_constant(&y);
             let cp = crate::combustion_thermo::mix_cp_mass(&y, tt);
             let g = if cp > rmix {
@@ -185,10 +178,7 @@ pub fn reservoir_real_gas_at(
     let closure_var = match model {
         ThermoModel::Perfect { .. } => p_loc,
         _ => {
-            let mut y = [0.0f64; crate::combustion_thermo::NS];
-            for (dst, src) in y.iter_mut().zip(fill.iter()) {
-                *dst = *src;
-            }
+            let y = crate::chem_convert::coerce_to_li(fill)?;
             crate::combustion_closure::internal_energy_at(t_ghost, &y)
         }
     };

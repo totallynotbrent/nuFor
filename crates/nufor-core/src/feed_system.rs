@@ -36,6 +36,8 @@ pub struct TankFeed {
 #[derive(Clone, Copy, Debug)]
 pub struct FeedStep {
     /// mass drawn through the injector this step, kg (always positive out of the tank).
+    pub dm: f64,
+    /// mass flow rate through the injector during the step, kg/s.
     pub m_dot: f64,
     /// tank pressure before the step, pa.
     pub p_before: f64,
@@ -107,6 +109,7 @@ impl TankFeed {
         self.rho = rho_new;
         let p_after = self.pressure();
         Ok(FeedStep {
+            dm,
             m_dot: if dt > 0.0 { dm / dt } else { 0.0 },
             p_before,
             p_after,
@@ -225,9 +228,8 @@ mod tests {
         let mut tk = tank();
         // dt so large the naive draw exceeds the inventory; the step clamps.
         let r = tk.step(0.0, 1.0e9);
-        match r {
-            Ok(st) => assert!(st.m_dot >= 0.0 && st.p_after > 0.0),
-            Err(_) => {}
+        if let Ok(st) = r {
+            assert!(st.m_dot >= 0.0 && st.p_after > 0.0);
         }
     }
 

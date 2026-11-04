@@ -144,6 +144,27 @@ impl CaseConfig {
                 );
             }
         }
+        if let Some(tank) = &self.physics.tank_feed {
+            check_positive(tank.volume, "physics.tank_feed.volume", &mut problems);
+            check_positive(tank.rho0, "physics.tank_feed.rho0", &mut problems);
+            check_positive(tank.t0, "physics.tank_feed.t0", &mut problems);
+            check_positive(tank.polytrope, "physics.tank_feed.polytrope", &mut problems);
+            check_positive(tank.r_gas, "physics.tank_feed.r_gas", &mut problems);
+            if let Some(g) = tank.gamma {
+                if g.partial_cmp(&1.0) != Some(std::cmp::Ordering::Greater) {
+                    problems.push("physics.tank_feed.gamma must exceed 1.0".to_owned());
+                }
+            }
+            if let Some(area) = self.boundaries.injector_area {
+                if area.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
+                    problems.push(
+                        "physics.tank_feed needs a positive boundaries.injector_area".to_owned(),
+                    );
+                }
+            } else {
+                problems.push("physics.tank_feed needs boundaries.injector_area set".to_owned());
+            }
+        }
 
         match &self.initial_condition {
             InitialCondition::Uniform { rho, p, t, .. } => {

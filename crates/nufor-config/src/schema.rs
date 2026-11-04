@@ -201,6 +201,38 @@ pub struct Physics {
     /// premix.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub injection: Option<HashMap<String, f64>>,
+    /// optional feed-tank block: couples the chamber's reservoir-inflow
+    /// face to a lumped tank blowdown (`nufor_core::feed_system::TankFeed`)
+    /// so the injected stagnation state decays as the tank drains. absent
+    /// means a constant reservoir, the historic behaviour.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tank_feed: Option<TankFeedSpec>,
+}
+
+/// the feed-tank stanza of a chamber case. temperatures and pressures are
+/// held until the first coupled step, so an unfed reservoir is exactly the
+/// old fixed-stagnation path.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TankFeedSpec {
+    /// tank volume, m3.
+    pub volume: f64,
+    /// initial propellant-vapor density in the tank, kg/m3.
+    pub rho0: f64,
+    /// initial tank temperature, k.
+    pub t0: f64,
+    /// polytropic index of the discharge (1 isothermal, gamma adiabatic).
+    #[serde(default = "default_polytrope")]
+    pub polytrope: f64,
+    /// vapor gas constant, j/(kg k).
+    pub r_gas: f64,
+    /// vapor ratio of specific heats (defaults to the case gamma).
+    #[serde(default)]
+    pub gamma: Option<f64>,
+}
+
+fn default_polytrope() -> f64 {
+    1.0
 }
 
 /// the sa turbulence block of a rans_2d_sa case.

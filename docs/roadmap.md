@@ -211,7 +211,11 @@ flowchart LR
    inflow, the axisymmetric chamber settles with the throat choked
    and the exit state close to CEA, and three fast gates hold it: the
    flame temperature at 70 bar, the adiabatic round trip at the flame
-   point, and the chamber sound speed. A CH4/O2 mechanism now
+   point, and the chamber sound speed. Composition crossing a
+   fixed-width boundary goes through `chem_convert::coerce_to_li`,
+   which lifts the nine Li species into GRI-Mech 3.0 by symbol and
+   restricts back, refusing any gri-only mass, so a wide vector is
+   never read positionally as the nine. A CH4/O2 mechanism now
    sits beside the H2/O2 one: GRI-Mech 3.0's 53 species and 325
    reactions are generated into Rust tables from the mechanism's own
    yaml, carry four-parameter Troe falloff and equilibrium-constant
@@ -371,7 +375,11 @@ flowchart LR
     bridge call and sit at roundoff against the serial drivers
     on all five fields at np=1, 2, and 3 (the worst relative difference
     is 8.2e-14), with the CLI routing
-    body-free eqair cases through the Fortran core. The third lands all
+    body-free eqair cases through the Fortran core. Phase F3's first
+    slice is in: `nfor_mpi_gather_nf` collects an arbitrary number of
+    field planes through the same x-slab decomposition and reassembles
+    them exactly on rank 0 at np=1, 2, and 3, so composition travels
+    through the same layout as the conserved fields. The third lands all
     new physics (live 2T, species, combustion) MPI-native from day one,
     which pulls the nonequilibrium and species work inside this one.
 
@@ -394,8 +402,8 @@ flowchart LR
 Open research items, worked when they block a milestone rather than on
 a schedule: the near-wall u+ odd-even checkerboard from the
 grid-convergence study (quantified by the `uplus_metric` second-difference
-score: 0 monotone, 1 pure alternating), and the coupling of the
-finite-volume feed-system tanks (`feed_system`) to a chamber march.
+score: 0 monotone, 1 pure alternating). The feed-system tanks are no
+longer open: `physics.tank_feed` couples them to the chamber march.
 
 ## The case workflow
 

@@ -153,6 +153,15 @@ extern "C" {
         out: *mut f64,
         ierr: *mut i32,
     );
+    fn nfor_mpi_gather_nf(
+        fields: *const f64,
+        nf: i32,
+        nloc: i32,
+        nx: i32,
+        ny: i32,
+        out: *mut f64,
+        ierr: *mut i32,
+    );
 }
 
 /// one mpi session per process: init once on first use, finalized at exit
@@ -199,6 +208,38 @@ impl MpiSession {
         }
         Ok((rank, i0, nx_local))
     }
+}
+
+/// gather `nf` plane-major local slabs (`fields[f*nloc + k]`, one plane per
+/// field) to rank 0's full-domain buffer `out[f*nx*ny + k]`, using the same
+/// x-slab decomposition as the conserved gather. every rank calls it; only
+/// rank 0's `out` is written. this is the species-plane companion of
+/// [`nfor_mpi_gather`] (phase f3): composition rides the march unsigned.
+pub fn gather_fields_mpi(
+    fields: &[f64],
+    nf: usize,
+    nloc: usize,
+    nx: usize,
+    ny: usize,
+) -> Result<Vec<f64>, Error> {
+    MpiSession::new()?;
+    let mut out = vec![0.0f64; nf * nx * ny];
+    let mut ierr: i32 = 0;
+    unsafe {
+        nfor_mpi_gather_nf(
+            fields.as_ptr(),
+            nf as i32,
+            nloc as i32,
+            nx as i32,
+            ny as i32,
+            out.as_mut_ptr(),
+            &mut ierr,
+        );
+    }
+    if ierr != 0 {
+        return Err(Error::InvalidArgs);
+    }
+    Ok(out)
 }
 
 /// ship the tgas1 face-fit tables (once per process, before marching).

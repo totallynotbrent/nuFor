@@ -1103,6 +1103,42 @@ pub fn case_side_bc_euler(
     }
 }
 
+/// mean thermodynamic pressure over the west (column-0) face cells of an
+/// axisymmetric 2d state; the chamber-side pressure the feed tank senses.
+/// for the combustion lane the pressure comes from the closure on the
+/// composition, mirroring the ghost's own evaluation.
+fn inlet_column_mean_pressure(
+    st: &nufor_core::ConservedState2d,
+    g: &nufor_core::Grid2d,
+    comb: Option<&nufor_core::combustion_march::CombustionState>,
+) -> f64 {
+    use nufor_core::combustion_closure as cc;
+    use nufor_core::combustion_thermo as ct;
+    let mut acc = 0.0f64;
+    for j in 0..g.ny {
+        let k = j * g.nx;
+        let p = match comb {
+            Some(c) => {
+                let y: [f64; ct::NS] =
+                    c.y.iter()
+                        .map(|p| p[k])
+                        .collect::<Vec<_>>()
+                        .try_into()
+                        .unwrap_or([0.0; ct::NS]);
+                let u = st.mx[k] / st.rho[k];
+                let e_int = st.e[k] / st.rho[k] - 0.5 * u * u;
+                cc::pressure_at(st.rho[k], e_int, &y)
+            }
+            None => {
+                let e_int = st.e[k] - 0.5 * (st.mx[k].powi(2) + st.my[k].powi(2)) / st.rho[k];
+                nufor_core::eqair_pressure(&[st.rho[k]], &[e_int]).unwrap()[0]
+            }
+        };
+        acc += p;
+    }
+    acc / g.ny as f64
+}
+
 /// the inflow state a supersonic_inflow side carries: the explicit
 /// boundaries.inflow_state when present, else the uniform freestream.
 pub fn case_inflow_state(cfg: &CaseConfig) -> Option<(f64, f64, f64, f64, Option<f64>)> {
@@ -1307,6 +1343,8 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
         }
     };
     let mut bc = case_boundaries(cfg);
+    // the optional feed tank driving the reservoir-inflow face, if declared.
+    let mut tank_slot: Option<nufor_core::feed_system::TankFeed> = None;
     // the axisymmetric defaults: the south side is the symmetry axis
     // (slip wall) and the north side vents unless the case says more.
     if cfg.boundaries.bottom.is_none() {
@@ -1333,6 +1371,24 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
                 .try_into()
                 .unwrap_or([0.0; nufor_core::combustion_thermo::NS]);
             let tt = p / (rho * nufor_core::combustion_closure::mix_gas_constant(&fill_arr));
+            // a declared tank_feed couples the reservoir to a lumped tank
+            // blowdown: the injected stagnation pressure is the tank's
+            // evolving pressure, stepped once per march step against the
+            // chamber-side pressure. absent tank_feedback keeps the
+            // historic constant reservoir.
+            let tank_spec = cfg.physics.tank_feed.clone();
+            tank_slot = tank_spec.and_then(|spec| {
+                let area = cfg.boundaries.injector_area?;
+                Some(nufor_core::feed_system::TankFeed {
+                    volume: spec.volume,
+                    rho: spec.rho0,
+                    t: spec.t0,
+                    polytrope: spec.polytrope,
+                    injector_area: area,
+                    r_gas: spec.r_gas,
+                    gamma: spec.gamma.unwrap_or(cfg.physics.gamma),
+                })
+            });
             let real_gas = Bc2d::ReservoirInflowRealGas {
                 pt: p,
                 tt,
@@ -1383,6 +1439,8 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
     let mut t = restart_time;
     let mut steps = 0usize;
     let mut ok = true;
+    let mut feed_prev_t = restart_time;
+    let mut feed_draw_total = 0.0f64;
     let mut prog = progress::Progress::new(path, "2d-axi");
     while t < t_end && steps < max_steps {
         // the viscosity scale is computed BEFORE the mutable borrows: it
@@ -1501,6 +1559,24 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
                 break;
             }
         };
+        // feed-tank coupling: sample the chamber-side pressure averaged over
+        // the west (inflow) column, step the tank against it for the elapsed
+        // dt, and rewrite the reservoir ghost's stagnation state for the
+        // next step. off when the case declares no tank_feed.
+        if let Some(tank) = tank_slot.as_mut() {
+            let p_face = inlet_column_mean_pressure(&st, &g, combustion_state.as_ref());
+            if let Ok(step) = tank.step(p_face, t - feed_prev_t) {
+                feed_prev_t = t;
+                if let Bc2d::ReservoirInflowRealGas { pt, rho_t, tt, .. } = &mut bc.west {
+                    // mirror the tank state into the reservoir ghost:
+                    // pt = rho_t * R_mix * tt holds by construction.
+                    *pt = tank.pressure();
+                    *tt = tank.t;
+                    *rho_t = tank.rho;
+                }
+                feed_draw_total += step.dm;
+            }
+        }
         if let Some((dist, normal)) = &body {
             if matches!(model, ThermoModel::Combustion9 { .. }) {
                 // the combustion closure reads the perfect-gas inert
@@ -1614,14 +1690,22 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
             p.finish(true, steps as u64, t);
         }
         println!(
-            "case {} ({})\nthink: axisymmetric, {}x{}\nsteps: {}\ntime: {:.4}\nwall: {:.3}s",
+            "case {} ({})\nthink: axisymmetric, {}x{}\nsteps: {}\ntime: {:.4}\nwall: {:.3}s{}",
             cfg.metadata.name,
             path,
             g.nx,
             g.ny,
             steps,
             t,
-            t0.elapsed().as_secs_f64()
+            t0.elapsed().as_secs_f64(),
+            tank_slot
+                .as_ref()
+                .map(|tk| format!(
+                    "\ntank: p_t {:.3e} pa, drew {:.6e} kg over the run",
+                    tk.pressure(),
+                    feed_draw_total
+                ))
+                .unwrap_or_default()
         );
         let rc = write_case_vtk2d_model(
             path,

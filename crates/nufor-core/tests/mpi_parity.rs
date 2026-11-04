@@ -839,3 +839,57 @@ fn mpi_np1_sa_matches_rust() {
         .join()
         .expect("mpi test thread panicked");
 }
+
+/// phase f3 transport gate: every rank carves its x-slab of a recognizable
+/// multi-field payload, `gather_fields_mpi` reassembles it on rank 0, and the
+/// assembled planes must reproduce the original full-domain fields exactly
+/// (mpi doubles carry no arithmetic). non-zero rank returns after the
+/// collective. exercises the nf-general gather at np=1 and np=2 in ci.
+#[test]
+#[ignore] // run under mpirun -np N, see the ci parity-smoke step
+fn mpi_gather_nf_fields_reassembles_exactly() {
+    use nufor_core::ffi_mpi::{gather_fields_mpi, mpi_shutdown, MpiSession};
+    use nufor_core::partition::{assemble_slabs, carve_slab, rank_columns};
+    let (nx, ny, nf) = (37usize, 11usize, 3usize);
+    let n = nx * ny;
+    MpiSession::new().unwrap();
+    let (rank, _i0, nx_local) = MpiSession::case_init(nx, ny).unwrap();
+    let nx_l = nx_local as usize;
+    // full-domain field f: distinguishable values so a transposed slab
+    // cannot accidentally pass.
+    let full: Vec<Vec<f64>> = (0..nf)
+        .map(|f| (0..n).map(|k| (f + 1) as f64 * 1000.0 + k as f64).collect())
+        .collect();
+    let slab: Vec<f64> = full
+        .iter()
+        .flat_map(|plane| carve_slab(plane, nx, ny, _i0 as usize, nx_l))
+        .collect();
+    let gathered = gather_fields_mpi(&slab, nf, nx_l * ny, nx, ny).unwrap();
+    if rank == 0 {
+        for f in 0..nf {
+            let plane = &gathered[f * n..(f + 1) * n];
+            assert_eq!(plane, &full[f], "gathered field {f} diverged");
+        }
+        // and the same slabs reassemble through the pure-rust path
+        let cols = rank_columns(nx, num_ranks());
+        let slabs: Vec<Vec<f64>> = (0..num_ranks())
+            .scan(0usize, |acc, r| {
+                let s = carve_slab(&full[0], nx, ny, *acc, cols[r]);
+                *acc += cols[r];
+                Some(s)
+            })
+            .collect();
+        assert_eq!(assemble_slabs(&slabs, &cols, nx, ny), full[0]);
+    }
+    mpi_shutdown();
+}
+
+/// world size from the launcher's environment (openmpi/prte stamp every
+/// rank's OMPI_COMM_WORLD_SIZE; fall back to 1 outside mpirun).
+fn num_ranks() -> usize {
+    std::env::var("OMPI_COMM_WORLD_SIZE")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|&n: &usize| n >= 1)
+        .unwrap_or(1)
+}

@@ -29,6 +29,21 @@ const fn li_gri_indices() -> [usize; 9] {
     [0, 3, 5, 4, 1, 2, 6, 7, 47]
 }
 
+/// coerce an arbitrary-width composition row onto the nine li species.
+/// a nine-wide row is copied verbatim; a gri30-wide row reduces by symbol
+/// and returns `None` if any gri-only species carries mass.
+pub fn coerce_to_li(row: &[f64]) -> Option<[f64; 9]> {
+    match row.len() {
+        9 => {
+            let mut out = [0.0f64; 9];
+            out.copy_from_slice(row);
+            Some(out)
+        }
+        n if n == Gri30.n_species() => restrict_gri_to_li(row).ok(),
+        _ => None,
+    }
+}
+
 /// lift a nine-species mass-fraction row into a gri30-width vector.
 pub fn lift_li_to_gri(li_row: &[f64; 9]) -> Vec<f64> {
     let mut out = vec![0.0; Gri30.n_species()];
