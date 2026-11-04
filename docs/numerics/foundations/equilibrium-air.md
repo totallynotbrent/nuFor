@@ -143,3 +143,9 @@ and five-species chemistry ([[numerics/foundations/five-species|five-species che
 the next steps past equilibrium.
 
 ![March steps and wall time per trajectory station](station-sweep.png)
+
+![Capsule reentry under the eqair closure, 640x320: density with the detached bow shock](img/capsule-eqair-fine-rho.png)
+
+![Same run, temperature: the heated shock layer wrapped around the nose](img/capsule-eqair-fine-t.png)
+
+![Same run, Mach number: subsonic pocket behind the bow shock, supersonic shoulders](img/capsule-eqair-fine-mach.png)

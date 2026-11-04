@@ -1,8 +1,8 @@
-# Rung 12 plan: laminar Newtonian viscous terms on the unstructured triangle duals
+# Laminar viscous terms on the unstructured triangle duals
 
-Scope: survey what exists, name the seam, and give a minimal implementation plan for
-a laminar viscous flux on `Ugrid`. No repo files were modified; this document is
-the only artifact.
+Scope: survey the viscous machinery, name the seam, and lay out the
+implementation plan for a laminar viscous flux on `Ugrid`. The plan has
+since shipped; see the landed outcome under the gate section below.
 
 ## (a) What viscous machinery exists today
 
@@ -127,6 +127,19 @@ New module `crates/nufor-core/src/viscous_u.rs` (mirrors `viscous2d.rs` naming):
 Turbulent extension (later rung): `mu_t` from `sa::eddy_viscosity` fed into the same
 face flux via the `face_flux_split` pattern (`viscous2d.rs:196`); needs SA march +
 wall distance on `Ugrid` first, out of scope for the laminar minimal pass.
+
+### Landed outcome
+
+This plan shipped as `viscous_u` driving Newtonian stress and conduction
+from green-gauss gradients on the `Ugrid` faces. The gate results, from
+`cases/ugrid-viscous/gate.json`: pairwise-conservative construction
+(exactly zero residual on a uniform field), energy sums holding to
+1.7e-12 over the decay run, and monotonic diffusion decay of a
+sinusoidal energy perturbation. Curved-geometry validation followed in
+`cases/ugrid-annulus/gate.json`: a 2304-triangle quarter annulus tiles
+its arc-chord area to 1.8e-4 and conserves total energy to 2.8e-15 over
+50 viscous steps with positivity. Turbulent extension (SA eddy viscosity
+on the duals) remains the noted later step.
 
 ### Gate
 Verification gate, in order:

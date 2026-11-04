@@ -51,6 +51,8 @@ what keeps the Blasius hold balanced from the first cell.
 
 ## Body walls
 
+![Detached bow shock ahead of a masked body in the viscous lane, schlieren: the classic blunt-body picture the wall flux is read from](img/capsule-eqair-schlieren.png)
+
 Every face that touches a solid cell is a wall. The advective half mirrors
 the fluid state about the face and runs the same HLLC the interior faces
 use; the reflected Riemann returns mass 0 with the stagnation pressure the

@@ -122,6 +122,10 @@ never asked for.
 
 ![Stagnation-line temperature and composition](cyl-park5-stagline.png)
 
+![Temperature field, Mach 20 nitrogen over the cylinder (400x200): the hot stagnation region wrapping the nose](img/cyl-park5-t.png)
+
+![Same run, schlieren: the detached bow shock standing off ahead of the stagnation point](img/cyl-park5-schlieren.png)
+
 The standoff sits at the non-reacting value rather than the
 published reacting one: the published reduction is a shock-layer
 thinning the cool recombining wall drives, and an inviscid slip wall

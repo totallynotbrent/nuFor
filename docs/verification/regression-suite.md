@@ -38,7 +38,7 @@ explicitly when the physics path they cover changes:
 
     cargo test --release -- --ignored
 
-There are 17 such ignored gates spread across 11 test files: the combustor
+There are 18 such ignored gates spread across 12 test files: the combustor
 ignition gate, the injector chamber gate, the chamber throat gate, the
 equilibrium-air capsule artifact, the SA transport comparison, the viscous
 validation lanes, and the convergence marches. Five of them are the MPI
@@ -48,12 +48,14 @@ collective state cannot bleed into each other.
 ## Counts
 
 The suite is the workspace's own instrumentation, and the numbers move as
-tests are added:
+tests are added. From the latest full `cargo test --workspace` run on this
+tree (exit 0):
 
-- 69 test binaries report success on a green run,
-- 360 individual tests pass,
-- 17 tests are ignored in the default run, and those are the 17 heavy gates
-  above.
+- 73 test executables report success on a green run,
+- 501 individual tests pass,
+- 18 tests are ignored in the default run, and those are the 18 heavy gates
+  above (the workspace carries 519 `#[test]` attributes; 501 + 18 ignored
+  reconciles exactly).
 
 Reading those numbers off a run rather than quoting them keeps the page
 honest as the suite grows.

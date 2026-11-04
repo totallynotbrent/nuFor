@@ -55,6 +55,8 @@ case is the test that they are present and correct.
 The setup and the checked numbers are on
 [[verification/axisymmetric-sphere|the sphere validation page]].
 
+![Steady Mach field of the entry capsule run on the axisymmetric lane, 320x160: shock, subsonic pocket, shoulder expansion](img/capsule-eqair-mach.png)
+
 ## The chamber lane
 
 The axisymmetric march carries the nine-species combustion closure, so a

@@ -176,6 +176,10 @@ reflected atoms are worth the most formation enthalpy.
 
 ![Peak wall heat flux against the wall accommodation](cyl-park5visc-accommodation-peak.png)
 
+![Fully catalytic wall run, temperature field: the hottest gas pressed against the stagnation region](img/cyl-park5visc-full-t.png)
+
+![Non-catalytic wall run, temperature field, same grid: cooler shock layer, weaker recombination heating](img/cyl-park5visc-none-t.png)
+
 The figures are a model study, not a bracket of the wall heat flux.
 The obstacle is the continuum criterion, and it is not a modelling
 choice: near the wall the gradient-length Knudsen number reaches

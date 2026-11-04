@@ -52,6 +52,11 @@ which carries 3D axisymmetric reality at 2D cost).
   remain as the face-state extrapolation the wake needs. A four-station
   trajectory sweep (30/34.6/40/42.5 km, alpha 22.5) is validated at
   320x176 and anchored at 1280x640.
+
+  ![Station h30.0 km, schlieren: bow shock and wake](img/aeroshell-h30-schlieren.png)
+  ![Station h34.6 km, Mach field: post-shock pocket and shoulder acceleration](img/aeroshell-h34.6-mach.png)
+  ![Station h40.0 km, density field: thinner, closer shock layer at altitude](img/aeroshell-h40-rho.png)
+  ![Station h42.5 km, temperature field](img/aeroshell-h42.5-t.png)
 - Performance: the static body classification is cached and the closure
   passes are threaded; the hi-res anchor runs 8x faster than the serial
   march (3.96 h for 11,549 steps at 1280x640 on my desktop).
@@ -72,9 +77,11 @@ which carries 3D axisymmetric reality at 2D cost).
   source, the seam Riemann pair, and a double face-length weighting
   in the update. The full capsule march is steady at the stagnation
   corner with zero floor hits end to end.
-- Unstructured 2D: a gmsh-driven finite-volume path exists
-  (`ugrid.rs`, advance_ugrid) with the Sod gate; a prototype, not yet a
-  validated capability.
+- Unstructured 2D: validated and gated (`ugrid.rs`, `advance_ugrid`): a
+  Sod tube on an 800-cell triangulation lands the star plateau at 0.413
+  against the analytic 0.426 with positivity and end states exact,
+  second order lifts it to 0.414, viscous duals are pairwise
+  conservative, and a quarter-annulus run validates curved geometry.
 
 ## The ladder, in order
 

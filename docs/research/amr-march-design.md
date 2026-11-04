@@ -1,4 +1,4 @@
-# Rung 11, AMR two-level march: design for solver2d consumption of refine blocks
+# AMR three-level march: design, gates, and the regridding hook
 
 Status: prototype. The structure (`amr2d.rs`: `RefineBlock`, `normalize`,
 `cell_gradient_magnitude`, `refine_blocks`) and a compilable proof

@@ -76,10 +76,13 @@ h-box), not a configuration change.
 
 ## Figures
 
-- the 3D shell colored by my panel Cp (no CFD claims on it),
-- the fine-grid density field with the bow shock and the sampled
-  surface,
-- the Cp(x) cross-check plot with the divergence annotated.
+![Numerical schlieren of the peak-q capsule march, 640x320 fine grid: detached bow shock standing off the nose](img/capsule-eqair-fine-schlieren.png)
+
+![Density field, same run: the shock layer hugging the body and the sampled surface](img/capsule-eqair-fine-rho.png)
+
+![Same capsule on the body-fitted curvilinear O-grid, schlieren](img/capsule-ogrid-schlieren.png)
+
+The Cp(x) cross-check plot with the divergence annotated is in the case directory; the panel-method Cp on the STL facets is computed by the trajectory tooling, not by nuFor.
 
 ## Honesty boundaries
 

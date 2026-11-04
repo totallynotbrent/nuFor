@@ -12,9 +12,17 @@ A CPU-first computational fluid dynamics research code built in Rust and Fortran
 > exercised across a four-station atmospheric-entry sweep with a
 > 1280x640 anchor run. The GRI-Mech 3.0 chemistry now burns a
 > zero-dimensional parcel from a case file and matches Cantera's own
-> reactor on the settled flame state. Still ahead: two-temperature
-> nonequilibrium, spatially resolved methane flames, and unstructured
-> meshes, on the [roadmap](docs/roadmap.md). Cases run from the CLI today; the web UI
+> reactor on the settled flame state. Since then the harder lanes
+> landed as well: live two-temperature Park nonequilibrium with a
+> Millikan-White vibrational relaxation, a Fay-Riddell wall-heating
+> gate, a Bird-Knudsen continuum-validity probe, five-species Park
+> chemistry, catalytic walls, three-level AMR with hysteretic
+> regridding, a gated unstructured triangle path, and cut cells with
+> a convergent supersonic wall treatment, all recorded on the
+> [roadmap](docs/roadmap.md). Remaining openly on the [claim
+> register](docs/research/claim-register.md): the catalyst-wall peak
+> flux (withheld past the declared continuum cutoff) and two research
+> refinements. Cases run from the CLI today; the web UI
 > covers the fixed case set with field visualization, probes, and
 > CSV / VTK / HDF5 export.
 

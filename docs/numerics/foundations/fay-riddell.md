@@ -111,6 +111,10 @@ of 10.9 and a standard deviation of 1.7:
 | last-three-chunk mean at the chain's end | 9.8 W/cm² |
 | ratio, settled mean / closed form | 1.28 |
 
+![Chamber stagnation chain, temperature field: the hot core behind the bow shock on the cylinder](img/cyl-fay-t.png)
+
+![Same chain, schlieren: the resolved shock and the near-wall thermal sublayer](img/cyl-fay-schlieren.png)
+
 The 8.48 in this table is the closed form as implemented (pure-N2
 Sutherland transport, Pr 0.72); the transport correction that
 explains the ratio comes below, after the refined-mesh chain.
