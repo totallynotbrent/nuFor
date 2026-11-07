@@ -807,11 +807,8 @@ pub fn advance2d_combustion_axi_cut(
     // mass fluxes the momentum used.
     let fx_mass: Vec<Vec<f64>> = fx.iter().map(|s| s.mass.clone()).collect();
     let fy_mass: Vec<Vec<f64>> = fy.iter().map(|s| s.mass.clone()).collect();
-    let resid_y = if std::env::var("").is_ok() {
-        0.0
-    } else {
-        transport_species_apertures(&mut species.y, &state.rho, dt, g, &fx_mass, &fy_mass, cut)
-    };
+    let resid_y =
+        transport_species_apertures(&mut species.y, &state.rho, dt, g, &fx_mass, &fy_mass, cut);
     for k in 0..n {
         species.renorm(k);
     }

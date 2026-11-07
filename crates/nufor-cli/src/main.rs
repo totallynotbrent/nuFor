@@ -1582,10 +1582,12 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
         // mostly fluid, and stamping the stagnant fill onto those puts
         // a high-pressure plug inside the throat jet, so the generic
         // solid restore only runs for the staircase lanes.
-        let cut_wall_stomp_off =
-            cfg.physics.wall_representation.as_deref() == Some("cut");
-        if !cut_wall_stomp_off {
-            if let Some((dist, normal)) = &body {
+        let wall_stomp = if cfg.physics.wall_representation.as_deref() == Some("cut") {
+            None
+        } else {
+            body.as_ref()
+        };
+        if let Some((dist, normal)) = wall_stomp {
             if matches!(model, ThermoModel::Combustion9 { .. }) {
                 // the combustion closure reads the perfect-gas inert
                 // reference as burned gas at an absurd temperature; the
@@ -1607,7 +1609,6 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
                 );
             } else {
                 apply_solid_fn(&mut st, &g, dist.as_ref(), normal.as_ref(), gamma);
-            }
             }
         }
         steps += 1;
@@ -2328,9 +2329,12 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     };
     // the cut lane seals the wall with real apertures instead, so the
     // centre-solid partly-fluid cells must keep the seeded state.
-    let cut_init_stomp_off = cfg.physics.wall_representation.as_deref() == Some("cut");
-    if !cut_init_stomp_off {
-        if let Some((dist, normal)) = &body {
+    let init_stomp = if cfg.physics.wall_representation.as_deref() == Some("cut") {
+        None
+    } else {
+        body.as_ref()
+    };
+    if let Some((dist, normal)) = init_stomp {
         if let Some((rho_fs, p_fs, u_fs)) = fs_ref {
             apply_solid_ref(
                 &mut st,
@@ -2367,7 +2371,6 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
             }
         } else {
             apply_solid_fn(&mut st, &g, dist.as_ref(), normal.as_ref(), gamma);
-        }
         }
     }
     let bc = case_boundaries(cfg);
