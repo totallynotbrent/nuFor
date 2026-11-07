@@ -516,7 +516,22 @@ pub fn advance2d_combustion_axi_cut(
                     a: aw,
                     e: clo.e_int[k],
                 };
-                let q = hllc_flux(1.2, fw(un), fw(-un), 0);
+                // same cutoff as the perfect-gas cut march: when the
+                // wall-frame normal speed exceeds the local sound speed
+                // the mirrored hllc pair pumps ram-scale momentum into
+                // the cell (star pressure grows like rho*a*|un|), so the
+                // wall switches to the exact pressure-only slip flux.
+                let supersonic_wall = un.abs() > aw;
+                let q = if supersonic_wall {
+                    crate::hllc2d::Flux4 {
+                        mass: 0.0,
+                        mx: pw,
+                        my: 0.0,
+                        e: 0.0,
+                    }
+                } else {
+                    hllc_flux(1.2, fw(un), fw(-un), 0)
+                };
                 // the wall's flux is a per-area flux, so it meets the
                 // wall's area and then the cell's fluid volume.
                 //
