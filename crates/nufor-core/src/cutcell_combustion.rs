@@ -813,18 +813,12 @@ pub fn advance2d_combustion_axi_cut(
         species.renorm(k);
     }
 
-    // the solid scaffold is restored for the CELLS THAT ARE WHOLLY
-    // SOLID: vol == 0 means no aperture ever touched them. a cut cell
-    // with vol > 0 is partly fluid and the apertures own its update,
-    // so stamping the entry state over it erases the gas sitting in
-    // the sliver and parks a phantom obstacle in the throat.
+    // the solid scaffold is restored, exactly as the staircase does: it
+    // is scaffolding, not flow.
     if let Some(dist) = wall {
         let band = 1.5 * g.dx.min(g.dy);
         let cache = crate::body::body_cache(g, dist, band);
         for &k in &cache.solid_cells {
-            if cut.vol[k] > 0.0 {
-                continue;
-            }
             state.rho[k] = entry_rho[k];
             state.mx[k] = 0.0;
             state.my[k] = 0.0;
