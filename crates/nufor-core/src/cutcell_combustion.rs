@@ -193,7 +193,7 @@ fn transport_species_apertures(
                 let radial = (rp * cut.ay_at(j + 1, i) * fy[i][j + 1] * yy[s][(j + 1) * nx + i]
                     - rm * cut.ay_at(j, i) * fy[i][j] * yy[s][j * nx + i])
                     / (rc * dr);
-                let d = -(dxi * flux_x + dt * radial);
+                let d = -(dxi * flux_x + dt * radial) / cut.vol[k];
                 mass_y[s][k] += d;
                 resid = resid.max(d.abs() / rho[k].max(1.0e-30));
             }
