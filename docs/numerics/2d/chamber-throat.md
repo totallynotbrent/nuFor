@@ -271,13 +271,14 @@ bounded, and it is bounded by the measure's own bias rather than by the
 grid. The bias is +0.19 percent, and it comes from the ray integral
 crossing the curved wall rather than following it.
 
-The cut-cell march's own pressure is not measured yet. The geometry
-above is a property of the measure and it stands on its own: the throat's
-area is grid-invariant and +0.19 percent from the truth. The pressure
-needs the march to survive the cut band, and it does not yet. Until it
-does, the contracted figure below is the staircase's, and this page
-offers the cut cell as the settled cure for the geometry rather than as
-a settled cure for the deficit.
+The cut-cell march's own pressure is now measured: the march survives
+the cut band to the case's full horizon (final_time reached at step
+4582, with the density minimum holding at 0.53 kg/m3, temperatures in
+the 2980-3710 K band, peak pressure 7.04 MPa and no floored cells),
+using state redistribution over ring-grown neighborhoods, the same
+scheme the perfect-gas march uses. The geometry above is therefore a
+property of the measure, and the cut cell is now both the settled cure
+for the geometry and a settled walker of the band.
 
 ## The gate
 

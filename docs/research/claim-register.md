@@ -155,9 +155,10 @@ Published in `numerics/2d/spatial-chemistry.md`.
 | li-2004 <-> gri30 conversion by species symbol | lifts all 9 fractions losslessly and rejects restriction when gri-only mass is present; the index table is asserted against the generated gri names | `chem_convert` core tests | gated |
 
 The gate measures the public composition and transport path with a real
-GRI-Mech 3.0 composition. Finite-rate GRI-Mech chemistry is not yet coupled
-to the spatial composition, so this establishes the transport and closure
-seam rather than a burning 53-species flow.
+GRI-Mech 3.0 composition. Finite-rate GRI-Mech chemistry couples to that
+spatial composition in the section below (worst relative error 7.153e-12
+against the zero-dimensional reactor), so transport, closure, and
+reacting chemistry now share one scheme-width seam.
 
 ## Spatial reactions
 

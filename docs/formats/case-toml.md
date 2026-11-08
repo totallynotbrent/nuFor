@@ -115,7 +115,7 @@ silently change a run.
 | `boundaries.inflow_profile.leading_edge` | float | with `type = "blasius"` | | The virtual x station where the layer starts, strictly upstream of the inflow face (the similarity solution is singular at the edge itself, so an edge at or past the inflow plane is rejected). |
 | `boundaries.inflow_profile.path` | string | with `type = "table"` | | A profile file: one `y u v` row per line, y strictly increasing, `#` comments allowed. |
 | `numerics.flux` | string | yes | `hll` \| `hllc` | Riemann solver / approximate flux. |
-| `numerics.reconstruction` | string | yes | `first_order` \| `muscl` | Spatial reconstruction. |
+| `numerics.reconstruction` | string | yes | `first_order` \| `muscl` | Spatial reconstruction. Every lane honors it, including the cut-cell walls, which take the first-order update when the case asks for it. |
 | `numerics.cfl` | float | yes | in (0, 1] | CFL number for the explicit time step. |
 | `numerics.local_time_stepping` | bool | no (default false) | | Experimental steady-state acceleration, not time-accurate. The inviscid stage advances each cell at its own bound in residual form; the viscous stage holds the field at the minimum increment. Intermediate states are not conservative and on impulsive blunt-body starts the march can still fail, so the default global-dt path remains the validated one. |
 | `time.final_time` | float | no (default 0) | >= 0 | Stop time. |

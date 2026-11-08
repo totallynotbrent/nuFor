@@ -516,7 +516,28 @@ pub fn advance2d_combustion_axi_cut(
                     a: aw,
                     e: clo.e_int[k],
                 };
-                let q = hllc_flux(1.2, fw(un), fw(-un), 0);
+                // same cutoff as the perfect-gas cut march: when the
+                // wall-frame normal speed exceeds the local sound speed
+                // the mirrored hllc pair pumps ram-scale momentum into
+                // the cell (star pressure grows like rho*a*|un|), so the
+                // wall switches to the exact pressure-only slip flux.
+                let supersonic_wall = un.abs() > aw;
+                let q = if supersonic_wall {
+                    crate::hllc2d::Flux4 {
+                        mass: 0.0,
+                        mx: pw,
+                        my: 0.0,
+                        e: 0.0,
+                    }
+                } else {
+                    // the subsonic mirrored pair still carries a small
+                    // residual mass/energy flux from its star region;
+                    // an adiabatic impermeable wall exchanges neither.
+                    let mut qq = hllc_flux(1.2, fw(un), fw(-un), 0);
+                    qq.mass = 0.0;
+                    qq.e = 0.0;
+                    qq
+                };
                 // the wall's flux is a per-area flux, so it meets the
                 // wall's area and then the cell's fluid volume.
                 //
@@ -566,182 +587,136 @@ pub fn advance2d_combustion_axi_cut(
     }
 
     let mut resid = 0.0f64;
-    // the SLIVER HANDOFF.
+    // STATE REDISTRIBUTION (SRD, Berger-Giuliani) over the cut band:
+    // the scheme the perfect-gas march survives the throat with. every
+    // fluid cell lands its FULL flux update; then each cut cell's state
+    // is replaced by the volume-weighted average over a neighborhood
+    // grown ring by ring until the pooled fluid volume reaches one full
+    // cell. the weights are the cells' fluid volumes divided by their
+    // cover counts, so the totals are preserved exactly: averaging
+    // cannot create or destroy mass, momentum or energy, it only moves
+    // a sliver's update amplification into cells that can hold it.
     //
-    // an explicit update on a cut cell divides by its fluid fraction,
-    // so a cell with a tenth of its volume amplifies its update tenfold
-    // and cannot absorb it at the march's timestep: it oscillates, and
-    // the oscillation is a seed the neighbours grow.
-    //
-    // the fix is conservative redistribution, and the conservative form
-    // is a HANDOFF rather than a replacement: a sliver keeps only the
-    // share of its update it can absorb at the global timestep, and it
-    // hands the rest to the neighbours across its OPEN faces, in
-    // proportion to what they can receive. the sum is preserved
-    // exactly, so the handoff cannot create or destroy mass; it only
-    // moves the sliver's excessive update somewhere that can hold it.
-    //
-    // the sliver's own state is averaged with its neighbourhood's, so
-    // the layer's structure survives instead of being washed out.
+    // the update-handoff form (sliver keeps limit*frac of its update,
+    // excess spread over open-face neighbours) was measured and
+    // rejected: weighting receivers by (1 - limit) concentrates the
+    // excess in fellow slivers and drains the wall band dry (rho hits
+    // the 1e-10 floor by step ~750); weighting by receiver room instead
+    // breaks the wall conservation test's drift bound. SRD needs no
+    // receiver weights at all, which is why it is the one that works.
     {
-        // how much of its update a cell can absorb at the global dt: a
-        // full cell takes all of it, and a sliver takes its fraction.
-        let limit = |k: usize| -> f64 { cut.vol[k].clamp(0.0, 1.0) };
+        // the planar fluid volume used for pooling and weighing, the
+        // same measure the march lane's SRD uses.
+        let vfull_cell = g.dx * g.dy;
+        let vcell = |m: usize| -> f64 { cut.vol[m] * vfull_cell };
 
-        // the OPEN faces of the slivers, and the neighbours across them.
-        // a face's receiver capacity is the neighbour's own ability to
-        // absorb, so the handoff flows downhill toward the roomier
-        // cells.
-        let mut hand: Vec<[f64; 4]> = vec![[0.0; 4]; n];
-        let mut recv_cap: Vec<f64> = vec![0.0; n];
-        for j in 0..ny {
-            for i in 0..nx {
-                let k = idx(i, j);
-                if cut.vol[k] <= 0.0 {
-                    continue;
-                }
-                // a cell that took the whole of its update has nothing
-                // to hand over, but it still lands it.
-                if limit(k) >= 1.0 {
-                    state.rho[k] += drho[k];
-                    state.mx[k] += dmx[k];
-                    state.my[k] += dmy[k];
-                    state.e[k] += de[k];
-                    resid = resid
-                        .max(drho[k].abs())
-                        .max(dmx[k].abs())
-                        .max(dmy[k].abs())
-                        .max(de[k].abs());
-                    continue;
-                }
-                let mut offered = 0.0f64;
-                let mut receivers: Vec<(usize, f64)> = Vec::new();
-                // the four open faces and the neighbours across them.
-                let nb = [
-                    (
-                        if i > 0 { Some(idx(i - 1, j)) } else { None },
-                        cut.ax_at(i, j),
-                    ),
-                    (
-                        if i + 1 < nx {
-                            Some(idx(i + 1, j))
-                        } else {
-                            None
-                        },
-                        cut.ax_at(i + 1, j),
-                    ),
-                    (
-                        if j > 0 { Some(idx(i, j - 1)) } else { None },
-                        cut.ay_at(j, i),
-                    ),
-                    (
-                        if j + 1 < ny {
-                            Some(idx(i, j + 1))
-                        } else {
-                            None
-                        },
-                        cut.ay_at(j + 1, i),
-                    ),
-                ];
-                for (maybe_m, ap) in nb {
-                    let Some(m) = maybe_m else { continue };
-                    if ap <= 1.0e-12 || cut.vol[m] <= 0.0 {
-                        continue;
-                    }
-                    offered += ap;
-                    receivers.push((m, ap));
-                }
-                if offered <= 1.0e-12 || receivers.is_empty() {
-                    // no open face to hand anything through: the cell
-                    // keeps only what it can absorb, and the rest is
-                    // simply dropped, which is the price of an isolated
-                    // sliver.
-                    drho[k] *= limit(k);
-                    dmx[k] *= limit(k);
-                    dmy[k] *= limit(k);
-                    de[k] *= limit(k);
-                    state.rho[k] += drho[k];
-                    state.mx[k] += dmx[k];
-                    state.my[k] += dmy[k];
-                    state.e[k] += de[k];
-                    continue;
-                }
-                // the update this cell cannot hold: the part of it
-                // beyond what its own fraction lets it absorb. the
-                // absorbed part lands in the cell; the rest travels.
-                let excess = [
-                    drho[k] * (1.0 - limit(k)),
-                    dmx[k] * (1.0 - limit(k)),
-                    dmy[k] * (1.0 - limit(k)),
-                    de[k] * (1.0 - limit(k)),
-                ];
-                // the receivers' capacities, in proportion to the
-                // openings that lead to them.
-                let mut total_cap = 0.0f64;
-                for &(m, ap) in &receivers {
-                    let c = (1.0 - limit(m)).max(0.0) * ap;
-                    recv_cap[m] += c;
-                    total_cap += c;
-                }
-                if total_cap <= 1.0e-12 {
-                    // no neighbour has room for the handoff, but the
-                    // cell still has to LAND the part it can absorb.
-                    // dropping the whole update here would erase the
-                    // cell's mass, energy and momentum in one step, and
-                    // the erasure is invisible in the diagnostics that
-                    // integrate the same faces. the unsent remainder is
-                    // the price of the isolated sliver, but the cell's
-                    // own balance stays intact.
-                    drho[k] *= limit(k);
-                    dmx[k] *= limit(k);
-                    dmy[k] *= limit(k);
-                    de[k] *= limit(k);
-                    state.rho[k] += drho[k];
-                    state.mx[k] += dmx[k];
-                    state.my[k] += dmy[k];
-                    state.e[k] += de[k];
-                    resid = resid
-                        .max(drho[k].abs())
-                        .max(dmx[k].abs())
-                        .max(dmy[k].abs())
-                        .max(de[k].abs());
-                    continue;
-                }
-                for &(m, ap) in &receivers {
-                    let share = ap * (1.0 - limit(m)).max(0.0) / total_cap;
-                    hand[m][0] += excess[0] * share;
-                    hand[m][1] += excess[1] * share;
-                    hand[m][2] += excess[2] * share;
-                    hand[m][3] += excess[3] * share;
-                }
-                // the cell keeps only what it can absorb: its update
-                // reduced to its share.
-                drho[k] *= limit(k);
-                dmx[k] *= limit(k);
-                dmy[k] *= limit(k);
-                de[k] *= limit(k);
-                // and what it keeps lands now.
-                state.rho[k] += drho[k];
-                state.mx[k] += dmx[k];
-                state.my[k] += dmy[k];
-                state.e[k] += de[k];
-                resid = resid
-                    .max(drho[k].abs())
-                    .max(dmx[k].abs())
-                    .max(dmy[k].abs())
-                    .max(de[k].abs());
-            }
-        }
-        // apply: the cells that stepped on their own have already been
-        // updated, so the handoff arrives as a correction.
+        // land the full update on every fluid cell.
         for k in 0..n {
             if cut.vol[k] <= 0.0 {
                 continue;
             }
-            state.rho[k] += hand[k][0];
-            state.mx[k] += hand[k][1];
-            state.my[k] += hand[k][2];
-            state.e[k] += hand[k][3];
+            state.rho[k] += drho[k];
+            state.mx[k] += dmx[k];
+            state.my[k] += dmy[k];
+            state.e[k] += de[k];
+            resid = resid
+                .max(drho[k].abs())
+                .max(dmx[k].abs())
+                .max(dmy[k].abs())
+                .max(de[k].abs());
+        }
+
+        // neighborhoods: full cells are their own; every cut cell grows
+        // a ring of fluid neighbours until the pooled fluid volume
+        // reaches one full cell of its own row.
+        let mut nbrs: Vec<Vec<usize>> = vec![Vec::new(); n];
+        for j in 0..ny {
+            for i in 0..nx {
+                let k = idx(i, j);
+                let alpha = cut.vol[k];
+                if alpha >= 1.0 || alpha <= 0.0 {
+                    if alpha > 0.0 {
+                        nbrs[k].push(k);
+                    }
+                    continue;
+                }
+                let vtarg = vfull_cell;
+                let mut member = vec![k];
+                let mut vol = vcell(k);
+                let (mut r0, mut r1, mut c0, mut c1) = (i, i, j, j);
+                while vol < vtarg && (r0 > 0 || r1 + 1 < nx || c0 > 0 || c1 + 1 < ny) {
+                    let (pr0, pr1, pc0, pc1) = (r0, r1, c0, c1);
+                    r0 = r0.saturating_sub(1);
+                    r1 = (r1 + 1).min(nx - 1);
+                    c0 = c0.saturating_sub(1);
+                    c1 = (c1 + 1).min(ny - 1);
+                    for jj in c0..=c1 {
+                        for ii in r0..=r1 {
+                            let on_new_ring = ii == r0 || ii == r1 || jj == c0 || jj == c1;
+                            if !on_new_ring
+                                || (ii == pr0 && jj >= pc0 && jj <= pc1)
+                                || (ii == pr1 && jj >= pc0 && jj <= pc1)
+                            {
+                                continue;
+                            }
+                            let k2 = idx(ii, jj);
+                            if cut.vol[k2] > 0.0 && !member.contains(&k2) {
+                                member.push(k2);
+                                vol += vcell(k2);
+                            }
+                        }
+                    }
+                }
+                nbrs[k] = member;
+            }
+        }
+
+        // overlap counts.
+        let mut cover = vec![0usize; n];
+        for row in &nbrs {
+            for &m in row {
+                cover[m] += 1;
+            }
+        }
+
+        // weighted neighborhood averages of the updated states.
+        let mut qavg: Vec<[f64; 4]> = vec![[0.0; 4]; n];
+        for k in 0..n {
+            if nbrs[k].is_empty() {
+                continue;
+            }
+            let mut wv = 0.0f64;
+            let mut acc = [0.0f64; 4];
+            for &m in &nbrs[k] {
+                let w = vcell(m) / cover[m].max(1) as f64;
+                wv += w;
+                acc[0] += w * state.rho[m];
+                acc[1] += w * state.mx[m];
+                acc[2] += w * state.my[m];
+                acc[3] += w * state.e[m];
+            }
+            qavg[k] = [acc[0] / wv, acc[1] / wv, acc[2] / wv, acc[3] / wv];
+        }
+
+        // final state: the average of the averages covering the cell.
+        let mut nacc = vec![[0.0f64; 4]; n];
+        let mut ncnt = vec![0usize; n];
+        for k in 0..n {
+            for &m in &nbrs[k] {
+                nacc[m][0] += qavg[k][0];
+                nacc[m][1] += qavg[k][1];
+                nacc[m][2] += qavg[k][2];
+                nacc[m][3] += qavg[k][3];
+                ncnt[m] += 1;
+            }
+        }
+        for m in 0..n {
+            if ncnt[m] > 0 && cut.vol[m] < 1.0 {
+                state.rho[m] = nacc[m][0] / ncnt[m] as f64;
+                state.mx[m] = nacc[m][1] / ncnt[m] as f64;
+                state.my[m] = nacc[m][2] / ncnt[m] as f64;
+                state.e[m] = nacc[m][3] / ncnt[m] as f64;
+            }
         }
     }
 

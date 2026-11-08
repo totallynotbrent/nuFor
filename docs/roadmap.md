@@ -235,11 +235,12 @@ flowchart LR
    transport the nine-species lane uses, so a gated 53-species GRI-Mech
    composition crosses a planar flow step with every species present
    and a worst per-cell composition-sum error of 3.775e-15; the
-   nine-species scheme passes the same interface unchanged. Coupling
-   finite-rate GRI-Mech chemistry to that spatial composition remains,
-   as do the chamber's remaining fixed-width call sites, the engine
-   contour's own wall treatment, and the march on more than one core.
-   That coupling is now in: each cell runs the reactor's own
+   nine-species scheme passes the same interface unchanged. The coupling
+   of finite-rate GRI-Mech chemistry to that spatial composition is in,
+   along with the engine contour's own wall treatment; what remains is
+   migrating the chamber's remaining fixed-width call sites to the
+   scheme-width lane and marching on more than one core.
+   Each cell runs the reactor's own
    backward-euler step as a closed parcel, and a gated field of four
    methane-air parcels matches the zero-dimensional reactor to a worst
    relative error of 7.153e-12. Per-cell reaction-set selection now

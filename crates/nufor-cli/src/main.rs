@@ -1476,7 +1476,10 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
                     &g,
                     cut,
                     cfl,
-                    true,
+                    // the cut lane honours the case's reconstruction order
+                    // like every other lane: a case that asks for
+                    // first_order gets the first-order update.
+                    cfg.numerics.reconstruction == nufor_config::Reconstruction::Muscl,
                     &bc,
                     cfg.numerics.threads,
                     body.as_ref()
