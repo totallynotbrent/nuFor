@@ -150,4 +150,21 @@ Masked-body Euler cases march in single-step chunks so rank 0 can re-project
 the wall band between steps (the body gate above); viscous masked-body cases
 stay on the serial Rust march because the Fortran viscous kernel wall-treats
 domain faces only, so a body under mpirun would silently skip the no-slip
-band. Restart support for the scattered state is the next step.
+band.
+
+## Distributed restart
+
+An MPI run can stop at a chunk boundary, write a restart file, and resume from
+it under the same rank count. The saved file holds the conserved planes and,
+for SA RANS, the turbulence plane, so the resumed march picks up the same eddy
+field the interrupted one was carrying instead of re-seeding it.
+
+Both halves of the state have to reach every rank. The conserved planes are
+broadcast after each chunk, and the turbulence plane is broadcast with them:
+without that, the non-root ranks march on a stale field seeded from its
+initial value, the state can still come out looking plausible, and the field
+recorded at the rank seam describes a march that never ran.
+
+The distributed restart gate runs the march in chunks, interrupts it at the
+split point, resumes from the file, and compares against the uninterrupted
+run. It holds every plane to exact equality at np=1, np=2, and np=3.

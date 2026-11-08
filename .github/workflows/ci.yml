@@ -129,3 +129,24 @@ jobs:
             echo "::error::capsule body parity gate failed"
             exit 1
           fi
+      - name: MPI distributed restart gate (np=1 + np=2 + np=3)
+        shell: bash
+        run: |
+          bin=$(ls -t target/debug/deps/mpi_restart-* | grep -v '\.d$' | head -1)
+          export NUFOUR_MPI_RESTART_DIR="$RUNNER_TEMP/nufor_mpi_restart_gate"
+          mkdir -p "$NUFOUR_MPI_RESTART_DIR"
+          for np in 1 2 3; do
+            log=""
+            ok=0
+            for attempt in 1 2 3; do
+              log=$(mpirun --allow-run-as-root --oversubscribe -np "$np" "$bin" --exact mpi_split_restart_reproduces_continuous --nocapture --ignored 2>&1) || true
+              echo "$log"
+              ok=$(echo "$log" | grep -c '1 passed; 0 failed')
+              if [ "$ok" -ge 1 ]; then break; fi
+              echo "attempt $attempt for np=$np lost the harness output, retrying"
+            done
+            if [ "$ok" -lt 1 ]; then
+              echo "::error::np=$np distributed restart gate failed (ok=$ok)"
+              exit 1
+            fi
+          done

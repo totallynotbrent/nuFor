@@ -20,11 +20,11 @@ use nufor_core::{
     advance_ugrid, advance_ugrid_recon, apply_solid_combustion, apply_solid_fn, apply_solid_ref,
     body_cache, cons_to_prim2d, eos_pressure2d, euler_solve, face_flow_area, grid1d, grid2d,
     grid3d, prim_to_cons, prim_to_cons2d, prim_to_cons3d, read_restart, read_restart2d, render_png,
-    wall_distance2d, write_csv, write_h5, write_restart, write_restart2d, write_vtk,
-    write_vtk2d_combustion, write_vtk2d_model, write_vtk2d_park5, write_vtk3d, Bc2d, Boundaries2d,
-    Boundary, Bounds3d, ConservedState, ConservedState2d, ConservedState3d, Error, EulerConfig,
-    Grid1d, Grid2d, Grid3d, OutputState, SaParams, SolidPolygon, SolidShape, SphereCone,
-    SphereConeSdf, TurbState, Ugrid,
+    wall_distance2d, write_csv, write_h5, write_restart, write_restart2d, write_restart2d_aux,
+    write_vtk, write_vtk2d_combustion, write_vtk2d_model, write_vtk2d_park5, write_vtk3d, Bc2d,
+    Boundaries2d, Boundary, Bounds3d, ConservedState, ConservedState2d, ConservedState3d, Error,
+    EulerConfig, Grid1d, Grid2d, Grid3d, OutputState, Restart2dMeta, SaParams, SolidPolygon,
+    SolidShape, SphereCone, SphereConeSdf, TurbState, Ugrid,
 };
 use nufor_core::{model_from_config, park2t, ThermoModel};
 
@@ -1747,11 +1747,13 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
             if let Err(e) = write_restart2d(
                 Path::new(rpath),
                 &st,
-                g.nx,
-                g.ny,
-                gamma,
-                t,
-                restart_step + steps as u64,
+                Restart2dMeta {
+                    nx: g.nx,
+                    ny: g.ny,
+                    gamma,
+                    time: t,
+                    step: restart_step + steps as u64,
+                },
             ) {
                 eprintln!("restart write error: {e}");
             }
@@ -2290,6 +2292,7 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     // mesh dims must match the case file's.
     let mut restart_step = 0u64;
     let mut restart_time = 0.0f64;
+    let mut restart_aux: Option<Vec<f64>> = None;
     let mut st = match &cfg.time.restart_in {
         Some(rpath) => {
             let rd = match read_restart2d(Path::new(rpath)) {
@@ -2308,6 +2311,7 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
             }
             restart_step = rd.step;
             restart_time = rd.time;
+            restart_aux = rd.aux.filter(|a| a.len() == g.nx * g.ny);
             rd.state
         }
         None => match ic2d_from_case_model(&cfg.initial_condition, &g, gamma, model, cfg) {
@@ -2439,8 +2443,13 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
         (Some(turb_cfg), Some(mu0)) if mu0 > 0.0 => {
             let n = g.nx * g.ny;
             let d = wall_distance2d(&g, &bc, (g.xmax - g.xmin).max(g.ymax - g.ymin));
+            // a restart carrying an aux plane recovers the developed
+            // nu_tilde under mpi as well; older files reseed uniformly.
+            let nu_seed = restart_aux
+                .take()
+                .unwrap_or_else(|| vec![turb_cfg.nu_tilde_inf; n]);
             Some(TurbState {
-                nu_tilde: vec![turb_cfg.nu_tilde_inf; n],
+                nu_tilde: nu_seed,
                 d,
                 params: SaParams {
                     mu: mu0,
@@ -2619,15 +2628,34 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
             );
         }
         if let Some(rpath) = &cfg.time.restart_out {
-            if let Err(e) = write_restart2d(
-                Path::new(rpath),
-                &st,
-                g.nx,
-                g.ny,
-                gamma,
-                t,
-                restart_step + steps as u64,
-            ) {
+            // the rans lane appends the nu_tilde aux plane so a restarted
+            // mpi run resumes the developed turbulence field, not the seed.
+            let wr = match &turb {
+                Some(tb) => write_restart2d_aux(
+                    Path::new(rpath),
+                    &st,
+                    Restart2dMeta {
+                        nx: g.nx,
+                        ny: g.ny,
+                        gamma,
+                        time: t,
+                        step: restart_step + steps as u64,
+                    },
+                    &tb.nu_tilde,
+                ),
+                None => write_restart2d(
+                    Path::new(rpath),
+                    &st,
+                    Restart2dMeta {
+                        nx: g.nx,
+                        ny: g.ny,
+                        gamma,
+                        time: t,
+                        step: restart_step + steps as u64,
+                    },
+                ),
+            };
+            if let Err(e) = wr {
                 eprintln!("restart write error: {e}");
             }
         }
@@ -2999,15 +3027,34 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
             );
         }
         if let Some(rpath) = &cfg.time.restart_out {
-            if let Err(e) = write_restart2d(
-                Path::new(rpath),
-                &st,
-                g.nx,
-                g.ny,
-                gamma,
-                t,
-                restart_step + steps as u64,
-            ) {
+            // a turbulence-carrying lane appends the nu_tilde aux plane so
+            // the resumed run picks the developed field back up.
+            let wr = match &turb {
+                Some(tb) => write_restart2d_aux(
+                    Path::new(rpath),
+                    &st,
+                    Restart2dMeta {
+                        nx: g.nx,
+                        ny: g.ny,
+                        gamma,
+                        time: t,
+                        step: restart_step + steps as u64,
+                    },
+                    &tb.nu_tilde,
+                ),
+                None => write_restart2d(
+                    Path::new(rpath),
+                    &st,
+                    Restart2dMeta {
+                        nx: g.nx,
+                        ny: g.ny,
+                        gamma,
+                        time: t,
+                        step: restart_step + steps as u64,
+                    },
+                ),
+            };
+            if let Err(e) = wr {
                 eprintln!("restart write error: {e}");
             }
         }
@@ -3595,12 +3642,36 @@ fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
         }
     };
     let gamma = cfg.physics.gamma;
-    let mut st = match ic2d_from_case_model(&cfg.initial_condition, &g, gamma, model, cfg) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("initial condition error: {e}");
-            return 2;
-        }
+    // restart support: a [time] restart_in seeds the march (mesh dims must
+    // match) and recovers the SA aux plane when the file carries one; the
+    // turbine-free lanes fall back to seeding nu_tilde from nu_tilde_inf.
+    let mut restart_step = 0u64;
+    let mut restart_time = 0.0f64;
+    let mut restart_aux: Option<Vec<f64>> = None;
+    let mut st = match &cfg.time.restart_in {
+        Some(rpath) => match read_restart2d(Path::new(rpath)) {
+            Ok(rd) if rd.nx == g.nx && rd.ny == g.ny => {
+                restart_step = rd.step;
+                restart_time = rd.time;
+                restart_aux = rd.aux.filter(|a| a.len() == g.nx * g.ny);
+                rd.state
+            }
+            Ok(_) => {
+                eprintln!("restart mesh mismatch against the case grid");
+                return 2;
+            }
+            Err(e) => {
+                eprintln!("restart read error: {e}");
+                return 2;
+            }
+        },
+        None => match ic2d_from_case_model(&cfg.initial_condition, &g, gamma, model, cfg) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("initial condition error: {e}");
+                return 2;
+            }
+        },
     };
     let mu = cfg.physics.mu.expect("validated: physics.mu present");
     let turb_cfg = cfg
@@ -3714,8 +3785,12 @@ fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
         north: side_bc(cfg.boundaries.top.unwrap_or(BoundaryKind::Outflow)),
     };
     let d = wall_distance2d(&g, &bc, (g.xmax - g.xmin).max(g.ymax - g.ymin));
+    // a restart carrying an aux plane recovers the developed nu_tilde;
+    // without one the field reseeds from nu_tilde_inf like a fresh run.
     let mut turb = TurbState {
-        nu_tilde: vec![turb_cfg.nu_tilde_inf; n],
+        nu_tilde: restart_aux
+            .take()
+            .unwrap_or_else(|| vec![turb_cfg.nu_tilde_inf; n]),
         d,
         params: SaParams {
             mu,
@@ -3732,7 +3807,7 @@ fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
         1_000_000
     };
     let t0 = Instant::now();
-    let mut t = 0.0;
+    let mut t = restart_time;
     let mut steps = 0usize;
     let mut ok = true;
     let mut prog = progress::Progress::new(path, "2d-sa");
@@ -3850,6 +3925,22 @@ fn run_case_2d_sa(cfg: &CaseConfig, path: &str) -> i32 {
         }
         if matches!(bc.north, Bc2d::NoSlipWall) {
             report_cf("top", false);
+        }
+        if let Some(rpath) = &cfg.time.restart_out {
+            if let Err(e) = write_restart2d_aux(
+                Path::new(rpath),
+                &st,
+                Restart2dMeta {
+                    nx: g.nx,
+                    ny: g.ny,
+                    gamma,
+                    time: t,
+                    step: restart_step + steps as u64,
+                },
+                &turb.nu_tilde,
+            ) {
+                eprintln!("restart write error: {e}");
+            }
         }
         write_case_vtk2d_model(path, &cfg.metadata.name, &g, &st, model, None, None)
     } else {

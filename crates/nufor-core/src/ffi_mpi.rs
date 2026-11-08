@@ -965,6 +965,11 @@ pub fn march_rans2d_mpi(
     if ierr != 0 {
         return Err(Error::InvalidArgs);
     }
+    // rank 0 assembled the global plane; every rank marches on the same
+    // turbulence field, so the plane travels to all of them. without this
+    // the non-root ranks re-carve the next chunk from the seed value.
+    mpi_bcast_field(&mut gathered_nt)?;
+    let nt_out = Some(gathered_nt);
     let state = if rank == 0 {
         let mut st = ConservedState2d {
             rho: vec![0.0; n],
@@ -982,7 +987,6 @@ pub fn march_rans2d_mpi(
     } else {
         None
     };
-    let nt_out = if rank == 0 { Some(gathered_nt) } else { None };
     Ok((
         MpiMarchResult {
             state,
@@ -1029,6 +1033,25 @@ pub fn mpi_shutdown() {
             unsafe { nfor_mpi_finalize(&mut ierr) };
         }
     });
+}
+
+/// broadcast a plane of doubles from rank 0 to every rank. the rans lane
+/// needs the assembled nu_tilde on every rank before it carves the next
+/// chunk's slab, the same way the conserved state travels.
+pub fn mpi_bcast_field(field: &mut [f64]) -> Result<(), Error> {
+    MpiSession::new()?;
+    let n = field.len();
+    if n == 0 {
+        return Ok(());
+    }
+    let mut ierr: i32 = 0;
+    unsafe {
+        nfor_mpi_bcast4(field.as_mut_ptr(), n as i32, &mut ierr);
+    }
+    if ierr != 0 {
+        return Err(Error::InvalidArgs);
+    }
+    Ok(())
 }
 
 /// chunked-body mode: rank 0 holds the projected full state; broadcast it

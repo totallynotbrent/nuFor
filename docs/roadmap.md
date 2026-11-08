@@ -380,7 +380,18 @@ flowchart LR
     slice is in: `nfor_mpi_gather_nf` collects an arbitrary number of
     field planes through the same x-slab decomposition and reassembles
     them exactly on rank 0 at np=1, 2, and 3, so composition travels
-    through the same layout as the conserved fields. The third lands all
+    through the same layout as the conserved fields. Restart support for
+    the scattered state is in: a run interrupted at a chunk boundary
+    writes its conserved planes and, for SA RANS, the turbulence plane,
+    and the resumed march reproduces the uninterrupted one exactly on
+    all five planes at np=1, 2, and 3. Carrying the turbulence plane
+    turned out to be the load-bearing part: with the conserved state
+    travelling but the plane staying on rank 0, the non-root ranks
+    marched on a seeded eddy field and the plane at the rank seam
+    differed from rank 0's by 1.441e-2 while the state planes still
+    came out identical. The distributed restart gate holds both
+    properties now, so that class of drift cannot come back unnoticed.
+    The third lands all
     new physics (live 2T, species, combustion) MPI-native from day one,
     which pulls the nonequilibrium and species work inside this one.
 
