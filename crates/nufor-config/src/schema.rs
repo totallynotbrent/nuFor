@@ -187,6 +187,12 @@ pub struct Physics {
     /// the equilibrium one at this fraction.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub catalytic_efficiency: Option<f64>,
+    /// the chemistry mechanism the reacting lane runs: "li2004-h2"
+    /// (the default nine-species hydrogen set) or "gri30" (the
+    /// fifty-three-species methane set). omitted means "li2004-h2".
+    /// "gri30" needs `eos = "combustion"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mechanism: Option<String>,
     /// combustion chemistry toggle: "on" (the default) runs the
     /// operator-split reaction substep each step; "off" freezes the
     /// composition so a cold-flow case pays nothing for the mechanism.
@@ -207,6 +213,38 @@ pub struct Physics {
     /// means a constant reservoir, the historic behaviour.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tank_feed: Option<TankFeedSpec>,
+}
+
+impl Physics {
+    /// the mechanism the case runs: the named one, or the default
+    /// nine-species hydrogen set when the case names none.
+    pub fn mechanism_name(&self) -> &str {
+        self.mechanism.as_deref().unwrap_or("li2004-h2")
+    }
+
+    /// the semantic problems with the mechanism selection; empty means
+    /// the selection is legal.
+    pub fn mechanism_problems(&self) -> Vec<String> {
+        let mut problems = Vec::new();
+        let Some(mechanism) = self.mechanism.as_deref() else {
+            return problems;
+        };
+        match mechanism {
+            "li2004-h2" => {}
+            "gri30" => {
+                if self.eos != Eos::Combustion {
+                    problems.push(
+                        "physics.mechanism \"gri30\" requires physics.eos = \"combustion\""
+                            .to_owned(),
+                    );
+                }
+            }
+            other => problems.push(format!(
+                "physics.mechanism must be \"li2004-h2\" or \"gri30\" (got \"{other}\")"
+            )),
+        }
+        problems
+    }
 }
 
 /// the feed-tank stanza of a chamber case. temperatures and pressures are

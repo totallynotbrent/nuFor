@@ -237,9 +237,19 @@ flowchart LR
    and a worst per-cell composition-sum error of 3.775e-15; the
    nine-species scheme passes the same interface unchanged. The coupling
    of finite-rate GRI-Mech chemistry to that spatial composition is in,
-   along with the engine contour's own wall treatment; what remains is
-   migrating the chamber's remaining fixed-width call sites to the
-   scheme-width lane and marching on more than one core.
+   along with the engine contour's own wall treatment. The chamber's
+   remaining fixed-width call sites now ride the scheme-width lane: the
+   composition state carries one row per mechanism species, and the
+   marcher, the face fluxes, the inlet pressure and the snapshot writer
+   all read that lane's own width. The case file picks the mechanism,
+   so the same chamber runs on either lane: `physics.mechanism` selects
+   `li2004-h2` (the default) or `gri30`, and
+   `cases/chamber-throat-gri30` runs a stoichiometric methane-air premix
+   on the 53-species lane with every species written to the snapshot.
+   The chamber marches on more than one core as well: the chemistry
+   substep shards its cells across threads, and the same forty-step case
+   produces byte-identical output on one, four and eight threads while
+   the wall time falls from 49.7 s to 19.5 s and then 16.9 s.
    Each cell runs the reactor's own
    backward-euler step as a closed parcel, and a gated field of four
    methane-air parcels matches the zero-dimensional reactor to a worst

@@ -26,7 +26,7 @@ flowchart LR
 
 | field | value |
 | --- | --- |
-| equations | `euler_axi`, `eos = "combustion"`, nine species, chemistry on |
+| equations | `euler_axi`, `eos = "combustion"`, nine species on the `li2004-h2` lane, chemistry on |
 | chamber | 7.0 MPa, 3676.53 K, the burned-gas injection map |
 | reservoir | 12.0 MPa, 6.191 kg/m3, fed through a 7.0146e-4 m2 injector |
 | throat area | 1.3338e-3 m2 on the contour, 1.3439e-3 m2 cut into the 110 by 40 cells |
@@ -373,6 +373,55 @@ cargo test -p nufor-cli --test chamber_throat_thermo
 python3 cases/chamber-throat/resolution.py --write \
   cases/chamber-throat/settled/resolution.csv <record dir> [...]
 ```
+
+## Picking the mechanism
+
+The case file chooses the chemistry lane:
+
+```toml
+[physics]
+eos = "combustion"
+chemistry = "on"
+mechanism = "li2004-h2"
+```
+
+`mechanism` accepts `li2004-h2` (the default, so a case without the
+field behaves exactly as it did) or `gri30`. Selecting `gri30` without
+`eos = "combustion"` is a configuration error and the loader says so.
+
+The lane travels with the gas, not with the file. The composition state
+holds one row per mechanism species, and the marcher, the face fluxes,
+the inlet pressure and the snapshot writer all read that width. A case
+on the nine-species lane grows nine rows. A case on the methane lane
+grows fifty-three.
+
+`cases/chamber-throat-gri30` runs the same duct on the methane lane with
+a stoichiometric methane-air premix. Its march writes all fifty-three
+species to the snapshot, and the carbon chemistry does something: water
+and carbon dioxide form while the methane burns off across the chamber.
+The species spreads from that march are in
+`cases/chamber-throat-gri30/recorded-run.json`.
+
+## More than one core
+
+The chemistry substep splits the cells across threads. Each shard owns a
+disjoint window of every species row, so the split cannot change a cell's
+arithmetic. It only changes where the cell sits in the queue.
+
+The forty-step case shows what that buys. Its four output files hash
+identically on one thread, four threads and eight threads, and they match
+the record I took before the migration. The hashes are in
+`cases/chamber-throat/bit-identity.json`:
+
+| threads | wall seconds |
+| --- | --- |
+| 1 | 49.7 |
+| 4 | 19.5 |
+| 8 | 16.9 |
+
+Four threads buy 2.5 times the speed, eight buy 2.9. The margin narrows
+past four because the chemistry is most of the work and each shard spends
+part of its life waiting on the slowest sibling.
 
 ## What is not settled
 

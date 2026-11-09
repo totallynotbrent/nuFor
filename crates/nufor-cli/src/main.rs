@@ -1112,22 +1112,15 @@ fn inlet_column_mean_pressure(
     g: &nufor_core::Grid2d,
     comb: Option<&nufor_core::combustion_march::CombustionState>,
 ) -> f64 {
-    use nufor_core::combustion_closure as cc;
-    use nufor_core::combustion_thermo as ct;
     let mut acc = 0.0f64;
     for j in 0..g.ny {
         let k = j * g.nx;
         let p = match comb {
             Some(c) => {
-                let y: [f64; ct::NS] =
-                    c.y.iter()
-                        .map(|p| p[k])
-                        .collect::<Vec<_>>()
-                        .try_into()
-                        .unwrap_or([0.0; ct::NS]);
+                let y = c.cell(k);
                 let u = st.mx[k] / st.rho[k];
                 let e_int = st.e[k] / st.rho[k] - 0.5 * u * u;
-                cc::pressure_at(st.rho[k], e_int, &y)
+                c.lane.pressure_at(st.rho[k], e_int, &y)
             }
             None => {
                 let e_int = st.e[k] - 0.5 * (st.mx[k].powi(2) + st.my[k].powi(2)) / st.rho[k];
@@ -1200,19 +1193,27 @@ pub fn case_boundaries(cfg: &CaseConfig) -> Boundaries2d {
 /// the injection composition a combustion case asks for: the mass
 /// fractions by species name, normalized to one. omitted means the
 /// stoichiometric unburned h2/o2 fill.
-fn combustion_fill(cfg: &CaseConfig) -> Result<[f64; nufor_core::combustion_thermo::NS], String> {
-    use nufor_core::combustion_thermo as ct;
-    let mut y = [0.0f64; ct::NS];
+fn combustion_fill(
+    cfg: &CaseConfig,
+    lane: nufor_core::chem_lane::ChemLane,
+) -> Result<Vec<f64>, String> {
+    let mut y = lane.zero_fill();
     match &cfg.physics.injection {
         None => {
-            y[ct::IH2] = 2.016 / 18.016;
-            y[ct::IO2] = 16.0 / 18.016;
+            // no injection block: the stoichiometric unburned hydrogen
+            // premix, which only the hydrogen mechanism has.
+            if lane != nufor_core::chem_lane::ChemLane::Li2004 {
+                return Err(format!(
+                    "the {} mechanism needs an injection composition",
+                    lane.name()
+                ));
+            }
+            y = lane.li2004_stoich_premix();
         }
         Some(map) => {
             for (name, frac) in map {
-                let idx = ct::SPECIES_NAMES
-                    .iter()
-                    .position(|n| n.eq_ignore_ascii_case(name))
+                let idx = lane
+                    .species_index(name)
                     .ok_or_else(|| format!("unknown species {name:?} in the injection block"))?;
                 y[idx] = *frac;
             }
@@ -1226,6 +1227,15 @@ fn combustion_fill(cfg: &CaseConfig) -> Result<[f64; nufor_core::combustion_ther
         }
     }
     Ok(y)
+}
+
+/// the mechanism a run's model carries; the hydrogen set when the
+/// model carries none.
+fn combustion_lane(model: ThermoModel) -> nufor_core::chem_lane::ChemLane {
+    match model {
+        ThermoModel::Combustion { lane, .. } => lane,
+        _ => nufor_core::chem_lane::ChemLane::Li2004,
+    }
 }
 
 fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
@@ -1273,7 +1283,7 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
     let body = case_body_fns(&cfg.body);
     // the per-step solid restore for the combustion lane: the case's
     // fill state, hoisted out of the loop.
-    let mut solid_fill_cache: Option<[f64; nufor_core::combustion_thermo::NS]> = None;
+    let mut solid_fill_cache: Option<Vec<f64>> = None;
     let solid_rho_p: (f64, f64) = match &cfg.initial_condition {
         nufor_config::InitialCondition::Uniform { rho, u: _, p, .. } => (*rho, *p),
         nufor_config::InitialCondition::Quasi1d { p0, t0 } => {
@@ -1282,13 +1292,14 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
         _ => (1.0, 1.0e5),
     };
     if let Some((dist, normal)) = &body {
-        if matches!(model, ThermoModel::Combustion9 { .. }) {
+        if matches!(model, ThermoModel::Combustion { .. }) {
             // the combustion closure reads the scalar inert reference
             // as unburned gas at an absurd temperature; fill the solid
             // with the case's own fill state instead.
-            let fill = combustion_fill(cfg).unwrap_or_else(|e| {
+            let lane = combustion_lane(model);
+            let fill = combustion_fill(cfg, lane).unwrap_or_else(|e| {
                 eprintln!("injection composition error: {e}");
-                [0.0; nufor_core::combustion_thermo::NS]
+                lane.zero_fill()
             });
             // the solid cells take the case's own fill state at rest:
             // the uniform case's (rho, p), or the quasi-1d case's
@@ -1311,6 +1322,7 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
                 rho_f,
                 u_f,
                 p_f,
+                lane,
                 &fill,
             );
         } else {
@@ -1319,8 +1331,9 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
     }
     // the combustion lane carries its own nine-species state beside
     // the flow state: the fill composition, then the march.
-    let mut combustion_state = if matches!(model, ThermoModel::Combustion9 { .. }) {
-        let fill = match combustion_fill(cfg) {
+    let mut combustion_state = if matches!(model, ThermoModel::Combustion { .. }) {
+        let lane = combustion_lane(model);
+        let fill = match combustion_fill(cfg, lane) {
             Ok(f) => f,
             Err(e) => {
                 eprintln!("injection composition error: {e}");
@@ -1328,6 +1341,7 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
             }
         };
         Some(nufor_core::combustion_march::CombustionState::with_fill(
+            lane,
             g.nx * g.ny,
             &fill,
         ))
@@ -1357,20 +1371,17 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
     // expands to the local face pressure, so the chamber holds its
     // pressure while the throat chokes. the perfect-gas reservoir
     // ghost cannot answer a real-gas closure.
-    if matches!(model, ThermoModel::Combustion9 { .. }) {
+    if matches!(model, ThermoModel::Combustion { .. }) {
         if let Some((rho, _u, _v, p, _t)) = case_inflow_state(cfg) {
-            let fill = match combustion_fill(cfg) {
-                Ok(f) => f.to_vec(),
+            let lane = combustion_lane(model);
+            let fill = match combustion_fill(cfg, lane) {
+                Ok(f) => f,
                 Err(e) => {
                     eprintln!("injection composition error: {e}");
                     return 2;
                 }
             };
-            let fill_arr: [f64; nufor_core::combustion_thermo::NS] = fill
-                .as_slice()
-                .try_into()
-                .unwrap_or([0.0; nufor_core::combustion_thermo::NS]);
-            let tt = p / (rho * nufor_core::combustion_closure::mix_gas_constant(&fill_arr));
+            let tt = p / (rho * lane.mix_gas_constant(&fill));
             // a declared tank_feed couples the reservoir to a lumped tank
             // blowdown: the injected stagnation pressure is the tank's
             // evolving pressure, stepped once per march step against the
@@ -1394,7 +1405,7 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
                 tt,
                 rho_t: rho,
                 fill,
-                n_species: nufor_core::combustion_thermo::NS,
+                n_species: lane.n_species(),
                 injector_area: cfg.boundaries.injector_area,
             };
             if cfg.boundaries.left == nufor_config::BoundaryKind::ReservoirInflow {
@@ -1591,15 +1602,17 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
             body.as_ref()
         };
         if let Some((dist, normal)) = wall_stomp {
-            if matches!(model, ThermoModel::Combustion9 { .. }) {
+            if matches!(model, ThermoModel::Combustion { .. }) {
                 // the combustion closure reads the perfect-gas inert
                 // reference as burned gas at an absurd temperature; the
                 // solid cells keep the case's own fill state instead.
                 if std::env::var("NUFOR_TRACE_SOLID").is_ok() {
                     eprintln!("trace: per-step solid restore (combustion fill)");
                 }
-                let fill = solid_fill_cache
-                    .get_or_insert_with(|| combustion_fill(cfg).unwrap_or_default());
+                let lane = combustion_lane(model);
+                let fill = solid_fill_cache.get_or_insert_with(|| {
+                    combustion_fill(cfg, lane).unwrap_or_else(|_| lane.zero_fill())
+                });
                 apply_solid_combustion(
                     &mut st,
                     &g,
@@ -1608,6 +1621,7 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
                     solid_rho_p.0,
                     0.0,
                     solid_rho_p.1,
+                    lane,
                     fill,
                 );
             } else {
@@ -2353,15 +2367,16 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
                 visc_no_slip,
             );
             let _ = u_fs;
-        } else if matches!(model, ThermoModel::Combustion9 { .. }) {
+        } else if matches!(model, ThermoModel::Combustion { .. }) {
             // the combustion closure reads the scalar inert reference
             // (rho 1, e 2.5) as unburned gas at an absurd temperature;
             // fill the solid with the case's own fill state instead.
             match &cfg.initial_condition {
                 nufor_config::InitialCondition::Uniform { rho, u, p, .. } => {
-                    let fill = combustion_fill(cfg).unwrap_or_else(|e| {
+                    let lane = combustion_lane(model);
+                    let fill = combustion_fill(cfg, lane).unwrap_or_else(|e| {
                         eprintln!("injection composition error: {e}");
-                        [0.0; nufor_core::combustion_thermo::NS]
+                        lane.zero_fill()
                     });
                     apply_solid_combustion(
                         &mut st,
@@ -2371,6 +2386,7 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
                         *rho,
                         *u,
                         *p,
+                        lane,
                         &fill,
                     );
                 }
@@ -2403,8 +2419,9 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     // the combustion lane carries its own 9-species state: the
     // stoichiometric unburned fill (a chamber case reseeds through
     // the inflow boundary). chemistry off freezes the composition.
-    let mut combustion_state = if matches!(model, ThermoModel::Combustion9 { .. }) {
-        let fill = match combustion_fill(cfg) {
+    let mut combustion_state = if matches!(model, ThermoModel::Combustion { .. }) {
+        let lane = combustion_lane(model);
+        let fill = match combustion_fill(cfg, lane) {
             Ok(f) => f,
             Err(e) => {
                 eprintln!("injection composition error: {e}");
@@ -2412,6 +2429,7 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
             }
         };
         Some(nufor_core::combustion_march::CombustionState::with_fill(
+            lane,
             g.nx * g.ny,
             &fill,
         ))
@@ -3606,9 +3624,16 @@ fn write_run_log_2d(
         txt.push_str(&force_line);
     }
     let _ = std::fs::write(&txt_path, txt);
+    // the eos column carries the mechanism's name, not the model's debug
+    // form: a debug form can contain a comma and would break the csv.
+    let eos_label = match &model {
+        ThermoModel::Combustion { .. } => cfg.physics.mechanism_name().to_string(),
+        other => format!("{other:?}"),
+    };
+    let eos_label = eos_label.replace(',', ";");
     let row = format!(
-        "{},{},{:.6},{},{:.1},{},{},{:?},{:.5e},{:.3e},{:.0},{:.0}\n",
-        cfg.metadata.name, steps, t, g.nx, wall, visc, tw, model, rho_ratio, p_pk, t_pk, t_max
+        "{},{},{:.6},{},{:.1},{},{},{},{:.5e},{:.3e},{:.0},{:.0}\n",
+        cfg.metadata.name, steps, t, g.nx, wall, visc, tw, eos_label, rho_ratio, p_pk, t_pk, t_max
     );
     if !csv_path.exists() {
         let _ = std::fs::write(
@@ -4231,23 +4256,21 @@ fn ic_uniform_energy(
             let t = p / (rho * nufor_core::species_closure::mix_gas_constant(&y));
             Ok(nufor_core::species_closure::internal_energy_at(t, &y))
         }
-        ThermoModel::Combustion9 { .. } => {
+        ThermoModel::Combustion { .. } => {
             // uniform combustion ICs start as the injection
             // composition's energy, not the stoich premix's: a
             // chamber case fills with the burned gas.
-            let mut y = [0.0f64; nufor_core::combustion_thermo::NS];
-            y[nufor_core::combustion_thermo::IH2] = 2.016 / 18.016;
-            y[nufor_core::combustion_thermo::IO2] = 16.0 / 18.016;
-            let fill = match &cfg.physics.injection {
-                None => y,
-                Some(_) => combustion_fill(cfg)?,
-            };
+            let lane = combustion_lane(model);
+            let fill = combustion_fill(cfg, lane)?;
             // a stated temperature wins over the one the mixture's own
             // gas constant implies: a premix below its ignition limit
             // stays cold however long the march runs.
             Ok(match t_fill {
-                Some(t) => nufor_core::combustion_march::h2o2_ic_energy_at_temp(&fill, t),
-                None => nufor_core::combustion_march::h2o2_ic_energy_at(rho, p, &fill),
+                Some(t) => lane.internal_energy_at(t, &fill),
+                None => {
+                    let t = p / (rho * lane.mix_gas_constant(&fill));
+                    lane.internal_energy_at(t, &fill)
+                }
             })
         }
     }
@@ -4292,10 +4315,13 @@ fn ic2d_from_case_model(
             // p*/p0 depends on it and the shaping value is 6 percent
             // off the mixture's.
             let gamma_eff = match model {
-                ThermoModel::Combustion9 { gamma_shaping } => {
-                    let y_case = combustion_fill(cfg)?;
-                    let rmix = nufor_core::combustion_closure::mix_gas_constant(&y_case);
-                    let cp = nufor_core::combustion_thermo::mix_cp_mass(&y_case, *t0);
+                ThermoModel::Combustion {
+                    gamma_shaping,
+                    lane,
+                } => {
+                    let y_case = combustion_fill(cfg, lane)?;
+                    let rmix = lane.mix_gas_constant(&y_case);
+                    let cp = lane.mix_cp_mass(&y_case, *t0);
                     if cp > rmix {
                         (cp / (cp - rmix)).max(1.01)
                     } else {
@@ -4559,7 +4585,7 @@ fn write_case_vtk2d_model(
 ) -> i32 {
     let dir = case_dir(path);
     let dst = dir.join(format!("{name}.vtk"));
-    if let (Some(sp), true) = (combustion, matches!(model, ThermoModel::Combustion9 { .. })) {
+    if let (Some(sp), true) = (combustion, matches!(model, ThermoModel::Combustion { .. })) {
         return match write_vtk2d_combustion(&dst, g, st, sp) {
             Ok(()) => {
                 println!("wrote: {}", dst.display());
@@ -4899,7 +4925,13 @@ mod combustion_report_tests {
         nufor_core::write_vtk2d_combustion(&vtk, &g, &st, &sp).unwrap();
         // the read-back must carry the closure's own pressure and
         // temperature, not recompute them through the perfect-gas form.
-        let fields = casework::case_vtk_read(&vtk, ThermoModel::Combustion9 { gamma_shaping: 1.2 });
+        let fields = casework::case_vtk_read(
+            &vtk,
+            ThermoModel::Combustion {
+                gamma_shaping: 1.2,
+                lane: nufor_core::chem_lane::ChemLane::Li2004,
+            },
+        );
         let fields = fields.expect("the combustion vtk reads back");
         let fp = fields
             .pressure
@@ -4919,7 +4951,10 @@ mod combustion_report_tests {
         );
         // every named field must render without panicking.
         let body = None;
-        let model = ThermoModel::Combustion9 { gamma_shaping: 1.2 };
+        let model = ThermoModel::Combustion {
+            gamma_shaping: 1.2,
+            lane: nufor_core::chem_lane::ChemLane::Li2004,
+        };
         for name in ["rho", "p", "t", "mach", "schlieren"] {
             let (png, _, _) = casework::render_with_body_ranged(&g, &fields, name, &body, model);
             assert!(!png.is_empty(), "the {name} render produced no png");

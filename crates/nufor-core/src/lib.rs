@@ -15,6 +15,8 @@ pub mod catalytic;
 mod cfl;
 pub mod chem_closure;
 pub mod chem_convert;
+pub mod chem_kernel;
+pub mod chem_lane;
 pub mod chem_react;
 pub mod chem_scheme;
 pub mod chem_select;

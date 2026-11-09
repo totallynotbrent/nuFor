@@ -60,7 +60,7 @@ impl<'a> SpeciesField<'a> {
     pub fn n_species(&self) -> usize {
         match self {
             SpeciesField::Park5(_) => crate::park::NS,
-            SpeciesField::Combustion9(_) => crate::combustion_thermo::NS,
+            SpeciesField::Combustion9(sp) => sp.lane.n_species(),
         }
     }
 
@@ -113,14 +113,18 @@ fn reservoir_gamma_and_r(bc: &Bc2d, model: ThermoModel, tt: f64) -> Option<(f64,
     };
     match model {
         ThermoModel::Perfect { gamma } => Some((gamma, 287.05)),
-        ThermoModel::Combustion9 { gamma_shaping } => {
-            // the lane speaks nine species, but the boundary may carry a
-            // wider composition (a gri30 reservoir, say). reduce it by
-            // species symbol, refusing non-li mass, so a wide vector can
-            // never be reinterpreted positionally as the nine.
-            let y = crate::chem_convert::coerce_to_li(fill)?;
-            let rmix = crate::combustion_closure::mix_gas_constant(&y);
-            let cp = crate::combustion_thermo::mix_cp_mass(&y, tt);
+        ThermoModel::Combustion {
+            gamma_shaping,
+            lane,
+        } => {
+            // the boundary fill carries the lane's own width; pad or trim
+            // defensively so a malformed row cannot panic the read.
+            let mut row = vec![0.0f64; lane.n_species()];
+            for (dst, sv) in row.iter_mut().zip(fill.iter()) {
+                *dst = *sv;
+            }
+            let rmix = lane.mix_gas_constant(&row);
+            let cp = lane.mix_cp_mass(&row, tt);
             let g = if cp > rmix {
                 (cp / (cp - rmix)).max(1.01)
             } else {
@@ -314,7 +318,7 @@ pub fn advance2d_model_visc_rk2(
         ThermoModel::EqAir { .. } => crate::eqair_cea::fused_state_mu(&state.rho, &e_int, |t| {
             crate::viscous2d::sutherland_mu(mu0, t.max(1.0), t0_ref, s_param)
         }),
-        ThermoModel::Park5 { .. } | ThermoModel::Combustion9 { .. } => {
+        ThermoModel::Park5 { .. } | ThermoModel::Combustion { .. } => {
             // species scope: the march is inviscid euler only;
             // the viscous, rans and cutcell lanes do not serve
             // the species lanes.
@@ -352,9 +356,8 @@ pub fn advance2d_model_visc_rk2(
         match model {
             ThermoModel::Perfect { gamma } => gamma,
             ThermoModel::EqAir { .. } => 1.4,
-            ThermoModel::Park5 { gamma_shaping } | ThermoModel::Combustion9 { gamma_shaping } => {
-                gamma_shaping
-            }
+            ThermoModel::Park5 { gamma_shaping }
+            | ThermoModel::Combustion { gamma_shaping, .. } => gamma_shaping,
         },
         mu0,
         &mu_cells,
@@ -378,9 +381,8 @@ pub fn advance2d_model_visc_rk2(
         match model {
             ThermoModel::Perfect { gamma } => gamma,
             ThermoModel::EqAir { .. } => 1.4,
-            ThermoModel::Park5 { gamma_shaping } | ThermoModel::Combustion9 { gamma_shaping } => {
-                gamma_shaping
-            }
+            ThermoModel::Park5 { gamma_shaping }
+            | ThermoModel::Combustion { gamma_shaping, .. } => gamma_shaping,
         },
         mu0,
         &mu_cells,
@@ -428,7 +430,7 @@ fn model_cell_mu(
                 crate::viscous2d::sutherland_mu(mu0, t.max(1.0), t0_ref, s_param)
             }))
         }
-        ThermoModel::Park5 { .. } | ThermoModel::Combustion9 { .. } => {
+        ThermoModel::Park5 { .. } | ThermoModel::Combustion { .. } => {
             // species scope: the march is inviscid euler only;
             // the viscous, rans and cutcell lanes do not serve
             // the species lanes.
@@ -488,9 +490,8 @@ pub fn advance2d_model_visc_lts(
         match model {
             ThermoModel::Perfect { gamma } => gamma,
             ThermoModel::EqAir { .. } => 1.4,
-            ThermoModel::Park5 { gamma_shaping } | ThermoModel::Combustion9 { gamma_shaping } => {
-                gamma_shaping
-            }
+            ThermoModel::Park5 { gamma_shaping }
+            | ThermoModel::Combustion { gamma_shaping, .. } => gamma_shaping,
         },
         mu0,
         &mu_cells,
@@ -535,7 +536,7 @@ pub fn advance2d_sa_model_rk2(
     let gamma_eff = match model {
         ThermoModel::Perfect { gamma } => gamma,
         ThermoModel::EqAir { .. } => 1.4,
-        ThermoModel::Park5 { gamma_shaping } | ThermoModel::Combustion9 { gamma_shaping } => {
+        ThermoModel::Park5 { gamma_shaping } | ThermoModel::Combustion { gamma_shaping, .. } => {
             gamma_shaping
         }
     };
@@ -677,7 +678,7 @@ pub fn model_local_dts(
             .zip(&e_int)
             .map(|(&r, &e)| (gamma * (gamma - 1.0) * e * r / r.max(1e-12)).sqrt())
             .collect::<Vec<f64>>(),
-        ThermoModel::Park5 { .. } | ThermoModel::Combustion9 { .. } => {
+        ThermoModel::Park5 { .. } | ThermoModel::Combustion { .. } => {
             // the cutcell lanes do not serve the species marches.
             return Err(Error::InvalidArgs);
         }
@@ -748,7 +749,7 @@ fn advance2d_model_capped_dts(
             .zip(&e_int)
             .map(|(&r, &e)| (gamma - 1.0) * r * e)
             .collect::<Vec<f64>>(),
-        ThermoModel::Park5 { .. } | ThermoModel::Combustion9 { .. } => {
+        ThermoModel::Park5 { .. } | ThermoModel::Combustion { .. } => {
             // the cutcell lanes do not serve the species marches.
             return Err(Error::InvalidArgs);
         }
@@ -924,7 +925,7 @@ fn advance2d_model_capped(
                                 let ak = (gamma * pk / rho[k].max(1e-12)).sqrt();
                                 (pk, ak)
                             }
-                            ThermoModel::Park5 { .. } | ThermoModel::Combustion9 { .. } => {
+                            ThermoModel::Park5 { .. } | ThermoModel::Combustion { .. } => {
                                 unreachable!("species lane rejected at the cutcell helper head")
                             }
                         };
@@ -1209,14 +1210,14 @@ impl Sweep {
 /// lower temperature bound and not zero.
 pub fn internal_energy_floor(model: ThermoModel, y: Option<&[f64]>) -> Option<f64> {
     match model {
-        ThermoModel::Combustion9 { .. } => {
-            let mut y9 = [0.0f64; crate::combustion_thermo::NS];
+        ThermoModel::Combustion { lane, .. } => {
+            let mut row = vec![0.0f64; lane.n_species()];
             if let Some(src) = y {
-                for (dst, s) in y9.iter_mut().zip(src.iter()) {
-                    *dst = *s;
+                for (dst, sv) in row.iter_mut().zip(src.iter()) {
+                    *dst = *sv;
                 }
             }
-            Some(crate::combustion_closure::internal_energy_at(200.0, &y9))
+            Some(lane.floor_energy_at(&row))
         }
         // the other lanes have no floor: a hypersonic flow's internal
         // energy is negative by construction, because the kinetic
@@ -1309,19 +1310,15 @@ fn face_pair(
             };
             (face(rl, ul, vl, xl, yl), face(rr, ur, vr, xr, yr))
         }
-        ThermoModel::Combustion9 { .. } => {
-            // the 9-species h2/o2 closure: same reconstruction
+        ThermoModel::Combustion { lane, .. } => {
+            // the runtime-width mixture closure: same reconstruction
             // policy as park5. temperature is solved once per side
             // (the pressure and sound speed both need it).
             let face = |r: f64, u: f64, v: f64, x: f64, y: &[f64]| -> FacePrim {
-                let mut y9 = [0.0f64; crate::combustion_thermo::NS];
-                for (dst, src) in y9.iter_mut().zip(y.iter()) {
-                    *dst = *src;
-                }
-                let t = crate::combustion_closure::temperature_at(x, &y9);
-                let rmix = crate::combustion_closure::mix_gas_constant(&y9);
+                let t = lane.temperature_at(x, y);
+                let rmix = lane.mix_gas_constant(y);
                 let p = r * rmix * t;
-                let cp = crate::combustion_thermo::mix_cp_mass(&y9, t);
+                let cp = lane.mix_cp_mass(y, t);
                 let cv = (cp - rmix).max(1.0);
                 let gamma = (cp / cv).max(1.01);
                 FacePrim {
@@ -1368,7 +1365,7 @@ pub(crate) fn compute_axi_fluxes(
     let gamma = match model {
         ThermoModel::Perfect { gamma } => gamma,
         ThermoModel::EqAir { .. } => 1.4, // only the fallback shaping value
-        ThermoModel::Park5 { gamma_shaping } | ThermoModel::Combustion9 { gamma_shaping } => {
+        ThermoModel::Park5 { gamma_shaping } | ThermoModel::Combustion { gamma_shaping, .. } => {
             gamma_shaping
         }
     };
@@ -1377,7 +1374,7 @@ pub(crate) fn compute_axi_fluxes(
     // air: the mixture closure recovers the face pressure from it.
     let x: Vec<f64> = match model {
         ThermoModel::Perfect { .. } => p.to_vec(),
-        ThermoModel::EqAir { .. } | ThermoModel::Park5 { .. } | ThermoModel::Combustion9 { .. } => {
+        ThermoModel::EqAir { .. } | ThermoModel::Park5 { .. } | ThermoModel::Combustion { .. } => {
             e_int.to_vec()
         }
     };
@@ -1425,37 +1422,29 @@ pub(crate) fn compute_axi_fluxes(
                 Bc2d::SupersonicInflow {
                     rho, p, t: t_in, ..
                 },
-                ThermoModel::Combustion9 { .. },
+                ThermoModel::Combustion { lane, .. },
             ) => {
-                edge_y.map(|y9| {
-                    let mut y = [0.0f64; crate::combustion_thermo::NS];
-                    for (dst, src) in y.iter_mut().zip(y9.iter()) {
-                        *dst = *src;
-                    }
+                edge_y.map(|yv| {
                     // a stated inflow temperature wins: the ghost then
                     // arrives as hot as the case says, which is what
                     // lets a premix cross its ignition limit.
                     let t = match t_in {
                         Some(t) => *t,
-                        None => *p / (*rho * crate::combustion_closure::mix_gas_constant(&y)),
+                        None => *p / (*rho * lane.mix_gas_constant(yv)),
                     };
-                    crate::combustion_closure::internal_energy_at(t, &y)
+                    lane.internal_energy_at(t, yv)
                 })
             }
             // a subsonic outflow pins the ghost pressure to the back
             // value; the species lanes carry internal energy there, so
             // the ghost energy is the closure's energy at the edge
             // cell's own composition and density.
-            (Bc2d::SubsonicOutflow { p_back }, ThermoModel::Combustion9 { .. }) => {
-                edge_y.map(|y9| {
-                    let mut y = [0.0f64; crate::combustion_thermo::NS];
-                    for (dst, src) in y.iter_mut().zip(y9.iter()) {
-                        *dst = *src;
-                    }
-                    let rmix = crate::combustion_closure::mix_gas_constant(&y);
+            (Bc2d::SubsonicOutflow { p_back }, ThermoModel::Combustion { lane, .. }) => {
+                edge_y.map(|yv| {
+                    let rmix = lane.mix_gas_constant(yv);
                     let rho = rho_edge.unwrap_or(1.0);
                     let t = *p_back / (rho * rmix);
-                    crate::combustion_closure::internal_energy_at(t, &y)
+                    lane.internal_energy_at(t, yv)
                 })
             }
             _ => None,
@@ -1559,14 +1548,8 @@ pub(crate) fn compute_axi_fluxes(
         let edge_temperature = |column: usize, edge_y: Option<&[f64]>| -> f64 {
             let k = idx(column, j);
             match model {
-                ThermoModel::Combustion9 { .. } => edge_y
-                    .map(|y9| {
-                        let mut y = [0.0f64; crate::combustion_thermo::NS];
-                        for (dst, src) in y.iter_mut().zip(y9.iter()) {
-                            *dst = *src;
-                        }
-                        crate::combustion_closure::temperature_at(e_int[k], &y)
-                    })
+                ThermoModel::Combustion { lane, .. } => edge_y
+                    .map(|yv| lane.temperature_at(e_int[k], yv))
                     .unwrap_or(0.0),
                 _ => {
                     let r = 287.05;
@@ -1756,14 +1739,8 @@ pub(crate) fn compute_axi_fluxes(
         let edge_temperature = |row: usize, edge_y: Option<&[f64]>| -> f64 {
             let k = idx(i, row);
             match model {
-                ThermoModel::Combustion9 { .. } => edge_y
-                    .map(|y9| {
-                        let mut y = [0.0f64; crate::combustion_thermo::NS];
-                        for (dst, src) in y.iter_mut().zip(y9.iter()) {
-                            *dst = *src;
-                        }
-                        crate::combustion_closure::temperature_at(e_int[k], &y)
-                    })
+                ThermoModel::Combustion { lane, .. } => edge_y
+                    .map(|yv| lane.temperature_at(e_int[k], yv))
                     .unwrap_or(0.0),
                 _ => p[k].max(1e-9) / (state.rho[k].max(1e-12) * 287.05),
             }
@@ -1959,7 +1936,7 @@ pub(crate) fn compute_axi_fluxes(
                     crate::eqair_cea::sound_speed_at(state.rho[k], e_int[k])
                 }
                 ThermoModel::Park5 { gamma_shaping }
-                | ThermoModel::Combustion9 { gamma_shaping } => {
+                | ThermoModel::Combustion { gamma_shaping, .. } => {
                     // the mirror-wall path only runs when the march carries a
                     // wall; species bodies arrive with the species marches, so
                     // this arm shapes from the cell pressure like the perfect

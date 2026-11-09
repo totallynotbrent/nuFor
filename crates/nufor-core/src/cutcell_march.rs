@@ -157,7 +157,7 @@ pub fn advance2d_axi_cut(
         // above rejects the model loudly (the species marches compute
         // their own fields).
         crate::thermo::ThermoModel::Park5 { gamma_shaping }
-        | crate::thermo::ThermoModel::Combustion9 { gamma_shaping } => gamma_shaping,
+        | crate::thermo::ThermoModel::Combustion { gamma_shaping, .. } => gamma_shaping,
     };
     let (fx, fy) =
         compute_axi_fluxes(model, state, g, muscl, bc, &p, &e_int, None, nthreads, None)?;
@@ -265,7 +265,7 @@ pub fn advance2d_axi_cut(
                         )
                     }
                     crate::thermo::ThermoModel::Park5 { .. }
-                    | crate::thermo::ThermoModel::Combustion9 { .. } => {
+                    | crate::thermo::ThermoModel::Combustion { .. } => {
                         // park5 never reaches here: the closure pressure call
                         // earlier in this fn rejects the model loudly.
                         unreachable!("park5 rejected before the cutcell march")

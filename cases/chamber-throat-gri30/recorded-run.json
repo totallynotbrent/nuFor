@@ -1,0 +1,24 @@
+{
+  "case": "cases/chamber-throat-gri30/case.toml",
+  "mechanism": "gri30",
+  "species_written": 53,
+  "steps": 20,
+  "wall_s": 215.5,
+  "eos_column_value": "gri30",
+  "observed_mass_fractions": {
+    "y_CH4": {
+      "initial": 0.152869,
+      "min_seen": 8e-06,
+      "max_seen": 0.055188
+    },
+    "y_H2O": {
+      "min_seen": 0.0,
+      "max_seen": 0.049752
+    },
+    "y_CO2": {
+      "min_seen": 0.0,
+      "max_seen": 0.020013
+    }
+  },
+  "reading": "methane is largely consumed across the chamber while water and carbon dioxide appear, so the 53-species chemistry reacts in the marched duct rather than holding its initial composition"
+}

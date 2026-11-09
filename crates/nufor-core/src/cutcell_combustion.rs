@@ -281,7 +281,10 @@ pub fn advance2d_combustion_axi_cut(
     // contradict each other along the whole wall, so the mask is
     // withheld and the wall is imposed by the flux installation below,
     // which is the repository's own reference cut march's arrangement.
-    let model = ThermoModel::Combustion9 { gamma_shaping: 1.2 };
+    let model = ThermoModel::Combustion {
+        gamma_shaping: 1.2,
+        lane: crate::chem_lane::ChemLane::Li2004,
+    };
     let (fx, fy) = compute_axi_fluxes(
         model,
         state,
@@ -1057,8 +1060,10 @@ mod tests {
         // cell's energy, the guard then zeros its momentum, and the
         // measurement the test is trying to make disappears behind the
         // guard.
-        let wall_temperature =
-            { closure9::temperature_at(1.0e5, &CombustionState::stoich_h2o2(1).fill) };
+        let wall_temperature = {
+            crate::chem_lane::ChemLane::Li2004
+                .temperature_at(1.0e5, &CombustionState::stoich_h2o2(1).fill)
+        };
         let step_with = |cfl: f64| -> Vec<f64> {
             let mut state = ConservedState2d {
                 rho: vec![rho; n],
