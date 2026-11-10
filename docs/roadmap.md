@@ -270,23 +270,37 @@ flowchart LR
    exact because per-cell chemistry depends only on the cell's own
    state. A scheme-width composition state carries the GRI-Mech
    mechanism alongside the fixed-width nine-species lane, which stays
-   untouched. The engine contour's own wall treatment landed in rung 9b: the five-leg nozzle-contour bracket under `cases/engine-wall-bracket` reported zero outstanding problems, with per-leg settlement caveats recorded alongside.
-9b. **Engine wall conditions**: partly built. Cooled-wall and
-   film-cooling treatments for the engine lane: isothermal and Bartz-style
-   conjugate wall options on the nozzle contour, an injected-wall
-   species/enthalpy flux for film cooling, and the wall heat flux
-   bracket the report wants (cold wall vs cooled wall). The blown-in
-   film now crosses the wall into the gas whatever the wall's thermal
-   treatment is, and its area and mass flow are published beside the
-   wall's duty: a chamber under an adiabatic wall takes exactly the
-   coolant the report books for it, with a relative difference of
-   1.213e-15. The contour's own wall treatment is likewise measured:
-   the bracket in `cases/engine-wall-bracket` marches the real nozzle
-   contour under five gated legs (adiabatic, radiating, film-cooled,
-   regenerative, conjugate), each settling on a qualified heat duty
-   once the chamber's shared acoustic mode is removed, with the
-   adiabatic reference leg exchanging exactly zero. Rides on the
-   species, catalytic-wall, and combustion steps; the TPS
+   untouched. The engine contour's own wall treatment landed with the
+   engine wall conditions below.
+9b. **Engine wall conditions**: closed. Cooled-wall and film-cooling
+   treatments for the engine lane: isothermal and Bartz-style conjugate
+   wall options on the nozzle contour, an injected-wall species and
+   enthalpy flux for film cooling, and the wall heat flux bracket the
+   report wants. The blown-in film now crosses the wall into the gas
+   whatever the wall's thermal treatment is, and its area and mass flow
+   are published beside the wall's duty: a chamber under an adiabatic
+   wall takes exactly the coolant the report books for it, with a
+   relative difference of 1.213e-15. The contour's own wall treatment is
+   measured rather than asserted. The bracket under
+   `cases/engine-wall-bracket` marches the real nozzle contour under five
+   gated legs (adiabatic, radiating, film-cooled, regenerative,
+   conjugate) and adjudicates each one's heat duty from a committed
+   record, with the adiabatic reference leg exchanging exactly zero. The
+   gate found and closed a defect in which the wall booked heat the gas
+   never received; every leg in the page now comes from a remarch.
+   Twelve core settlement screens pass on the judged window. Two
+   secondary screens do not: the near-wall temperature on the
+   film-cooled and regenerative legs still carries a drift larger than
+   the noise around it, and those two failures are recorded as cautions
+   rather than folded into the bulk gate. The wall's imprint on the
+   throat reaches at most 0.206 percent, against the chamber's own
+   0.417 percent common mode, so the two are not mistaken for each
+   other. The settlement screen's power and the cost of letting it
+   choose its own window are measured against the record rather than
+   argued: a drift of 0.2 percent across the whole record is caught in
+   90.95 percent of the baseline-certified pairs, and searching for the
+   window costs between 8.80 and 14.01 percentage points of extra misses.
+   Rides on the species, catalytic-wall, and combustion steps; the TPS
    catalytic-wall machinery is the same wall machinery pointed at
    engine conditions.
 10. **3D SA/RANS**: cut. nuFor is a 2D code (planar and

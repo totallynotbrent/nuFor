@@ -1,81 +1,23 @@
-"""the engine wall bracket's gate.
+"""the bracket's gate: what the campaign shows, judged against its contracts.
 
-the engine report needs to know what the wall does to the gas, so this
-gate measures the bracket from the marched fields and checks the
-contracts that make the comparison meaningful.
+the bracket marches the same chamber under five wall treatments and
+compares what each wall does to the gas. this module reads the
+marched campaign, or the campaign's committed record, hands the
+readings to `bracket.py`, and reports the verdict.
 
-THE CONTRACTS
-
-- every leg ran and produced a dense wall-duty series;
-
-- every leg's bulk observables SETTLE, judged by a statistical
-  criterion rather than by a presumed flow period;
-
-- the adiabatic wall really is adiabatic: it draws no heat, so its
-  measured duty is zero. if it is not, the comparison's reference end is
-  broken;
-
-- the cooled walls DO draw heat from the gas;
-
-- radiation dominates conduction at these temperatures, because a gas at
-  3700 k sees its wall overwhelmingly through radiation;
-
-- the film-cooled wall draws MORE heat than the merely radiating wall,
-  since the film is an additional path for the energy to leave by;
-
-- the cooled walls' chambers run COOLER, and the wall's duty and the
-  flow's response agree with the choked relation that connects them;
-
-- the gas responds to the wall. the wall's own duty is a CLAIM; the
-  near-wall gas temperature is the RESPONSE, and a bracket whose legs
-  differ in duty but not in the gas they touch has not demonstrated
-  anything.
-
-WHY THERE IS NO FLOW PERIOD HERE
-
-an earlier version of this gate assumed the chamber fell into a strictly
-periodic orbit and averaged every leg over whole periods. measurement
-refuted that premise: the fields saved at steps 250 and 3750 have
-DIFFERENT checksums, and the autocorrelation at every tested lag is about
-zero. the inviscid predecessor in `cases/chamber-throat` shows the same
-damped rise-then-decay with decaying oscillatory residuals, so the
-viscosity did not damp a real oscillation; the premise was borrowed from
-the wrong case.
-
-the replacement is a statistical one. a series QUALIFIES as settled when
-the drift across the window is small against the noise around it, the
-trend biases the window's mean by less than the noise, and the fitted
-trend is statistically indistinguishable from flat. `stationarity.py`
-states that criterion and `test_stationarity.py` holds it to known
-answers. the gate quotes each observable's mean over the longest tail
-window that satisfies it, and reports the window it chose.
-
-the period detector survives in `period_survey.py`, which records the
-ABSENCE of a period for the report. nothing in it feeds a contract.
-
-MEASUREMENT NOTES
-
-the wall's duty is read from `wall-duty.csv`, a dense series sampled
-every fifty steps, rather than from the run log's single final line. the
-dense series is what lets the gate say the duty SETTLED, and it is the
-series the legacy gate's one-number-per-leg reading came from.
-
-the duty's net column and its mode columns do NOT sum: the net is the
-power actually applied to the gas, projected onto the outward normal,
-while the mode columns are the MAGNITUDE of each path's contribution.
-the gate therefore ranks the modes rather than balancing them, and it
-uses the net for every energy argument.
-
-the total pressure and total temperature are MEASURED from the marched
-field as mass-flux-weighted means over the chamber, never read from the
-run log's freestream line. that line is the inflow state's INITIAL
-condition, and it is identical in every leg of the bracket.
-
-nothing here is hardcoded.
+two inputs, one judgement. in the field the readings come from the
+marched fields and the run logs; in continuous integration they come
+from the record committed under `record/`. the contracts live in
+`bracket.py` and are applied once, so the two cannot disagree about
+what the campaign proved.
 
 usage:
-    python3 gates.py
+
+    python3 gates.py            # judge the marched campaign
+    python3 gates.py --record   # judge the committed record
 """
+
+import argparse
 import glob
 import json
 import math
@@ -86,48 +28,36 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "chamber-throat"))
+
 import chamber_fields as cf  # noqa: E402
 
-import acoustic_mode  # noqa: E402
+import bracket  # noqa: E402
 import period_survey  # noqa: E402
-import settled_observables as settle_mod  # noqa: E402
+import record  # noqa: E402
 import wall_series  # noqa: E402
-import cross_leg_settlement  # noqa: E402
 
-BRACKET = [
-    ("wall-adiabatic", None),
-    ("wall-radiating", 400.0),
-    ("wall-filmcooled", 400.0),
-    ("wall-regenerative", 400.0),
-    ("wall-conjugate", 400.0),
-]
 
-# the legs that stand against the adiabatic reference.
-COOLED_LEGS = (
-    "wall-radiating",
-    "wall-filmcooled",
-    "wall-regenerative",
-    "wall-conjugate",
-)
+def canonical(value, places=9):
+    """the verdict with its numbers rounded to a fixed number of places.
 
-# the legs whose wall sheds most of its heat into a coolant rather than
-# into radiation. these carry their own set of contracts.
-COOLANT_BACKED_LEGS = (
-    "wall-regenerative",
-    "wall-conjugate",
-)
-
-# the bulk observables the gate settles and then compares.
-#
-# `mass_flow` is the throat's choked mass flow, `chamber_p0` and
-# `chamber_t0` are the chamber's mass-flux-weighted totals, and
-# `near_wall_t` is the median temperature of the gas cells that touch
-# the solid. the near-wall temperature is the observable that carries the
-# wall's effect: the bulk totals are nearly blind to it, because the
-# chamber's inventory dwarfs the wall's duty.
-SETTLING_KEYS = ("mass_flow", "chamber_p0", "chamber_t0", "near_wall_t")
+    the artefact travels between machines, and the arithmetic behind it
+    lands on slightly different last bits depending on the platform's
+    maths library. rounding to nine decimal places puts every quantity
+    on a value the judgement actually claims, so the committed artefact
+    compares the same way everywhere while a real change in the record
+    still shows up.
+    """
+    if isinstance(value, float):
+        if value != value or value in (float("inf"), float("-inf")):
+            return value
+        rounded = round(value, places)
+        return 0.0 if rounded == 0.0 else rounded
+    if isinstance(value, dict):
+        return {key: canonical(item, places) for key, item in value.items()}
+    if isinstance(value, list):
+        return [canonical(item, places) for item in value]
+    return value
 
 
 def read_run_log(path):
@@ -216,6 +146,30 @@ def chamber_totals(case, fields, nx, ny, origin, spacing, upto):
     return wp / wm, wt / wm
 
 
+def domain_mass(case, fields, nx, ny, origin, spacing):
+    """the gas the chamber holds, integrated over the fluid cells.
+
+    the peak density can climb for a benign reason: the gas cools against
+    the wall and contracts. that is indistinguishable from mass being
+    booked wrongly unless the chamber's total is watched too. this is the
+    total, weighted the way the chamber weights its own columns.
+    """
+
+    mask = cf.solid_mask(case)
+    dy = spacing[1]
+    rho = fields["density"]
+    total = 0.0
+    for j in range(ny):
+        rm = origin[1] + j * dy
+        rp = rm + dy
+        area = math.pi * (rp * rp - rm * rm)
+        for i in range(nx):
+            if mask[j * nx + i]:
+                continue
+            total += rho[j * nx + i] * area
+    return total * spacing[0]
+
+
 def measure_field(case, path):
     """one saved field's choked state and chamber totals."""
     fields, nx, ny, origin, spacing = cf.read_vtk(path)
@@ -225,6 +179,8 @@ def measure_field(case, path):
     p0, t0 = chamber_totals(
         case, fields, nx, ny, origin, spacing, max(1, sonic["col"] - 1)
     )
+    density = fields["density"]
+    peak = max(range(len(density)), key=density.__getitem__)
     return {
         "path": path,
         "mass_flow": sonic["m_dot"],
@@ -234,6 +190,9 @@ def measure_field(case, path):
         "throat_basis": sonic["basis"],
         "chamber_p0": p0,
         "chamber_t0": t0,
+        "domain_mass": domain_mass(case, fields, nx, ny, origin, spacing),
+        "rho_max": density[peak],
+        "t_at_rho_max": fields["temperature"][peak],
     }
 
 
@@ -254,11 +213,19 @@ def near_wall_median(case, path, reader_module):
         return None
     return statistics.median([fields["temperature"][k] for k in near])
 
+def field_index(path):
+    """the march step a saved field came from, taken from its name."""
+    stem = os.path.basename(path)
+    if "." in stem:
+        stem = stem.rsplit(".", 1)[0]
+    digits = "".join(char for char in reversed(stem) if char.isdigit())
+    return int(digits[::-1]) if digits else 0
+
 
 def measure_one_leg(tag, run_root):
-    """everything the gate knows about one leg of the bracket."""
+    """one leg of the bracket, read from the marched campaign."""
     run_dir = os.path.join(run_root, tag)
-    case_path = os.path.join(HERE, f"{tag}.toml")
+    case_path = os.path.join(HERE, "%s.toml" % tag)
     if not os.path.exists(case_path):
         return {"tag": tag, "ran": False, "why": "the case file is missing"}
 
@@ -271,32 +238,8 @@ def measure_one_leg(tag, run_root):
         return info
     info["fields_saved"] = len(saved)
 
-    # the dense wall-duty series.
     rows = wall_series.read_duty_series(os.path.join(run_dir, "wall-duty.csv"))
-    info["duty_rows"] = len(rows)
-    if rows:
-        summary = wall_series.duty_summary(rows)
-        info.update(summary)
-        info.update(wall_series.mode_ordering(summary))
 
-        # the duty series has to settle before its mean can be quoted.
-        settled = settle_mod.measure_all(
-            [
-                {
-                    "heat_mw": r["heat_mw"],
-                    "surface_t_k": r["surface_t_k"],
-                    "perimeter_m": r["perimeter_m"],
-                }
-                for r in rows
-            ],
-            ("heat_mw", "surface_t_k", "perimeter_m"),
-        )
-        info["duty_settled"] = settled
-        if settled.get("qualified"):
-            info["duty_mw_settled"] = settled["observables"]["heat_mw"]["mean"]
-            info["surface_k_settled"] = settled["observables"]["surface_t_k"]["mean"]
-
-    # the bulk observables, measured field by field.
     case = cf.read_case(case_path)
     observations = []
     for path in saved:
@@ -311,323 +254,34 @@ def measure_one_leg(tag, run_root):
             row["near_wall_t"] = near_wall_median(case, path, cf)
         except Exception as exc:  # pragma: no cover
             info.setdefault("field_errors", []).append(str(exc))
+        row["checksum"] = period_survey.digest(path)
+        row["index"] = field_index(path)
         observations.append(row)
 
-    if not observations:
-        info["why"] = "the saved fields could not be measured"
-        return info
-
-    info["observations"] = observations
-    for key in SETTLING_KEYS:
-        series = settle_mod.collect(observations, key)
-        info[key + "_series"] = series
-
-    # the absolute stationarity of a leg's own level is recorded, but it
-    # no longer decides the leg's fate. every leg carries the chamber's
-    # own drift, so the level alone cannot distinguish the wall's
-    # effect. the settlement judgement is made on the departure from
-    # the adiabatic reference, in `cross_leg_settlement.py`.
-    settled = settle_mod.measure_all(observations, SETTLING_KEYS)
-    info["absolute_settling"] = settled
-    if not settled.get("qualified"):
-        info["absolute_settling_note"] = (
-            "the level drifted on its own; the judgement is made on the "
-            "departure from the adiabatic reference"
-        )
-    else:
-        for key, reading in settled["observables"].items():
-            info[key] = reading["mean"]
-            info[key + "_sem"] = reading["standard_error"]
-            info[key + "_effective_n"] = reading["effective_n"]
-        info["window_start"] = settled["window_start"]
-        info["window_end"] = settled["window_end"]
-        info["window_length"] = settled["window_length"]
-    info["ran"] = True
-    return info
+    info["density_track"] = bracket.measure_density_track(observations)
+    return bracket.assemble_leg(info, rows, observations)
 
 
-def paired_contrast(reference, other, key):
-    """the difference between two legs, paired field by field.
+def measure_one_leg_from_record(tag):
+    """one leg of the bracket, read from the committed record."""
+    loaded = record.load_leg(tag)
+    rows = wall_series.read_duty_series(record.record_paths(tag)["duty"])
+    info = loaded["info"]
+    info["density_track"] = bracket.measure_density_track(loaded["observations"])
+    return bracket.assemble_leg(info, rows, loaded["observations"])
 
-    the legs march the same chamber from the same initial condition on
-    the same grid, so pairing by field INDEX cancels everything the wall
-    did not change. the difference's own spread carries the uncertainty,
-    not the two legs' spreads added in quadrature: the legs share their
-    transients almost entirely, so the difference is far quieter than
-    either leg alone.
+
+def judge(rows):
+    """the bracket's judgement on some rows of legs.
+
+    the rows carry each leg's measurements: its settled levels, its
+    wall duty, and the saved fields behind them. the same judgement is
+    made whether the rows came from marched fields or from the
+    campaign's record.
+
+    returns the report payload, the problems that make the bracket
+    fail, and the cautions that bound what the numbers mean.
     """
-    a = reference.get(key + "_series") or []
-    b = other.get(key + "_series") or []
-    n = min(len(a), len(b))
-    if n < 3:
-        return None
-    start = reference.get("window_start", 0)
-    if start >= n:
-        start = 0
-    differences = [b[i] - a[i] for i in range(start, n)]
-    count = len(differences)
-    if count < 3:
-        return None
-    mean = statistics.fmean(differences)
-    variance = sum((d - mean) ** 2 for d in differences) / (count - 1)
-    sigma = math.sqrt(max(variance, 0.0))
-    effective_n = 1.0
-    if sigma > 0.0:
-        effective_n = max(1.0, float(count))
-    sem = sigma / math.sqrt(effective_n) if effective_n > 0 else float("inf")
-    reference_mean = statistics.fmean(a[start:n]) if a[start:n] else 0.0
-    scale = abs(reference_mean) if abs(reference_mean) > 0.0 else 1.0
-    return {
-        "delta": mean,
-        "delta_pct": 100.0 * mean / scale,
-        "sd": sigma,
-        "effective_n": effective_n,
-        "standard_error": sem,
-        "sigma": mean / sem if sem > 0.0 else float("inf"),
-        "reference_mean": reference_mean,
-        "n": count,
-    }
-
-
-# the core observables the settlement judgement is made on. the
-# near-wall temperature is deliberately excluded: a cooled wall's own
-# surface relaxes on its own thermal timescale, so the near-wall gas can
-# still be climbing when the bulk has settled. that observable is
-# judged and reported on its own, in `near_wall_response.py`.
-CORE_SETTLING_KEYS = ("mass_flow", "chamber_p0", "chamber_t0")
-
-
-def predict_choked_shift(reference, other):
-    """the mass flow shift the MEASURED chamber state implies.
-
-    the choked relation ties the throat's mass flow to the chamber's
-    total pressure and total temperature:
-
-        m_dot = A_star p0 sqrt(gamma) / (sqrt(R) sqrt(t0))
-
-    so the leg's mass flow follows from the leg's own chamber state,
-
-        m_dot_other / m_dot_ref = (p0_other / p0_ref) *
-                                 sqrt(t0_ref / t0_other)
-
-    the earlier version of this gate held p0 at the reference value and
-    credited the wall's duty with changing t0 alone. that is not the
-    physics: a wall that removes energy from the chamber lowers BOTH
-    quantities, and a colder chamber at a LOWER total pressure can
-    carry less mass than the reference. the prediction therefore uses
-    the chamber state the march actually produced.
-    """
-    ref_mdot = reference.get("mass_flow")
-    ref_p0 = reference.get("chamber_p0")
-    ref_t0 = reference.get("chamber_t0")
-    oth_mdot = other.get("mass_flow")
-    oth_p0 = other.get("chamber_p0")
-    oth_t0 = other.get("chamber_t0")
-    values = (ref_mdot, ref_p0, ref_t0, oth_mdot, oth_p0, oth_t0)
-    if any(value is None for value in values):
-        return None
-    if min(ref_p0, oth_p0, ref_t0, oth_t0, ref_mdot, oth_mdot) <= 0.0:
-        return None
-    ratio = (oth_p0 / ref_p0) * math.sqrt(ref_t0 / oth_t0)
-    predicted = ref_mdot * ratio
-    return {
-        "reference_p0_pa": ref_p0,
-        "reference_t0_k": ref_t0,
-        "chamber_p0_ratio": oth_p0 / ref_p0,
-        "chamber_t0_ratio": oth_t0 / ref_t0,
-        "predicted_mdot_kg_s": predicted,
-        "predicted_mdot_delta_kg_s": predicted - ref_mdot,
-        "predicted_mdot_delta_pct": 100.0 * (ratio - 1.0),
-    }
-
-
-def predict_duty_temperature_drop(reference, duty_mw):
-    """the chamber cooling the wall's duty implies, as a rough scale.
-
-    the wall's duty leaves the gas, so it lowers the chamber's bulk
-    enthalpy by the duty divided by the gas's mass flow and its heat
-    capacity. this is the SCALE of the effect, not a precise
-    prediction: the chamber's inventory is continuously replenished by
-    the injector, so the duty changes the state the chamber settles at
-    rather than integrating a transient cool-down. the contract it
-    supports is directional and order-of-magnitude, and the sharp
-    quantitative check is the choked relation above.
-
-    the heat capacity is taken from the combustion products at the
-    chamber's own temperature, where cp is near 3262 j/(kg.k).
-    """
-    if not duty_mw or duty_mw <= 0.0:
-        return None
-    mass_flow = reference.get("mass_flow")
-    t0 = reference.get("chamber_t0")
-    if not mass_flow or not t0:
-        return None
-    cp = 3262.0
-    temperature_drop = duty_mw * 1.0e6 / (mass_flow * cp)
-    return {
-        "duty_mw": duty_mw,
-        "scale_dt0_k": -temperature_drop,
-        "scale_dt0_fraction": -temperature_drop / t0,
-    }
-
-
-
-def collect_mode_series(rows, key):
-    """one observable's series for every leg, aligned by saved field.
-
-    the series are collected from the SAVED FIELDS rather than from the
-    run log, because the fields are the only place the chamber's own
-    state is recorded densely enough to see a mode. every leg saves its
-    fields on the same schedule, so the series align by index and the
-    pairing that follows is exact.
-    """
-    series = {}
-    steps = {}
-    for row in rows:
-        observations = row.get("observations") or []
-        if not observations:
-            continue
-        pairs = []
-        for observation in observations:
-            value = observation.get(key)
-            if value is None:
-                continue
-            index = os.path.basename(observation.get("path", "")).split("-")[1]
-            index = int(index.split(".")[0]) if "." in index else int(index)
-            pairs.append((index, value))
-        if len(pairs) >= 4:
-            tag = row["tag"]
-            series[tag] = pairs
-            steps[tag] = [step for step, _ in pairs]
-    return series, steps
-
-
-def measure_shared_mode(rows, key="mass_flow"):
-    """the chamber's shared mode across the legs, and whether it is shared.
-
-    this is a DIAGNOSTIC, not a level-setting correction. the three
-    questions it answers are: is there a common oscillation at all, do
-    the legs agree on its period, and do they agree on its PHASE.
-
-    the phase question is the discriminating one. two legs can land on
-    the same frequency by accident, but a genuine chamber resonance
-    reaches every leg in step, because they are the same chamber.
-
-    the mode's AMPLITUDE is also what the absolute levels have to be
-    read against. a level quoted from a marched series that still
-    carries a five-percent ring is not a five-percent-accurate level,
-    and the gate says so rather than letting the number imply an
-    accuracy it does not have.
-
-    the SAMPLING ADEQUACY check is what stops the gate from over-
-    claiming. the period of a series cannot be resolved from fewer than
-    roughly two cycles, and a fit that returns a confident-looking
-    period from an unresolved sample would be an artefact of the
-    sampling rather than a property of the flow.
-    """
-    series, steps = collect_mode_series(rows, key)
-    if len(series) < 2:
-        return {
-            "checked": False,
-            "why": "fewer than two legs produced a measurable series",
-        }
-
-    try:
-        fit = acoustic_mode.fit_shared_mode(series)
-    except Exception as exc:
-        return {"checked": False, "why": "the mode fit failed: %s" % exc}
-
-    sharing = acoustic_mode.mode_sharing(fit, series)
-
-    lengths = [len(points) for points in series.values()]
-    spans = [max(step for step, _ in points) - min(step for step, _ in points)
-             for points in series.values()]
-    shortest_span = min(spans)
-    cycles = shortest_span / fit["period_steps"] if fit["period_steps"] else 0.0
-    adequately_sampled = min(lengths) >= 12 and cycles >= 2.0
-
-    # how deep the ring is, relative to each leg's own level.
-    levels = {}
-    for tag, points in series.items():
-        values = [value for _, value in points]
-        mean = statistics.fmean(values)
-        amplitude = fit["legs"][tag]["amplitude"]
-        levels[tag] = {
-            "mean": mean,
-            "amplitude": amplitude,
-            "amplitude_pct": (100.0 * amplitude / abs(mean)) if mean else None,
-        }
-
-    worst_level_pct = max(
-        (entry["amplitude_pct"] for entry in levels.values()
-         if entry["amplitude_pct"] is not None),
-        default=0.0,
-    )
-
-    return {
-        "checked": True,
-        "observable": key,
-        "period_steps": fit["period_steps"],
-        "samples": min(lengths),
-        "span_steps": shortest_span,
-        "cycles_covered": cycles,
-        "adequately_sampled": adequately_sampled,
-        "phase_coherence": sharing["phase_coherence"],
-        "cross_predictions": sharing["predictions"],
-        "weakest_cross_prediction": sharing["weakest_prediction"],
-        "shares": sharing["shares"],
-        "adjusted_explained_fraction": fit["adjusted_explained_fraction"],
-        "trend_confounding": fit["worst_trend_confounding"],
-        "levels": levels,
-        "worst_ring_percent": worst_level_pct,
-        "residuals": {tag: fit["legs"][tag] for tag in fit["legs"]},
-    }
-
-
-def mode_is_trustworthy(fit, max_confounding=0.9, min_samples=12, min_cycles=2.0):
-    """whether a fitted mode may be used to qualify a window.
-
-    a mode earns that trust only if all THREE hold:
-
-    - the saved fields cover at least two cycles, so the period is
-      resolved rather than inferred from a hint of curvature
-    - the mode is not mostly a straight line, so it can be told apart
-      from the drift it competes with
-    - the mode explains enough of the variation that removing it is a
-      subtraction of something real rather than of noise
-
-    when any of these fails the mode is reported, but no window is
-    qualified on it, and the caller falls back on judging the raw
-    series. that fallback is stricter, not looser: an unqualified mode
-    means the ringing series is judged as it stands, which is exactly
-    what should happen when the ring cannot be characterised.
-    """
-    period = fit["period_steps"]
-    points = fit.get("points", 0)
-    cycles = fit.get("cycles_covered", 0.0)
-    reasons = []
-    if points < min_samples:
-        reasons.append("only %d saved fields" % points)
-    if cycles < min_cycles:
-        reasons.append("covers only %.2f cycles" % cycles)
-    if fit["worst_trend_confounding"] > max_confounding:
-        reasons.append("%.1f %% confounded with a straight line"
-                       % (100.0 * fit["worst_trend_confounding"]))
-    if fit["adjusted_explained_fraction"] < 0.3:
-        reasons.append("explains only %.1f %% of the variation"
-                       % (100.0 * fit["adjusted_explained_fraction"]))
-    return (not reasons), reasons
-
-
-
-
-def main():
-    run_root = os.environ.get("NUFOR_BRACKET_RUNS", os.path.join(HERE, "runs"))
-    rows = []
-    for tag, wall_k in BRACKET:
-        info = measure_one_leg(tag, run_root)
-        info["specified_wall_k"] = wall_k
-        rows.append(info)
 
     problems = []
     cautions = []
@@ -637,7 +291,7 @@ def main():
     # departure from the adiabatic reference. the subtraction cancels the
     # chamber's own drift, which every leg carries and no leg owns, and
     # every leg is judged by the same rule, the reference included.
-    cross = cross_leg_settlement.assess(rows)
+    cross = bracket.cross_leg_settlement.assess(rows)
     if cross.get("qualified"):
         levels = cross.get("levels") or {}
         for tag, per_key in levels.items():
@@ -711,7 +365,7 @@ def main():
     # one. the subtraction against the adiabatic reference achieves the
     # same cancellation without modelling anything.
 
-    adi = by_tag.get(cross_leg_settlement.REFERENCE_TAG)
+    adi = by_tag.get(bracket.cross_leg_settlement.REFERENCE_TAG)
     rad = by_tag.get("wall-radiating")
     film = by_tag.get("wall-filmcooled")
     regen = by_tag.get("wall-regenerative")
@@ -757,15 +411,26 @@ def main():
         if adi.get("surface_perimeter_m", 0.0) <= 0.0:
             problems.append("the adiabatic leg reports no wall perimeter; the wall is not being measured")
 
-    for tag in COOLED_LEGS:
+    for tag in bracket.COOLED_LEGS:
         leg = by_tag.get(tag)
         if not leg or not leg.get("ran"):
             continue
+        departure = leg.get("mass_departure") or {}
+        if departure and not departure.get("within_tolerance"):
+            problems.append(
+                "the %s wall departed from the adiabatic reference by %.3f "
+                "percent of the chamber's mass, over the %.3f percent "
+                "tolerance; the wall is booking mass the reference did not"
+                % (
+                    tag,
+                    departure["delta_pct"],
+                    departure["tolerance_pct"],
+                ))
         duty = leg.get("duty_mw", 0.0)
         if duty <= 0.0:
             problems.append("the %s wall drew %.6f MW; it must take heat FROM the gas"
                             % (tag, duty))
-        if tag not in COOLANT_BACKED_LEGS:
+        if tag not in bracket.COOLANT_BACKED_LEGS:
             cond = leg.get("conduction_mw", 0.0)
             radn = leg.get("radiation_mw", 0.0)
             if cond > 0.0 and radn <= cond:
@@ -802,7 +467,7 @@ def main():
     print()
     print("contrasts against the adiabatic reference")
     if adi and adi.get("ran"):
-        for tag in COOLED_LEGS:
+        for tag in bracket.COOLED_LEGS:
             leg = by_tag.get(tag)
             if not leg or not leg.get("ran"):
                 continue
@@ -812,7 +477,7 @@ def main():
                 ("chamber_p0", "chamber total pressure"),
                 ("near_wall_t", "near-wall gas temperature"),
             ):
-                c = paired_contrast(adi, leg, key)
+                c = bracket.paired_contrast(adi, leg, key)
                 if c is None:
                     continue
                 print("  %-17s %-26s %+0.6g  %+0.4f %%   sd %.6g   %+.1f sigma" % (
@@ -832,9 +497,19 @@ def main():
                         "removes heat must cool the gas it touches"
                         % (tag, leg.get("duty_mw", 0.0), c["delta"]))
 
+            # the wall's own contribution to the chamber's mass. the
+            # march's inventory drift is shared by every leg and is
+            # reported in each leg's conservation block; what this
+            # measures is the part the wall alone is responsible for.
+            departure = bracket.paired_mass_departure(adi, leg)
+            if departure is not None:
+                leg["mass_departure"] = departure
+                print("  %-17s %-26s %+0.6g  %+0.4f %%  of the chamber's mass" % (
+                    tag, "domain mass", departure["delta"], departure["delta_pct"]))
+
             sf = leg.get("mass_flow_paired_contrast")
             if sf is not None:
-                prediction = predict_choked_shift(adi, leg)
+                prediction = bracket.predict_choked_shift(adi, leg)
                 if prediction is not None:
                     leg["predicted_effect"] = prediction
                     measured = leg.get("mass_flow")
@@ -867,7 +542,7 @@ def main():
                 # near-wall response, because the chamber's inventory is
                 # continuously replenished by the injector rather than
                 # being a parcel that accumulates the wall's loss.
-                scale = predict_duty_temperature_drop(adi, leg.get("duty_mw"))
+                scale = bracket.predict_duty_temperature_drop(adi, leg.get("duty_mw"))
                 bulk = leg.get("chamber_t0_paired_contrast")
                 near = leg.get("near_wall_t_paired_contrast")
                 if scale is not None and bulk is not None:
@@ -907,7 +582,7 @@ def main():
     # deeply it moves the numbers the bracket quotes.
     print()
     print("the chamber's shared mode")
-    mode = measure_shared_mode(rows, "mass_flow")
+    mode = bracket.measure_shared_mode(rows, "mass_flow")
     if not mode.get("checked"):
         print("  not checked: %s" % mode.get("why"))
     else:
@@ -970,13 +645,31 @@ def main():
 
     # the report records that the bracket was CHECKED for a flow period
     # and found not to have one.
-    print()
-    survey = period_survey.survey(
-        run_root, [tag for tag, _ in BRACKET],
-        lambda case, path: measure_field(cf.read_case(case), path),
-    )
+    #
+    # the survey reads the same way whichever side the measurements came
+    # from: the checksum of each saved field and the mass flow read from
+    # it. the field side takes its checksums from the files themselves;
+    # the record side takes them from the record, which carries the same
+    # digest beside each field's readings.
+    per_leg = {}
+    for row in rows:
+        observations = row.get("observations") or []
+        per_leg[row["tag"]] = {
+            "digests": [
+                observation["checksum"]
+                for observation in observations
+                if observation.get("checksum")
+            ],
+            "values": [
+                observation["mass_flow"]
+                for observation in observations
+                if observation.get("mass_flow") is not None
+            ],
+        }
+    survey = period_survey.survey(per_leg)
+
     print("period survey (report only; the gate does not rely on a period)")
-    for tag, finding in survey.items():
+    for tag, finding in sorted(survey.items()):
         if not finding.get("checked"):
             print("  %-17s not checked: %s" % (tag, finding.get("why")))
             continue
@@ -1014,28 +707,104 @@ def main():
         },
         "period_survey": survey,
     }
-    with open(os.path.join(HERE, "gates.json"), "w") as handle:
-        json.dump(out, handle, indent=2)
-        handle.write("\n")
+
+    return out, problems, cautions
+
+
+def field_is_present(run_root):
+    """whether the marched campaign is on disk here."""
+    for tag, _ in bracket.BRACKET:
+        run_dir = os.path.join(run_root, tag)
+        if glob.glob(os.path.join(run_dir, "vtk-*.vtk")):
+            return True
+    return False
+
+
+def read_the_campaign(run_root, from_record):
+    """each leg's measurements, from the record or from the marched field."""
+    rows = []
+    marched = False
+    for tag, wall_k in bracket.BRACKET:
+        if from_record:
+            info = measure_one_leg_from_record(tag)
+        else:
+            info = measure_one_leg(tag, run_root)
+        info["specified_wall_k"] = wall_k
+        rows.append(info)
+        if info.get("ran"):
+            marched = True
+    return rows, marched
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--record",
+        action="store_true",
+        help="judge only the committed record, never the marched field",
+    )
+    parser.add_argument(
+        "--no-cross-check",
+        action="store_true",
+        help="skip the field-versus-record cross check when both are present",
+    )
+    args = parser.parse_args(argv)
+
+    run_root = os.environ.get("NUFOR_BRACKET_RUNS", os.path.join(HERE, "runs"))
+
+    record_rows, _ = read_the_campaign(run_root, from_record=True)
+    print("the engine wall bracket, judged against the committed record")
+    out, problems, cautions = judge(record_rows)
+
+    crossed = False
+    if not args.record and not args.no_cross_check:
+        if field_is_present(run_root):
+            field_rows, _ = read_the_campaign(run_root, from_record=False)
+            field_out, field_problems, field_cautions = judge(field_rows)
+            crossed = True
+            if field_problems:
+                problems = problems + [
+                    "the marched field fails where the record passes: %s" % problem
+                    for problem in field_problems
+                ]
+            if field_cautions != cautions:
+                problems.append(
+                    "the marched field raises different cautions than the "
+                    "record, so the record no longer describes the field"
+                )
+            disagreeing = [
+                leg["tag"]
+                for leg, field_leg in zip(out["bracket"], field_out["bracket"])
+                if leg != field_leg
+            ]
+            if disagreeing:
+                problems.append(
+                    "the record and the marched field disagree on %s"
+                    % ", ".join(disagreeing)
+                )
+            if not problems:
+                print(
+                    "the marched field agrees with the record on every leg"
+                )
+        else:
+            print(
+                "no marched field here, so the record stands on its own"
+            )
+
+    if not args.record:
+        with open(os.path.join(HERE, "gates.json"), "w") as handle:
+            json.dump(canonical(out), handle, indent=2)
+            handle.write("\n")
 
     if cautions:
         print("\nCAUTIONS:")
-        for c in cautions:
-            print("  - %s" % c)
+        for caution in cautions:
+            print("  - %s" % caution)
 
     if problems:
-        if not marched_anywhere:
-            # the marcher leaves its fields beside the case, and they are
-            # a local artifact. the shared gate runner recognises this
-            # line and reports the case as not marched rather than as a
-            # failure.
-            print(
-                "\nNOT RUN: no marched field here, so the bracket has "
-                "nothing to measure"
-            )
         print("\nFAIL:")
-        for p in problems:
-            print("  - %s" % p)
+        for problem in problems:
+            print("  - %s" % problem)
         return 1
     print("\nthe bracket holds.")
     return 0

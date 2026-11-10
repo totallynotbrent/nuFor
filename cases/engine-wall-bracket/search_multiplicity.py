@@ -251,9 +251,9 @@ def cell(pairs, records, design, amplitude):
     }
 
 
-def run(pairs, root):
+def run(pairs, root, from_record=False):
     """the full comparison grid."""
-    records = cal.load_rows(root)
+    records = cal.load_rows(root, from_record=from_record)
     cells = []
     for design in DESIGNS:
         for amplitude in AMPITUDES:
@@ -262,7 +262,7 @@ def run(pairs, root):
             print(json.dumps(row), flush=True)
     return {
         "pairs_per_cell": pairs,
-        "campaign": root,
+        "campaign": cal.portable_campaign(root),
         "settlement_window": cls.SETTLEMENT_WINDOW,
         "null_construction": "detrended_rotation",
         "arms": {
@@ -288,8 +288,13 @@ def main(argv=None):
     parser.add_argument("pairs", type=int, help="surrogate records per cell")
     parser.add_argument("campaign", help="campaign root holding the records")
     parser.add_argument("out", nargs="?", help="where to write the JSON")
+    parser.add_argument(
+        "--record",
+        action="store_true",
+        help="read the committed record instead of a marched campaign",
+    )
     args = parser.parse_args(argv)
-    summary = run(args.pairs, args.campaign)
+    summary = run(args.pairs, args.campaign, from_record=args.record)
     if args.out:
         with open(args.out, "w") as handle:
             json.dump(summary, handle, indent=1)

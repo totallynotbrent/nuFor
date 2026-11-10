@@ -25,7 +25,7 @@ case_gates=(
   "cases/chamber-throat committed"
   "cases/nozzle-cdv field"
   "cases/aeroshell-station field"
-  "cases/engine-wall-bracket field"
+  "cases/engine-wall-bracket committed"
 )
 
 fails=0

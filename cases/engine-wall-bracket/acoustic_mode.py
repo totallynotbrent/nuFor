@@ -3,11 +3,12 @@
 WHY THIS EXISTS
 
 the bracket's five legs march the same chamber, and the chamber rings.
-the throat's mass flow swings by about +-1.7 percent with a period near
-three thousand four hundred steps, and the ringing is COMMON MODE: the
-five legs' series correlate at better than 0.99. the wall's own signal
-in that observable is at most 0.09 percent, so an unwindowed level would
-carry the chamber's acoustics and not the wall.
+the throat's mass flow carries a common ripple with a period near seven
+thousand steps, and the rippling is COMMON MODE: the five legs' phases
+agree to better than 0.99. the ring reaches 0.42 percent of the throat
+level on its loudest leg, while the wall's own paired departure from the
+adiabatic reference is at most 0.21 percent, so an unwindowed level
+would carry the chamber's motion and not the wall.
 
 WHAT THE MODEL IS
 
@@ -42,10 +43,79 @@ mode only to establish that the two legs share it.
 import math
 import statistics
 
-try:
-    import numpy as _np
-except ImportError:  # pragma: no cover - numpy is in the base image
-    _np = None
+
+MODEL_COLUMNS = 4
+
+
+def _qr_least_squares(rows, values):
+    """the least squares solution of a small system, solved by householder reflections.
+
+    the fit solves for four coefficients against the observations. the
+    direct method forms the normal equations, which squares the system's
+    condition number and turns a merely awkward design into a singular
+    one. householder reflections carry out the same fit without that
+    squaring, and the reflection signs are fixed by the code rather than
+    by a library, so the answer does not move between machines.
+
+    the routine returns the coefficients, the rank it found and the
+    residual sum of squares.
+    """
+    count = len(rows)
+    width = len(rows[0]) if count else 0
+    if count == 0 or width == 0:
+        return [], 0, 0.0
+    work = [list(row) for row in rows]
+    right = list(values)
+    for column in range(width):
+        # the reflector zeroes the entries below the pivot.
+        norm = math.sqrt(math.fsum(work[i][column] * work[i][column]
+                                   for i in range(column, count)))
+        if norm == 0.0:
+            continue
+        lead = work[column][column]
+        target = -norm if lead >= 0.0 else norm
+        vector = [work[i][column] for i in range(column, count)]
+        vector[0] -= target
+        length = math.sqrt(math.fsum(entry * entry for entry in vector))
+        if length == 0.0:
+            continue
+        vector = [entry / length for entry in vector]
+        for other in range(column, width):
+            projection = math.fsum(vector[i - column] * work[i][other]
+                                   for i in range(column, count))
+            for i in range(column, count):
+                work[i][other] -= 2.0 * vector[i - column] * projection
+        projection = math.fsum(vector[i - column] * right[i]
+                               for i in range(column, count))
+        for i in range(column, count):
+            right[i] -= 2.0 * vector[i - column] * projection
+
+    # BACK SUBSTITUTION. a column that the reflections could not bring
+    # to a usable pivot contributes nothing to the fit, so its
+    # coefficient is left at zero. this happens when the sampled series
+    # cannot tell a frequency apart from the trend beside it, and the
+    # caller rejects such a frequency rather than believing the answer.
+    biggest = max((abs(work[i][i]) for i in range(width)), default=0.0)
+    tolerance = biggest * 1e-12
+    coefficients = [0.0] * width
+    rank = 0
+    for column in range(width - 1, -1, -1):
+        pivot = work[column][column]
+        if abs(pivot) <= tolerance:
+            continue
+        rank += 1
+        total = right[column] - math.fsum(
+            work[column][other] * coefficients[other]
+            for other in range(column + 1, width)
+        )
+        coefficients[column] = total / pivot
+    residual = []
+    for row, value in zip(rows, values):
+        residual.append(
+            value - math.fsum(row[j] * coefficients[j] for j in range(width))
+        )
+    residual_sum = math.fsum(entry * entry for entry in residual)
+    return coefficients, rank, residual_sum
 
 
 def _design(series_by_leg, period):
@@ -61,35 +131,71 @@ def _design(series_by_leg, period):
     count = len(legs)
     width = 4 * count
     omega = 2.0 * math.pi / period
-    columns = []
-    targets = []
+    # EACH LEG ON ITS OWN. every row carries only the four coefficients
+    # of the leg it came from, so the joint fit is one small fit per leg
+    # held beside each other. splitting them apart keeps the arithmetic
+    # in plain python, where the order of the operations is fixed by the
+    # code rather than by whichever blas library happens to be
+    # installed, so the fitted mode does not move with the machine.
+    solution = [0.0] * width
+    residual = []
+    ranks = []
     for index, leg in enumerate(legs):
         points = series_by_leg[leg]
         steps = [s for s, _ in points]
         scale = max(max(steps), 1.0)
+        rows = []
+        values = []
         for step, value in points:
-            row = [0.0] * width
-            row[index] = 1.0
-            row[count + index] = step / scale
-            row[2 * count + 2 * index] = math.cos(omega * step)
-            row[2 * count + 2 * index + 1] = math.sin(omega * step)
-            columns.append(row)
-            targets.append(value)
-    matrix = _np.array(columns)
-    vector = _np.array(targets)
-    solution, _, _, _ = _np.linalg.lstsq(matrix, vector, rcond=None)
-    residual = vector - matrix @ solution
-    return float(_np.dot(residual, residual)), solution, residual
+            rows.append([
+                1.0,
+                step / scale,
+                math.cos(omega * step),
+                math.sin(omega * step),
+            ])
+            values.append(value)
+        coefficients, rank, _ = _qr_least_squares(rows, values)
+        ranks.append(rank)
+        solution[index] = coefficients[0]
+        solution[count + index] = coefficients[1]
+        solution[2 * count + 2 * index] = coefficients[2]
+        solution[2 * count + 2 * index + 1] = coefficients[3]
+        for row, value in zip(rows, values):
+            residual.append(
+                value
+                - (
+                    row[0] * coefficients[0]
+                    + row[1] * coefficients[1]
+                    + row[2] * coefficients[2]
+                    + row[3] * coefficients[3]
+                )
+            )
+    residual_sum = math.fsum(entry * entry for entry in residual)
+    return residual_sum, solution, residual, ranks
 
 
 def _scan(series_by_leg, periods):
-    """the best-fitting shared period and its coefficients."""
+    """the best-fitting shared period and its coefficients.
+
+    a frequency the samples cannot separate from the trend beside it
+    gives a rank-deficient fit. those frequencies are counted and left
+    out of the contest, because a fit with a missing term is not a
+    worse answer but no answer at all.
+    """
     best = None
+    rejected = 0
+    scores = {}
     for period in periods:
-        score, solution, residual = _design(series_by_leg, period)
+        score, solution, residual, ranks = _design(series_by_leg, period)
+        if ranks and min(ranks) < MODEL_COLUMNS:
+            rejected += 1
+            continue
+        scores[period] = score
         if best is None or score < best[0]:
             best = (score, period, solution, residual)
-    return best
+    if best is None:
+        raise ValueError("none of the candidate periods gave a usable fit")
+    return best, rejected, scores
 
 
 def detrend_line(points):
@@ -161,9 +267,6 @@ def fit_shared_mode(series_by_leg, min_period=200.0, max_period=8000.0, coarse=1
     variance the mode explains, so a reader can see what the mode
     contributed and what was left to the wall.
     """
-    if _np is None:
-        raise RuntimeError("numpy is required for the mode fit")
-
     usable = {
         leg: sorted(points)
         for leg, points in series_by_leg.items()
@@ -200,14 +303,37 @@ def fit_shared_mode(series_by_leg, min_period=200.0, max_period=8000.0, coarse=1
         for index in range(int((upper - lower) / coarse) + 1)
     ]
 
-    score, period, solution, residual = _scan(usable, periods)
+    (score, period, solution, residual), rejected, coarse_scores = _scan(usable, periods)
 
     # refine around the coarse winner.
     refined = [period - coarse, period - coarse / 2.0, period,
                period + coarse / 2.0, period + coarse]
     refined = [p for p in refined if lower <= p <= upper and p > 0.0]
     if refined:
-        score, period, solution, residual = _scan(usable, refined)
+        (score, period, solution, residual), refined_rejected, refined_scores = _scan(usable, refined)
+        rejected += refined_rejected
+
+    all_scores = dict(coarse_scores)
+    all_scores.update(refined_scores)
+
+    # THE SHOULDER AT THE SCAN'S OWN SPACING. the coarse scan brackets
+    # the winner to within its own step, so the widths the data really
+    # admit are measured on a finer grid around it. the extra scoring is
+    # spent here because the objective is shallow near the bottom, and a
+    # wide shallow basin needs finer sampling than a narrow deep one.
+    probe_low = max(lower, period - coarse * 40.0)
+    probe_high = min(upper, period + coarse * 40.0)
+    probe_step = max(1.0, coarse / 5.0)
+    probes = []
+    steps = probe_low
+    while steps <= probe_high:
+        probes.append(steps)
+        steps += probe_step
+    (probe_score, probe_period, probe_solution, probe_residual), probe_rejected, probe_scores = _scan(
+        usable, probes
+    )
+    all_scores.update(probe_scores)
+    band = period_band(usable, period, all_scores, step_hint=probe_step)
 
     count = len(usable)
 
@@ -215,7 +341,7 @@ def fit_shared_mode(series_by_leg, min_period=200.0, max_period=8000.0, coarse=1
     for points in usable.values():
         for _, value in points:
             total += value * value
-    residual_sum = float(_np.dot(residual, residual))
+    residual_sum = math.fsum(entry * entry for entry in residual)
 
     # the NULL model is the per-leg constant and linear trend WITHOUT any
     # mode. a richer model always fits better, so the explained fraction
@@ -316,8 +442,98 @@ def fit_shared_mode(series_by_leg, min_period=200.0, max_period=8000.0, coarse=1
         "residual_rms": math.sqrt(residual_sum / max(1, len(residual))),
         "points": len(residual),
         "degree_of_freedom": full_dof,
+        "period_band": band,
     }
 
+
+def period_band(series_by_leg, period, scores, tolerance=0.01, step_hint=10.0,
+                ring_floor=None):
+    """how tightly the fit pins the period, and what the ring does across that slack.
+
+    the best-fitting period sits at the bottom of a shallow bowl, and a
+    reader who takes the printed period literally will believe in more
+    precision than the data carries. the band walks outward from the
+    winner on the finest grid the search offers and stops where the
+    objective rises past the tolerance, so it covers the shoulder of
+    the optimum and nothing else. the ring amplitudes across that
+    shoulder are the honest width of the claim.
+    """
+    usable_scores = {key: value for key, value in scores.items() if value > 0.0}
+    if not usable_scores:
+        return {}
+
+    step = max(1.0, float(step_hint))
+    centre = float(period)
+    score, solution, residual, ranks = _design(series_by_leg, centre)
+    if min(ranks) < MODEL_COLUMNS:
+        return {}
+    best = score
+    limit = best * (1.0 + tolerance)
+
+    band = [centre]
+    spreads = [score]
+    rings = []
+    worst_levels = []
+    count = len(series_by_leg)
+
+    def ring_levels(current_solution):
+        """the per-leg ring amplitudes, and the largest of them."""
+        levels = []
+        for index, leg in enumerate(series_by_leg):
+            points = series_by_leg[leg]
+            mean = sum(value for _, value in points) / len(points)
+            cosine = current_solution[2 * count + 2 * index]
+            sine = current_solution[2 * count + 2 * index + 1]
+            amplitude = math.hypot(cosine, sine)
+            if mean:
+                levels.append(100.0 * amplitude / abs(mean))
+        return levels
+
+    centre_levels = ring_levels(solution)
+    rings.extend(centre_levels)
+    worst_center = max(centre_levels) if centre_levels else 0.0
+
+    for direction in (1.0, -1.0):
+        distance = step
+        while True:
+            trial = centre + direction * distance
+            trial_score, trial_solution, trial_residual, trial_ranks = _design(
+                series_by_leg, trial
+            )
+            if min(trial_ranks) < MODEL_COLUMNS or trial_score > limit:
+                break
+            band.append(trial)
+            spreads.append(trial_score)
+            trial_levels = ring_levels(trial_solution)
+            rings.extend(trial_levels)
+            worst_levels.append(max(trial_levels) if trial_levels else 0.0)
+            distance += step
+
+    scanned = list(usable_scores.values())
+    result = {
+        "tolerance_fraction": tolerance,
+        "lower_steps": min(band),
+        "upper_steps": max(band),
+        "candidates": len(band),
+        "grid_step": step,
+        "objective_within_band": max(spreads) - min(spreads),
+        "objective_across_scan": max(scanned) - min(scanned),
+        "ring_percent_min": min(rings) if rings else None,
+        "ring_percent_max": max(rings) if rings else None,
+        "worst_ring_percent_min": min(worst_levels) if worst_levels else None,
+        "worst_ring_percent_max": max(worst_levels) if worst_levels else None,
+        "worst_ring_percent_at_optimum": worst_center,
+    }
+    if ring_floor is not None and worst_levels:
+        # THE CLAIM HAS TO SURVIVE THE SLACK. a band that dipped below
+        # the floor would mean the published comparison rests on a
+        # narrower choice of period than the data warrants, so the dip
+        # is recorded and the gate can weigh it.
+        result["ring_floor_percent"] = ring_floor
+        result["holds_throughout_band"] = bool(
+            min(worst_levels) >= ring_floor
+        )
+    return result
 
 def mode_removability(fit, min_explained=0.5):
     """whether the mode explains enough of a leg's scatter to matter.

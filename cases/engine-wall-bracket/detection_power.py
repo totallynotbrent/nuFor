@@ -112,9 +112,9 @@ def drift_rows(design, surrogate, amplitude, horizon_indices):
     raise ValueError("unknown drift design: {}".format(design))
 
 
-def study(pairs, root, null_kind, design):
+def study(pairs, root, null_kind, design, from_record=False):
     """the paired power study for one null construction and design."""
-    rows = cal.load_rows(root)
+    rows = cal.load_rows(root, from_record=from_record)
     horizon_indices = shared_tail_indices(rows)
     results = []
     for amplitude in AMPS:
@@ -177,11 +177,14 @@ def main(argv):
     pairs = int(args[0]) if args else 800
     null_kind = "detrended_rotation"
     design = "both"
+    from_record = False
     for flag in flags:
         if flag.startswith("--null="):
             null_kind = flag.split("=", 1)[1]
         elif flag.startswith("--design="):
             design = flag.split("=", 1)[1]
+        elif flag == "--record":
+            from_record = True
     if root is None:
         print(
             "usage: detection_power.py <pairs> <campaign_root> [out_json]"
@@ -192,12 +195,12 @@ def main(argv):
     designs = ("whole_record", "confined") if design == "both" else (design,)
     results = []
     for selected in designs:
-        results.extend(study(pairs, root, null_kind, selected))
+        results.extend(study(pairs, root, null_kind, selected, from_record))
     if out:
         with open(out, "w") as handle:
             json.dump({
                 "pairs_per_amplitude": pairs,
-                "campaign": root,
+                "campaign": cal.portable_campaign(root),
                 "settlement_window": cls.SETTLEMENT_WINDOW,
                 "arms": results,
             }, handle, indent=1)

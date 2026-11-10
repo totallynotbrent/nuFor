@@ -169,16 +169,25 @@ evidence behind it.
 
 ![the bracket's duty](../img/engine-wall-bracket-duty.png)
 
+```
+<!-- BEGIN TABLE duties -->
+radiating:       duty 0.5707 MW, conduction 0.1430 MW, radiation 0.5624 MW, film 0.0000 MW
+filmcooled:      duty 0.8647 MW, conduction 0.1400 MW, radiation 0.5448 MW, film 0.4081 MW
+regenerative:    duty 0.8119 MW, conduction 0.1235 MW, radiation 0.5472 MW, film 0.3583 MW
+conjugate:       duty 0.6249 MW, conduction 0.0738 MW, radiation 0.5124 MW, film 0.2124 MW
+<!-- END TABLE duties -->
+```
+
 On the radiating and film-cooled legs, radiation dominates conduction,
-and by a wide margin: it crosses 0.5662 MW against 0.1436 MW on the
-radiating leg, and 0.5501 MW against 0.1409 MW on the film-cooled one,
+and by a wide margin: it crosses 0.5624 MW against 0.1430 MW on the
+radiating leg, and 0.5448 MW against 0.1400 MW on the film-cooled one,
 so radiation runs about four times the conductive exchange. The model
 predicts exactly this for a 3700 K gas facing a 400 K wall, because the
 radiation term scales with the fourth power of the temperature while the
 conductive term scales linearly.
 
 Against the film's own exchange the margin is narrower: on the
-film-cooled leg radiation carries 0.5501 MW against the film's 0.4093
+film-cooled leg radiation carries 0.5448 MW against the film's 0.4081
 MW, so it leads by about a third rather than overwhelming it.
 
 The coolant-backed legs are a different animal and the distinction
@@ -204,12 +213,22 @@ alongside the wall's nominal one.
 ![the bracket's wall surfaces](../img/engine-wall-bracket-surface.png)
 
 The surface panel is the clearest picture of why the coolant legs are a
-different kind of wall. The plain radiating and film-cooled walls sit
-where the case puts them, at 400 K, because that is the boundary
-condition. The coolant-backed walls float above their nominal figure,
-and the conjugate wall floats higher than the bare regenerative one,
-which is the liner's resistance showing up as a temperature the gas can
-feel.
+different kind of wall.
+
+```
+<!-- BEGIN TABLE surfaces -->
+radiating:       duty 0.5707 MW into a 400 K wall, surface 400.0 K, settled 400.0 K
+filmcooled:      duty 0.8647 MW into a 400 K wall, surface 400.0 K, settled 400.0 K
+regenerative:    duty 0.8119 MW into a 400 K wall, surface 795.5 K, settled 779.6 K
+conjugate:       duty 0.6249 MW into a 400 K wall, surface 1957.0 K, settled 1921.0 K
+<!-- END TABLE surfaces -->
+```
+
+The plain radiating and film-cooled walls sit where the case puts them,
+at 400 K, because that is the boundary condition. The coolant-backed
+walls float above their nominal figure, and the conjugate wall floats
+higher than the bare regenerative one, which is the liner's resistance
+showing up as a temperature the gas can feel.
 
 The duty is not spread evenly along the chamber. The contraction and
 the bell carry most of it, and the chamber's shoulder hardly
