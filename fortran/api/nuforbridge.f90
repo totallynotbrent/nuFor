@@ -7,6 +7,7 @@ module nuforbridge
   use iso_fortran_env, only: real64
   use nufor_mpi
   use nuforsolver2d
+  use nufor2t, only: park2t_substep_slab
   implicit none
 
   integer, parameter :: RP = real64
@@ -134,6 +135,8 @@ contains
     real(RP) :: r2(nx_l+4, ny_), m2(nx_l+4, ny_), my2_(nx_l+4, ny_), e2_(nx_l+4, ny_)
     real(RP) :: dt2
     real(RP) :: dt1, dt
+    real(RP) :: solid_loc, solid_glob
+    logical :: body_scheme
     integer :: j, i
 
     do j = 1, ny_
@@ -156,6 +159,20 @@ contains
       sl(nx_l+3,j) = .false.; sl(nx_l+4,j) = .false.
     end do
     call halo_exchange_cons(rin, min_, myin, ein, nx_l, ny_)
+    call halo_exchange_mask(sl, nx_l, ny_)
+
+    ! the scheme choice must be global: the two-step heun runs one more
+    ! kernel stage than the single-step pack, and every stage ends in a
+    ! collective dt reduction, so ranks choosing different schemes
+    ! deadlock the communicator.
+    solid_loc = 0.0_RP
+    do j = 1, ny_
+      do i = 3, nx_l+2
+        if (sl(i,j)) solid_loc = 1.0_RP
+      end do
+    end do
+    call global_max(solid_loc, solid_glob, g_decomp)
+    body_scheme = (solid_glob > 0.5_RP)
 
     ! two-stage heun matching the serial advance2d_model_rk2: stage 1
     ! advances the input, the halo refreshes, stage 2 advances the
@@ -180,7 +197,7 @@ contains
     ! reconstruction next to reference-state solid cells amplifies
     ! through the y sweep and corrupts the wall band. porting the
     ! staging needs its own body gate.
-    if (any(sl)) then
+    if (body_scheme) then
       r2 = r1
       m2 = m1
       my2_ = my1
@@ -192,7 +209,7 @@ contains
                             bc_w, bc_e, bc_s, bc_n, bc_vals, sl, &
                             r2, m2, my2_, e2_, dt2, 1)
     end if
-    if (any(sl)) then
+    if (body_scheme) then
       do j = 1, ny_
         do i = 1, nx_l
           rho2((j-1)*nx_l + i) = r1(i+2,j)
@@ -214,6 +231,90 @@ contains
     dt_out = dt1
     ierr = 0
   end subroutine
+
+  ! the live two-temperature step: the heun march followed by the 2t
+  ! substep on the post-march state, mirroring the serial lane's operator
+  ! split (march, then park2t_substep with the marched dt).
+  !
+  ! the march is the euler lane's march, called as it stands: the 2t lane
+  ! adds the plane on top of the same conserved trajectory, so the two
+  ! lanes cannot drift apart.
+  !
+  ! the e_v plane crosses the rank seam through its own halo exchange: the
+  ! donor stencil reads one cell across the partition, so the plane has to
+  ! arrive there like the solid mask does. the substep never writes the
+  ! conserved state, so the euler gates cannot see this lane.
+  subroutine nfor_mpi_step_2t(rho, mx, my, e, ev, nloc, nx_l, ny_, &
+                              dx, dy, gamma, cfl, dt_cap, &
+                              bc_w, bc_e, bc_s, bc_n, bc_vals, solid, &
+                              rho2, mx2, my2, e2, ev2, dt_out, ierr) &
+      bind(c, name="nfor_mpi_step_2t")
+    integer(c_int), value, intent(in) :: nloc, nx_l, ny_
+    real(c_double), intent(in) :: rho(nloc), mx(nloc), my(nloc), e(nloc), ev(nloc)
+    real(c_double), value, intent(in) :: dx, dy, gamma, cfl, dt_cap
+    integer(c_int), value, intent(in) :: bc_w, bc_e, bc_s, bc_n
+    real(c_double), intent(in) :: bc_vals(5, 4)
+    integer(c_int), intent(in) :: solid(nloc)   ! 0/1
+    real(c_double), intent(out) :: rho2(nloc), mx2(nloc), my2(nloc), e2(nloc), ev2(nloc)
+    real(c_double), intent(out) :: dt_out
+    integer(c_int), intent(out) :: ierr
+    logical :: sl(nx_l+4, ny_)
+    real(RP) :: rf(nx_l+4, ny_), mf(nx_l+4, ny_), myf(nx_l+4, ny_), ef(nx_l+4, ny_)
+    real(RP) :: evin(nx_l+4, ny_), evout(nx_l+4, ny_)
+    integer :: j, i
+
+    ! the march runs first, and it is the euler lane's march verbatim.
+    call nfor_mpi_step(rho, mx, my, e, nloc, nx_l, ny_, &
+                       dx, dy, gamma, cfl, dt_cap, &
+                       bc_w, bc_e, bc_s, bc_n, bc_vals, solid, &
+                       rho2, mx2, my2, e2, dt_out, ierr)
+    if (ierr /= 0) return
+
+    ! the post-march state on the padded slab, plus the plane and the
+    ! mask entering the substep. the conserved fields are read on the
+    ! interior cells only, so their ghost columns carry no meaning.
+    do j = 1, ny_
+      do i = 1, nx_l
+        rf(i+2,j) = rho2((j-1)*nx_l + i)
+        mf(i+2,j) = mx2((j-1)*nx_l + i)
+        myf(i+2,j) = my2((j-1)*nx_l + i)
+        ef(i+2,j) = e2((j-1)*nx_l + i)
+        evin(i+2,j) = ev((j-1)*nx_l + i)
+        sl(i+2,j) = solid((j-1)*nx_l + i) == 1
+      end do
+      rf(1,j) = rf(3,j); rf(2,j) = rf(3,j)
+      rf(nx_l+3,j) = rf(nx_l+2,j); rf(nx_l+4,j) = rf(nx_l+2,j)
+      mf(1,j) = mf(3,j); mf(2,j) = mf(3,j)
+      mf(nx_l+3,j) = mf(nx_l+2,j); mf(nx_l+4,j) = mf(nx_l+2,j)
+      myf(1,j) = myf(3,j); myf(2,j) = myf(3,j)
+      myf(nx_l+3,j) = myf(nx_l+2,j); myf(nx_l+4,j) = myf(nx_l+2,j)
+      ef(1,j) = ef(3,j); ef(2,j) = ef(3,j)
+      ef(nx_l+3,j) = ef(nx_l+2,j); ef(nx_l+4,j) = ef(nx_l+2,j)
+      evin(1,j) = evin(3,j); evin(2,j) = evin(3,j)
+      evin(nx_l+3,j) = evin(nx_l+2,j); evin(nx_l+4,j) = evin(nx_l+2,j)
+      sl(1,j) = .false.; sl(2,j) = .false.
+      sl(nx_l+3,j) = .false.; sl(nx_l+4,j) = .false.
+    end do
+
+    ! the seam needs both the mask and the plane: the donor stencil reads
+    ! the neighbour's e_v and asks whether that neighbour is solid.
+    call halo_exchange_mask(sl, nx_l, ny_)
+    call halo_exchange_plane(evin, nx_l, ny_)
+
+    ! the substep draws its pressure and temperature from the marched
+    ! state and relaxes the plane toward the translational temperature.
+    ! it writes only the plane.
+    call park2t_substep_slab(rf, mf, myf, ef, evin, sl, nx_l, ny_, &
+                              dx, dy, gamma, dt_out, &
+                              g_decomp%west_domain_edge, g_decomp%east_domain_edge, &
+                              evout)
+
+    do j = 1, ny_
+      do i = 1, nx_l
+        ev2((j-1)*nx_l + i) = evout(i+2,j)
+      end do
+    end do
+  end subroutine nfor_mpi_step_2t
 
   ! two-stage heun viscous step on this rank's slab: stage = one euler
   ! step (the same kernel the inviscid call runs) followed by a halo
@@ -497,6 +598,46 @@ contains
     buf(1,:,:) = nt
     call halo_exchange_x(buf, 1, g_decomp)
     nt = buf(1,:,:)
+  end subroutine
+
+  ! halo exchange for the padded e_v plane (1 variable). the two-temperature
+  ! donor stencil reads one cell across the partition, so the plane has to
+  ! reach the ghost columns the way the mask does.
+  subroutine halo_exchange_plane(ev, nx_l, ny_)
+    integer, intent(in) :: nx_l, ny_
+    real(RP), intent(inout) :: ev(nx_l+4, ny_)
+    real(RP) :: buf(1, nx_l+4, ny_)
+    if (g_decomp%nranks == 1) return
+    buf(1,:,:) = ev
+    call halo_exchange_x(buf, 1, g_decomp)
+    ev = buf(1,:,:)
+  end subroutine halo_exchange_plane
+
+  ! halo exchange for the solid mask. the wall-face closure reads the mask
+  ! of the two ghost columns flanking every domain face, so a body cell
+  ! sitting on the far side of a rank seam has to travel with the state or
+  ! the seam face leaks flux where the body should seal it.
+  subroutine halo_exchange_mask(sl, nx_l, ny_)
+    integer, intent(in) :: nx_l, ny_
+    logical, intent(inout) :: sl(nx_l+4, ny_)
+    real(RP) :: buf(1, nx_l+4, ny_)
+    integer :: j, i
+    if (g_decomp%nranks == 1) return
+    do j = 1, ny_
+      do i = 1, nx_l+4
+        if (sl(i,j)) then
+          buf(1,i,j) = 1.0_RP
+        else
+          buf(1,i,j) = 0.0_RP
+        end if
+      end do
+    end do
+    call halo_exchange_x(buf, 1, g_decomp)
+    do j = 1, ny_
+      do i = 1, nx_l+4
+        sl(i,j) = (buf(1,i,j) > 0.5_RP)
+      end do
+    end do
   end subroutine
 
   ! one coupled heun step of the sa rans lane on this rank's slab,

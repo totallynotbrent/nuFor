@@ -415,7 +415,22 @@ flowchart LR
     differed from rank 0's by 1.441e-2 while the state planes still
     came out identical. The distributed restart gate holds both
     properties now, so that class of drift cannot come back unnoticed.
-    The third lands all
+    Also in: the first slice of the live two-temperature lane. The
+    vibrational-energy plane `e_v` now travels the MPI core as an extra
+    plane with its own halo exchange (modeled on the turbulence plane),
+    its substep delegates to the same Fortran march so the two cannot
+    drift apart, and it rides the generic restart aux-plane path with no
+    format change. The parity gate holds the plane bit-for-bit against
+    the serial Rust substep at np=1 through np=5 (five gaussian bumps
+    seeded to straddle every rank seam), asserts the conserved planes are
+    untouched, and asserts the plane actually moved, so the check cannot
+    pass on an inert field; the restart gate reproduces the uninterrupted
+    march including `e_v`, bit for bit, at np=1 through np=4. Getting to
+    bitwise parity meant pinning `-ffp-contract=off` on the Fortran
+    build and seeding the closure in a calm regime, both noted on the
+    [[numerics/parallel/mpi|MPI page]], and the committed gate artefact
+    is `cases/mpi-parity/gates.json` with `verify_committed_gate.py`
+    beside it. The third lands all
     new physics (live 2T, species, combustion) MPI-native from day one,
     which pulls the nonequilibrium and species work inside this one.
 

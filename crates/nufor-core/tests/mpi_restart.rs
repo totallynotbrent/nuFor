@@ -26,6 +26,9 @@ use nufor_core::{
     ThermoModel, TurbState,
 };
 
+mod common;
+use common::mpi_report;
+
 /// the capsule-regime seed the eqair closure fits cover.
 const RHO0: f64 = 0.004;
 const U0: f64 = 6960.0;
@@ -209,6 +212,8 @@ fn split_restart_inner() {
     mpi_bcast_field(&mut root_nt).expect("broadcast the reference plane");
     let disagree = max_abs_diff(&root_nt, &half_nt);
     println!("rank {rank}: the turbulence plane differs from rank 0 by {disagree:.3e}",);
+    mpi_report::number("restart_plane_disagreement", disagree);
+    mpi_report::integer("restart_world_size", mpi_report::world_size());
     assert_eq!(
         disagree, 0.0,
         "rank {rank} marches on a different turbulence plane than rank 0"
@@ -236,12 +241,198 @@ fn split_restart_inner() {
         ] {
             let d = max_abs_diff(a, b);
             println!("restart vs continuous: {name} max abs diff {d:.3e}");
+            mpi_report::number(&format!("restart_{}_max_abs_diff", name), d);
             assert!(
                 d <= 0.0,
                 "the resumed march diverged from the continuous one on {name}: {d:.3e}"
             );
         }
+        mpi_report::flush();
         std::fs::remove_dir_all(&dir).ok();
     }
+    mpi_report::fence();
+    mpi_shutdown();
+}
+
+// ---------------------------------------------------------------------------
+// two-temperature restart gate: the e_v aux plane has to travel through the
+// restart file exactly like the sa nu_tilde plane. a march stopped halfway
+// must resume from the file and land bit-identical on the uninterrupted
+// march, plane included.
+//
+
+fn twot_restart_seed(g: &nufor_core::Grid2d) -> (ConservedState2d, Vec<f64>) {
+    // calm uniform seed (bit-exact march territory), blobs at x stations that
+    // straddle a rank seam for every split the gate runs.
+    let (rho0, u0, p0) = (1.0f64, 100.0f64, 1000.0f64);
+    let st = uniform_eqair_state_grid(g, rho0, u0, p0);
+    let n = g.nx * g.ny;
+    let e_base = nufor_core::park2t::e_vib_of_t_v(1500.0);
+    let centres = [13.0f64, 21.0, 32.0, 43.0];
+    let sig = 4.0f64;
+    let mut ev = vec![0.0f64; n];
+    for k in 0..n {
+        let i = (k % g.nx) as f64;
+        let j = (k / g.nx) as f64;
+        let mut amp = 0.0;
+        for c in centres {
+            let d = (i - c) / sig;
+            amp += (-0.5 * d * d).exp();
+        }
+        ev[k] = e_base * amp * (0.6 + 0.4 * ((j / g.ny as f64) * std::f64::consts::TAU).cos());
+    }
+    (st, ev)
+}
+
+fn uniform_eqair_state_grid(
+    g: &nufor_core::Grid2d,
+    rho0: f64,
+    u0: f64,
+    p0: f64,
+) -> ConservedState2d {
+    let n = g.nx * g.ny;
+    let e_int = nufor_core::eqair_energy(&[rho0], &[p0]).unwrap()[0];
+    let et = e_int + 0.5 * u0 * u0;
+    let (mx, my, e) =
+        nufor_core::prim_to_cons2d(&vec![rho0; n], &vec![u0; n], &vec![0.0; n], &vec![et; n])
+            .unwrap();
+    ConservedState2d {
+        rho: vec![rho0; n],
+        mx,
+        my,
+        e,
+    }
+}
+
+/// marches `chunks` chunks of `chunk_len` steps on the 2t lane; every rank
+/// ends each chunk holding the same full-domain state and the same global
+/// e_v plane, the way the cli drives it.
+fn march_2t_chunks(
+    g: &nufor_core::Grid2d,
+    bc: &Boundaries2d,
+    st0: &ConservedState2d,
+    ev0: &[f64],
+    chunk_len: usize,
+    chunks: usize,
+) -> (ConservedState2d, Vec<f64>) {
+    let solid = vec![false; g.nx * g.ny];
+    let mut st = st0.clone();
+    let mut ev = ev0.to_vec();
+    for _ in 0..chunks {
+        let (mr, ev_out) = nufor_core::ffi_mpi::march_2t2d_mpi(
+            &st,
+            &ev,
+            g,
+            ThermoModel::EqAir { r_gas: 287.0 },
+            bc,
+            0.4,
+            1e30,
+            chunk_len,
+            &solid,
+        )
+        .expect("the 2t march");
+        if let Some(s) = mr.state.clone() {
+            st = s;
+        }
+        if let Some(v) = ev_out {
+            ev.copy_from_slice(&v);
+        }
+        mpi_bcast_state(&mut st).expect("broadcast the state");
+    }
+    (st, ev)
+}
+
+#[test]
+#[ignore] // run under mpirun -np N, see the ci parity-smoke step
+fn mpi_split_restart_2t_reproduces_continuous() {
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(split_restart_2t_inner)
+        .expect("spawn mpi test thread")
+        .join()
+        .expect("mpi test thread panicked");
+}
+
+fn split_restart_2t_inner() {
+    use nufor_core::ffi_mpi::{mpi_bcast_field, mpi_rank, mpi_shutdown};
+    let g = grid2d(48, 32, 0.0, 1.0, 0.0, 1.0).unwrap();
+    let bc = Boundaries2d {
+        west: Bc2d::Transmissive,
+        east: Bc2d::Transmissive,
+        south: Bc2d::Transmissive,
+        north: Bc2d::Transmissive,
+    };
+    let (st0, ev0) = twot_restart_seed(&g);
+
+    // uninterrupted: eight chunks of two steps.
+    let (cont_st, cont_ev) = march_2t_chunks(&g, &bc, &st0, &ev0, 2, 8);
+
+    // split: four chunks, a restart file carrying the e_v plane as the aux
+    // plane, then four chunks resumed from that file.
+    let (half_st, half_ev) = march_2t_chunks(&g, &bc, &st0, &ev0, 2, 4);
+
+    let rank = mpi_rank().unwrap_or(0);
+    let dir = std::env::var_os("NUFOUR_MPI_RESTART_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::env::temp_dir().join("nufor_mpi_restart_gate"));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("half2t.rst");
+    if rank == 0 {
+        nufor_core::write_restart2d_aux(
+            &path,
+            &half_st,
+            Restart2dMeta {
+                nx: g.nx,
+                ny: g.ny,
+                gamma: 1.4,
+                time: 0.0,
+                step: 8,
+            },
+            &half_ev,
+        )
+        .expect("write the 2t restart");
+    }
+
+    // the broadcast is collective: it fences rank 0's file write to the
+    // other ranks and re-confirms every rank holds the same plane.
+    let mut root_ev = half_ev.clone();
+    mpi_bcast_field(&mut root_ev).expect("broadcast the reference plane");
+    let disagree = max_abs_diff(&root_ev, &half_ev);
+    mpi_report::number("restart2t_plane_disagreement", disagree);
+    mpi_report::integer("restart2t_world_size", mpi_report::world_size());
+    assert_eq!(
+        disagree, 0.0,
+        "rank {rank} marched on a different e_v plane than rank 0"
+    );
+
+    let rd = nufor_core::read_restart2d(&path).expect("read the 2t restart");
+    assert_eq!(rd.nx, g.nx);
+    assert_eq!(rd.ny, g.ny);
+    assert_eq!(rd.step, 8);
+    let resumed_ev = rd.aux.expect("the restart carries the e_v plane");
+    assert_eq!(resumed_ev, half_ev, "the e_v plane came back altered");
+
+    let (res_st, res_ev) = march_2t_chunks(&g, &bc, &rd.state, &resumed_ev, 2, 4);
+
+    if rank == 0 {
+        for (name, a, b) in [
+            ("rho", &cont_st.rho, &res_st.rho),
+            ("mx", &cont_st.mx, &res_st.mx),
+            ("my", &cont_st.my, &res_st.my),
+            ("e", &cont_st.e, &res_st.e),
+            ("e_v", &cont_ev, &res_ev),
+        ] {
+            let d = max_abs_diff(a, b);
+            println!("2t restart vs continuous: {name} max abs diff {d:.3e}");
+            mpi_report::number(&format!("restart2t_{}_max_abs_diff", name), d);
+            assert!(
+                d <= 0.0,
+                "the resumed 2t march diverged from the continuous one on {name}: {d:.3e}"
+            );
+        }
+        mpi_report::flush();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+    mpi_report::fence();
     mpi_shutdown();
 }

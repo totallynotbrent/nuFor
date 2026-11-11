@@ -27,14 +27,19 @@ else()
 endif()
 
 # Debug: strong diagnostics. Release: reproducible optimization (spec 57).
-set(CMAKE_Fortran_FLAGS_DEBUG "-O0 -g -Wall -Wextra -fcheck=all -fbacktrace")
-set(CMAKE_Fortran_FLAGS_RELEASE "-O2 -funroll-loops")
+# -ffp-contract=off in both: the rust lane never fuses a multiply-add, so
+# the fortran lane must not either. the contracted form rounds once more
+# than the unfused pair, which showed up as a handful of last-bit
+# disagreements in the two-temperature plane parity gate.
+set(CMAKE_Fortran_FLAGS_DEBUG "-O0 -g -Wall -Wextra -fcheck=all -fbacktrace -ffp-contract=off")
+set(CMAKE_Fortran_FLAGS_RELEASE "-O2 -funroll-loops -ffp-contract=off")
 
 if(MPI_Fortran_FOUND)
   add_library(nuforkernels STATIC
     api/nuforkernels.f90
     api/nufor_mpi.f90
     api/nuforsolver2d.f90
+    api/nufor2t.f90
     api/nuforbridge.f90
   )
   target_link_libraries(nuforkernels PUBLIC MPI::MPI_Fortran)
@@ -47,6 +52,7 @@ else()
     api/nuforkernels.f90
     api/nufor_mpi.f90
     api/nuforsolver2d.f90
+    api/nufor2t.f90
     api/nuforbridge.f90
   )
   find_path(MPI_MOD_INCLUDE_DIR mpi.mod

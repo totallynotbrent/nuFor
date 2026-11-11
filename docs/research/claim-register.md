@@ -208,6 +208,8 @@ historic constant reservoir runs unchanged.
 | worst composition-sum drift after threaded pass | 1.11e-16 | same | gated |
 | slabs | 4 on 4 threads, contiguous partition | same | gated |
 | mpi slab layout carve/assemble | round trips a row-major field identically across uneven rank splits, and the 4-field interleaved pack used by the broadcast unpacks losslessly | `partition` core tests | gated |
+| mpi 2t plane parity vs serial rust substep | 0 differing bits of 4096 at np=1 through np=5, conserved planes also zero | `cases/mpi-parity/gates.json` | gated |
+| mpi 2t split restart reproduces uninterrupted march | all five planes bit-identical at np=1 through np=4 | same | gated |
 
 Valid because per-cell chemistry depends only on the cell's own state;
 each thread advances a disjoint slab and the union equals the serial run.

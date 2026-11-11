@@ -13,6 +13,9 @@ use nufor_core::{
     Boundaries2d, ConservedState2d, ThermoModel,
 };
 
+mod common;
+use common::mpi_report;
+
 fn uniform_eqair_state(g: &nufor_core::Grid2d, rho: f64, u: f64, p: f64) -> ConservedState2d {
     // mirror the cli's ic2d_from_case_model uniform path: closure-inverted
     // internal energy plus kinetic, conserved via prim_to_cons2d.
@@ -123,7 +126,14 @@ fn mpi_np1_matches_rust_sod2d_inner() {
     println!("fortran dt last: {:.6e}", r.dt_last);
     let st_mpi = match r.state {
         Some(s) => s,
-        None => return,
+        None => {
+            // a rank holding no gathered state still has to reach the
+            // collective finalize, or the launcher tears the job down
+            // while rank 0 is still walking its report to disk.
+            mpi_report::fence();
+            nufor_core::ffi_mpi::mpi_shutdown();
+            return;
+        }
     };
     // within-fortran bit-identity gate support: dump rho when asked so a
     // shell harness can cmp np=1 vs np=8 runs byte-for-byte.
@@ -167,6 +177,13 @@ fn mpi_np1_matches_rust_sod2d_inner() {
         worst_k % g.nx,
         worst_k / g.nx
     );
+    mpi_report::number("euler_worst_rel_diff", worst);
+    mpi_report::integer("euler_worst_cell_i", (worst_k % g.nx) as i64);
+    mpi_report::integer("euler_worst_cell_j", (worst_k / g.nx) as i64);
+    mpi_report::number("euler_dt_last_serial", dt_ref_last);
+    mpi_report::number("euler_dt_last_mpi", r.dt_last);
+    mpi_report::flush();
+    mpi_report::fence();
     assert!(
         worst == 0.0,
         "the np=1 mpi march must reproduce the serial march exactly: {worst:.3e}"
@@ -253,7 +270,14 @@ fn mpi_np1_matches_rust_uniform_eqair_inner() {
         println!("fortran dt last: {:.6e}", r.dt_last);
         let st = match r.state {
             Some(s) => s,
-            None => return,
+            None => {
+                // this rank has no gathered state, but it still has to
+                // reach the fence or the launcher tears the job down
+                // while rank 0 walks its report to disk.
+                mpi_report::fence();
+                nufor_core::ffi_mpi::mpi_shutdown();
+                return;
+            }
         };
         (st, r.dt_last, r.steps)
     };
@@ -288,6 +312,11 @@ fn mpi_np1_matches_rust_uniform_eqair_inner() {
         worst_k % g.nx,
         worst_k / g.nx
     );
+    mpi_report::number("uniform_worst_rel_diff", worst);
+    mpi_report::integer("uniform_worst_cell_i", (worst_k % g.nx) as i64);
+    mpi_report::integer("uniform_worst_cell_j", (worst_k / g.nx) as i64);
+    mpi_report::flush();
+    mpi_report::fence();
     assert!(
         worst == 0.0,
         "the np=1 mpi march must reproduce the serial march exactly: {worst:.3e}"
@@ -386,7 +415,14 @@ fn mpi_np1_visc_matches_rust_inner() {
     println!("fortran visc dt last: {:.6e}", r.dt_last);
     let st_mpi = match r.state {
         Some(s) => s,
-        None => return,
+        None => {
+            // a rank holding no gathered state still has to reach the
+            // collective finalize, or the launcher tears the job down
+            // while rank 0 is still walking its report to disk.
+            mpi_report::fence();
+            nufor_core::ffi_mpi::mpi_shutdown();
+            return;
+        }
     };
     let mut worst: f64 = 0.0;
     let mut worst_k: usize = 0;
@@ -402,6 +438,11 @@ fn mpi_np1_visc_matches_rust_inner() {
         worst_k % g.nx,
         worst_k / g.nx
     );
+    mpi_report::number("viscous_worst_rel_diff", worst);
+    mpi_report::integer("viscous_worst_cell_i", (worst_k % g.nx) as i64);
+    mpi_report::integer("viscous_worst_cell_j", (worst_k / g.nx) as i64);
+    mpi_report::flush();
+    mpi_report::fence();
     assert!(worst < 1e-6, "viscous mpi-vs-rust drift {worst:.3e}");
     nufor_core::ffi_mpi::mpi_shutdown();
 }
@@ -551,18 +592,49 @@ fn mpi_np1_matches_rust_capsule_inner() {
     let n = g.nx * g.ny;
     let mut worst: f64 = 0.0;
     let mut worst_k: usize = 0;
+    // per-column profile: which columns carry the disagreement, so a
+    // seam-local fault and a global one look different.
+    let mut col_profile = vec![0.0f64; g.nx];
     for k in 0..n {
         let d = (st.rho[k] - st_ref.rho[k]).abs() / st_ref.rho[k].abs().max(1e-30);
+        let i_col = k % g.nx;
+        if d > col_profile[i_col] {
+            col_profile[i_col] = d;
+        }
         if d > worst {
             worst = d;
             worst_k = k;
         }
+    }
+    let hot_cols: Vec<usize> = col_profile
+        .iter()
+        .enumerate()
+        .filter(|(_, v)| **v > 1.0e-9)
+        .map(|(i, _)| i)
+        .collect();
+    mpi_report::integer("body_columns_above_1e9", hot_cols.len() as i64);
+    if let (Some(first), Some(last)) = (hot_cols.first(), hot_cols.last()) {
+        mpi_report::integer("body_first_hot_column", *first as i64);
+        mpi_report::integer("body_last_hot_column", *last as i64);
+        mpi_report::text("body_hot_columns", &hot_cols.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(","));
+    }
+    if let Ok(path) = std::env::var("NF_CAPSULE_COLUMNS") {
+        let mut csv = String::from("column,max_rel_diff\n");
+        for (i, v) in col_profile.iter().enumerate() {
+            csv.push_str(&format!("{i},{v:e}\n"));
+        }
+        std::fs::write(path, csv).ok();
     }
     println!(
         "capsule mpi-vs-rust worst rel diff (rho): {worst:.3e} at cell i={} j={}",
         worst_k % g.nx,
         worst_k / g.nx
     );
+    mpi_report::number("body_worst_rel_diff", worst);
+    mpi_report::integer("body_worst_cell_i", (worst_k % g.nx) as i64);
+    mpi_report::integer("body_worst_cell_j", (worst_k / g.nx) as i64);
+    mpi_report::flush();
+    mpi_report::fence();
     assert!(
         worst < 1e-6,
         "capsule body parity broken: worst rel diff {worst:.3e} at cell {}",
@@ -691,11 +763,25 @@ fn mpi_np1_sa_matches_rust_inner() {
     println!("fortran sa dt last: {:.6e}", r.dt_last);
     let st_mpi = match r.state {
         Some(s) => s,
-        None => return,
+        None => {
+            // a rank holding no gathered state still has to reach the
+            // collective finalize, or the launcher tears the job down
+            // while rank 0 is still walking its report to disk.
+            mpi_report::fence();
+            nufor_core::ffi_mpi::mpi_shutdown();
+            return;
+        }
     };
     let nt_mpi = match nt_out {
         Some(v) => v,
-        None => return,
+        None => {
+            // this rank has no gathered plane, but it still has to reach
+            // the fence or the launcher tears the job down while rank 0
+            // walks its report to disk.
+            mpi_report::fence();
+            nufor_core::ffi_mpi::mpi_shutdown();
+            return;
+        }
     };
     // per-component field-scale denominators: a per-cell ratio blows up on
     // dust values (my at the wall row sits ~1e-9 against a 1e-2 field scale)
@@ -753,6 +839,12 @@ fn mpi_np1_sa_matches_rust_inner() {
         worst_k % g.nx,
         worst_k / g.nx
     );
+    mpi_report::number("sa_worst_rel_diff", worst);
+    mpi_report::text("sa_worst_field", &worst_field);
+    mpi_report::integer("sa_worst_cell_i", (worst_k % g.nx) as i64);
+    mpi_report::integer("sa_worst_cell_j", (worst_k / g.nx) as i64);
+    mpi_report::flush();
+    mpi_report::fence();
     {
         let fields: [(&str, Vec<f64>, f64); 5] = [
             (
@@ -866,10 +958,25 @@ fn mpi_gather_nf_fields_reassembles_exactly() {
         .collect();
     let gathered = gather_fields_mpi(&slab, nf, nx_l * ny, nx, ny).unwrap();
     if rank == 0 {
+        let mut equal = 0i64;
+        let mut differing = 0i64;
         for f in 0..nf {
             let plane = &gathered[f * n..(f + 1) * n];
+            for (got, want) in plane.iter().zip(full[f].iter()) {
+                if got.to_bits() == want.to_bits() {
+                    equal += 1;
+                } else {
+                    differing += 1;
+                }
+            }
             assert_eq!(plane, &full[f], "gathered field {f} diverged");
         }
+        mpi_report::integer("gather_compared_entries", equal + differing);
+        mpi_report::integer("gather_equal_entries", equal);
+        mpi_report::integer("gather_differing_entries", differing);
+        mpi_report::integer("gather_world_size", num_ranks() as i64);
+        mpi_report::flush();
+        mpi_report::fence();
         // and the same slabs reassemble through the pure-rust path
         let cols = rank_columns(nx, num_ranks());
         let slabs: Vec<Vec<f64>> = (0..num_ranks())
@@ -881,6 +988,222 @@ fn mpi_gather_nf_fields_reassembles_exactly() {
             .collect();
         assert_eq!(assemble_slabs(&slabs, &cols, nx, ny), full[0]);
     }
+    mpi_shutdown();
+}
+
+// the two-temperature gate: the fortran 2t lane (heun march + the nufor2t
+// plane substep, seam halo included) must reproduce the serial rust lane
+// (advance2d_model_rk2 followed by park2t_substep) exactly. the e_v seed is
+// a lopsided blob so donor advection pushes mass across the rank seam, and
+// the wall-adjacent perturbations give the march real gradients.
+#[test]
+#[ignore] // run under mpirun -np N, see the ci parity-smoke step
+fn mpi_np1_2t_matches_rust() {
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(mpi_np1_2t_matches_rust_inner)
+        .expect("spawn mpi test thread")
+        .join()
+        .expect("mpi test thread panicked");
+}
+
+fn twot_seed(g: &nufor_core::Grid2d) -> (ConservedState2d, Vec<f64>) {
+    // the calm seed the exact-zero euler lanes march on: uniform flow keeps
+    // the conserved-state comparison bit-exact, while the lopsided e_v blob
+    // below makes the donor advection nonzero so the plane transport is what
+    // the gate measures.
+    let (rho0, u0, p0) = (1.0f64, 100.0f64, 1000.0f64);
+    let st = uniform_eqair_state(g, rho0, u0, p0);
+    let n = g.nx * g.ny;
+    // vibrational seed: gaussian blobs at several x stations, placed so a
+    // blob straddles a rank seam for every split factor the gate runs
+    // (np2 cuts at 32, np3 near 21/43, np4 at 16, np5 near 13/26/39/51).
+    // each blob is modulated along y so the donor stencil is exercised in
+    // both directions.
+    let t_v0 = 1500.0f64;
+    let e_base = nufor_core::park2t::e_vib_of_t_v(t_v0);
+    let centres = [13.0f64, 21.0, 32.0, 43.0, 51.0];
+    let sig = 4.0f64;
+    let mut ev = vec![0.0f64; n];
+    for k in 0..n {
+        let i = (k % g.nx) as f64;
+        let j = (k / g.nx) as f64;
+        let mut amp = 0.0;
+        for c in centres {
+            let d = (i - c) / sig;
+            amp += (-0.5 * d * d).exp();
+        }
+        ev[k] = e_base * amp * (0.6 + 0.4 * ((j / g.ny as f64) * std::f64::consts::TAU).cos());
+    }
+    (st, ev)
+}
+
+fn mpi_np1_2t_matches_rust_inner() {
+    use nufor_core::ffi_mpi::{march_2t2d_mpi, mpi_shutdown};
+    use nufor_core::park2t::{self, Park2tState};
+    let g = grid2d(64, 64, 0.0, 1.0, 0.0, 1.0).unwrap();
+    let bc = Boundaries2d {
+        west: Bc2d::Transmissive,
+        east: Bc2d::Transmissive,
+        south: Bc2d::Transmissive,
+        north: Bc2d::Transmissive,
+    };
+    let nsteps: usize = std::env::var("NF_MPI_STEPS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(6);
+    let n = g.nx * g.ny;
+    let solid = vec![false; n];
+    let (st0, ev0) = twot_seed(&g);
+
+    // rust reference: rk2 march, then the serial 2t substep on the
+    // post-march state with the march's dt, per step.
+    let mut st_ref = st0.clone();
+    let mut park = Park2tState { e_v: ev0.clone() };
+    let mut dt_ref_last = 0.0;
+    for step_i in 0..nsteps {
+        let (dt, _) = advance2d_model_rk2(
+            &mut st_ref,
+            &g,
+            ThermoModel::EqAir { r_gas: 287.0 },
+            0.4,
+            true,
+            &bc,
+            1,
+            None,
+        )
+        .unwrap_or_else(|e| panic!("rk2 reference step {step_i} failed: {:?}", e));
+        dt_ref_last = dt;
+        park2t::park2t_substep(&mut st_ref, &mut park, &g, 1.4, dt, &solid, false)
+            .unwrap_or_else(|e| panic!("park2t_substep step {step_i} failed: {:?}", e));
+    }
+
+    // fortran mpi lane: same seed, one call for all steps.
+    let (r, ev_out) = march_2t2d_mpi(
+        &st0,
+        &ev0,
+        &g,
+        ThermoModel::EqAir { r_gas: 287.0 },
+        &bc,
+        0.4,
+        1e30,
+        nsteps,
+        &solid,
+    )
+    .unwrap();
+    let ev_mpi = ev_out.expect("the 2t lane returns the plane on every rank");
+    let st_mpi = match r.state {
+        Some(s) => s,
+        None => {
+            mpi_report::fence();
+            mpi_shutdown();
+            return;
+        }
+    };
+    // conserved planes must match the rust march bit for bit (the 2t lane
+    // never writes them, same guarantee as the euler lane). counted per
+    // field with to_bits so a near-zero momentum cell cannot fake a large
+    // relative diff.
+    let mut state_worst: f64 = 0.0;
+    let mut state_differing = [0i64; 4];
+    let fields: [(&str, &Vec<f64>, &Vec<f64>); 4] = [
+        ("rho", &st_mpi.rho, &st_ref.rho),
+        ("mx", &st_mpi.mx, &st_ref.mx),
+        ("my", &st_mpi.my, &st_ref.my),
+        ("e", &st_mpi.e, &st_ref.e),
+    ];
+    for fidx in 0..4 {
+        let (_, fa, fb) = &fields[fidx];
+        for k in 0..n {
+            let (a, b) = (fa[k], fb[k]);
+            if a.to_bits() != b.to_bits() {
+                state_differing[fidx] += 1;
+                if fidx == 0 {
+                    let d = (a - b).abs() / b.abs().max(1e-30);
+                    if d > state_worst {
+                        state_worst = d;
+                    }
+                }
+            }
+        }
+    }
+    println!(
+        "2t state differing bits: rho {} mx {} my {} e {} of {n}",
+        state_differing[0], state_differing[1], state_differing[2], state_differing[3]
+    );
+    // the plane: worst relative and absolute disagreement against the
+    // serial substep.
+    let mut worst_rel: f64 = 0.0;
+    let mut worst_abs: f64 = 0.0;
+    let mut worst_k = 0usize;
+    let mut differing = 0i64;
+    for k in 0..n {
+        let a = ev_mpi[k];
+        let b = park.e_v[k];
+        let ad = (a - b).abs();
+        let rd = ad / b.abs().max(1e-30);
+        if a.to_bits() != b.to_bits() {
+            differing += 1;
+        }
+        if rd > worst_rel {
+            worst_rel = rd;
+            worst_abs = ad;
+            worst_k = k;
+        }
+    }
+    println!(
+        "2t plane worst rel diff {worst_rel:.3e} (abs {worst_abs:.3e}) at cell i={} j={}; differing bits {differing}/{n}",
+        worst_k % g.nx,
+        worst_k / g.nx
+    );
+    // liveness: the substep has to move the plane, or the parity above
+    // would hold for an inert field. the peak value falls as the vibronic
+    // pool relaxes, so the largest departure from the seed proves the
+    // donor advection and the landau-teller sink both ran.
+    let mut liveness: f64 = 0.0;
+    for k in 0..n {
+        let d = (ev_mpi[k] - ev0[k]).abs();
+        if d > liveness {
+            liveness = d;
+        }
+    }
+    let seed_peak = ev0.iter().fold(0.0f64, |a, b| a.max(*b));
+    let mpi_peak = ev_mpi.iter().fold(0.0f64, |a, b| a.max(*b));
+    let ref_peak = park.e_v.iter().fold(0.0f64, |a, b| a.max(*b));
+    println!(
+        "2t plane liveness: peak change {liveness:.3e} on a seed peak of {seed_peak:.3e} (final mpi peak {mpi_peak:.3e}, serial peak {ref_peak:.3e})"
+    );
+    mpi_report::number("twot_worst_rel_diff", worst_rel);
+    mpi_report::number("twot_worst_abs_diff", worst_abs);
+    mpi_report::number("twot_state_worst_rel_diff", state_worst);
+    mpi_report::integer("twot_state_differing_rho", state_differing[0]);
+    mpi_report::integer("twot_state_differing_mx", state_differing[1]);
+    mpi_report::integer("twot_state_differing_my", state_differing[2]);
+    mpi_report::integer("twot_state_differing_e", state_differing[3]);
+    mpi_report::integer("twot_differing_entries", differing);
+    mpi_report::integer("twot_compared_entries", n as i64);
+    mpi_report::number("twot_plane_liveness", liveness);
+    mpi_report::number("twot_seed_peak", seed_peak);
+    mpi_report::integer("twot_world_size", mpi_report::world_size());
+    mpi_report::number("twot_dt_last_serial", dt_ref_last);
+    mpi_report::number("twot_dt_last_mpi", r.dt_last);
+    mpi_report::flush();
+    mpi_report::fence();
+    assert_eq!(
+        state_differing.iter().sum::<i64>(),
+        0,
+        "the 2t lane disturbed the conserved march: {:?}",
+        state_differing
+    );
+    assert_eq!(
+        differing, 0,
+        "the mpi 2t plane must match the serial substep bit for bit: {worst_rel:.3e}"
+    );
+    assert!(
+        liveness > 1.0e-9 * seed_peak.max(1.0),
+        "the 2t lane did not move the plane (peak change {liveness:.3e}), so the \
+         parity above would hold for an inert field"
+    );
     mpi_shutdown();
 }
 

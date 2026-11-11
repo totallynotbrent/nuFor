@@ -152,6 +152,10 @@ jobs:
           # the sa gate asserts its own tolerance inside the test
           check 1 mpi_np1_sa_matches_rust
           check 2 mpi_np1_sa_matches_rust
+          # the two-temperature gate holds exact-zero parity on the e_v
+          # plane and on the conserved march (it asserts both in the test)
+          check 1 mpi_np1_2t_matches_rust
+          check 2 mpi_np1_2t_matches_rust
           # the capsule body gate asserts its own 1e-6 tolerance inside
           # the test (roundoff at the wall faces is not exact zero)
           capok=0
@@ -172,18 +176,20 @@ jobs:
           bin=$(ls -t target/debug/deps/mpi_restart-* | grep -v '\.d$' | head -1)
           export NUFOUR_MPI_RESTART_DIR="$RUNNER_TEMP/nufor_mpi_restart_gate"
           mkdir -p "$NUFOUR_MPI_RESTART_DIR"
+          for test in mpi_split_restart_reproduces_continuous mpi_split_restart_2t_reproduces_continuous; do
           for np in 1 2 3; do
             log=""
             ok=0
             for attempt in 1 2 3; do
-              log=$(mpirun --allow-run-as-root --oversubscribe -np "$np" "$bin" --exact mpi_split_restart_reproduces_continuous --nocapture --ignored 2>&1) || true
+              log=$(mpirun --allow-run-as-root --oversubscribe -np "$np" "$bin" --exact "$test" --nocapture --ignored 2>&1) || true
               echo "$log"
               ok=$(echo "$log" | grep -c '1 passed; 0 failed')
               if [ "$ok" -ge 1 ]; then break; fi
               echo "attempt $attempt for np=$np lost the harness output, retrying"
             done
             if [ "$ok" -lt 1 ]; then
-              echo "::error::np=$np distributed restart gate failed (ok=$ok)"
+              echo "::error::np=$np $test failed (ok=$ok)"
               exit 1
             fi
+          done
           done

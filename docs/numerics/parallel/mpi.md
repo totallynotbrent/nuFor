@@ -99,8 +99,41 @@ to the serial Rust march:
   absolute difference is 7.3e-11 on the energy
 - a capsule body at 22.5 degrees angle of attack, worst relative difference
   3.8e-15 (roundoff; the wall faces churn every step)
+- a two-temperature field, exact-zero parity
 
-Each runs at np=1 and np=2 in CI. np=1 is the anchor: it runs the same MPI
+The two-temperature lane is the strictest of the set. It marches the
+equilibrium-air field through the Fortran core, then evolves the
+vibrational-energy plane `e_v` with its own substep, and compares that
+plane against the serial Rust substep bit for bit. Bitwise equality is the
+bar because both sides run the same scalar expressions on the same values;
+anything less than bitwise would hide a rearrangement in the donor
+stencil. The seed carries five gaussian bumps positioned so that they
+straddle every rank seam in the np=1 through np=5 decompositions, so the
+halo exchange has to be right for the comparison to hold. The march itself
+has to leave the four conserved planes untouched, which the lane asserts
+separately, and the plane has to actually move during the substep, which
+rules out a parity check passing on an inert field.
+
+Getting to bitwise parity took two fixes worth recording. The Fortran
+kernel and the Rust twin disagreed in the last bits on 78 of 4096 cells
+because the Fortran build fused multiply-add contractions the Rust build
+did not, so `-ffp-contract=off` is pinned in both the debug and the release
+flags. That cut the mismatches to 21 cells, and the rest came from the
+seed sitting in a regime where the equilibrium-air closure fit is sensitive
+enough for the two implementations to round apart; a calmer seed makes the
+closure agree exactly while leaving the plane transport fully exercised.
+
+The parity matrix runs at np=1 through np=5, five counts, and the fifth
+is chosen because at that count the outermost rank owns no body cell. The
+collected gate artefact lives in `cases/mpi-parity/gates.json`, and
+`cases/mpi-parity/verify_committed_gate.py` re-judges it without spending
+nine minutes of MPI time; pass `--rerun` to regenerate it from the built
+binaries and compare every number.
+
+Each lane runs at np=1 and np=2 in CI, with the two-temperature lane and
+the body lane entered twice, because the launcher can lose the race
+between the MPI teardown and the test harness exit while the test itself
+still passed. np=1 is the anchor: it runs the same MPI
 code path with a single rank and must reproduce the serial result exactly, so
 any divergence between the two implementations surfaces before multi-rank
 effects can muddy the cause. Setting `NF_GATE_NOPERT=1` on the SA gate runs
@@ -168,3 +201,11 @@ recorded at the rank seam describes a march that never ran.
 The distributed restart gate runs the march in chunks, interrupts it at the
 split point, resumes from the file, and compares against the uninterrupted
 run. It holds every plane to exact equality at np=1, np=2, and np=3.
+
+The two-temperature plane rides the same machinery. The restart writer
+already knew how to carry an extra plane alongside the conserved state, so
+`e_v` travels as that plane and comes back identical: the resumed run
+reproduces the uninterrupted one on all four conserved planes and on the
+vibrational plane, bit for bit, at np=1 through np=4. The generic nature
+of the extra-plane path is why this costs no format change; a future
+species-transport plane would travel the same way.
