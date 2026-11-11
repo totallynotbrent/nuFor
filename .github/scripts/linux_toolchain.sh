@@ -25,24 +25,33 @@ if [ "${#packages[@]}" -eq 0 ]; then
   exit 2
 fi
 
-# the tools a job actually runs, each paired with the cheapest proof that
-# it is present and usable rather than merely unpacked.
-TOOLS=(
-  "gfortran:gfortran --version"
-  "cmake:cmake --version"
-  "numpy:numpy_check"
-  "hdf5:h5cc -showconfig"
-)
-OPENMPI_PACKAGES="libopenmpi-dev openmpi-bin"
-
-wants_openmpi=0
-for pkg in "${packages[@]}"; do
-  for omp in $OPENMPI_PACKAGES; do
-    [ "$pkg" = "$omp" ] && wants_openmpi=1
+# the tools a job actually runs, derived from the requested packages so a
+# job that does not ask for numpy is not held hostage by it. each tool is
+# paired with the cheapest proof that it is present and usable rather
+# than merely unpacked.
+TOOLS=()
+want_tool() {
+  local want="$1" entry
+  for entry in "${TOOLS[@]}"; do
+    [ "${entry%%:*}" = "$want" ] && return 0
   done
+  return 1
+}
+add_tool() {
+  want_tool "$1" || TOOLS+=("$1:$2")
+}
+for pkg in "${packages[@]}"; do
+  case "$pkg" in
+    gfortran)         add_tool "gfortran" "gfortran --version" ;;
+    cmake)            add_tool "cmake" "cmake --version" ;;
+    libhdf5-dev)      add_tool "hdf5" "h5cc -showconfig" ;;
+    python3-numpy)    add_tool "numpy" "numpy_check" ;;
+    libopenmpi-dev|openmpi-bin) add_tool "mpirun" "mpirun --version"; add_tool "mpicc" "mpicc --version" ;;
+  esac
 done
-if [ "$wants_openmpi" -eq 1 ]; then
-  TOOLS+=("mpirun:mpirun --version" "mpicc:mpicc --version")
+if [ "${#TOOLS[@]}" -eq 0 ]; then
+  echo "none of the packages map to a known tool check" >&2
+  exit 2
 fi
 
 runs() {
