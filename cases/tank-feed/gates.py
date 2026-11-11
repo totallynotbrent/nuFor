@@ -200,6 +200,21 @@ def main():
         if not ok:
             failures.append(label)
 
+    def check_zero(label, got):
+        """a quantity that must vanish exactly."""
+        ok = got == 0.0
+        print("%s %s: %.3e" % ("PASS" if ok else "FAIL", label, got))
+        if not ok:
+            failures.append(label)
+
+    # the replay starts from the declared tank state, so the seed row has to
+    # agree with it. without this a damaged first row passes unnoticed.
+    seed = rows[0]
+    check("the record starts from the declared tank pressure", seed["p_tank"], spec["p0"], 1e-12)
+    check("the record starts from the declared tank density", seed["rho_tank"], spec["rho0"], 1e-12)
+    check_zero("the record starts with no mass drawn", seed["drawn"])
+    check_zero("the record starts at the beginning of the run", seed["time"])
+
     check_bound("the achieved flux matches the governing regime", rep["worst_flux_rel"], 1e-12)
     check_bound("the recorded tank pressure matches the replay", rep["worst_p_rel"], 1e-12)
     check_bound("the recorded tank density matches the replay", rep["worst_rho_rel"], 1e-12)

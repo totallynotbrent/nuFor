@@ -1,11 +1,15 @@
 # the aeroshell station gates: per station, the freestream-relative density
 # ratio, the peak pressure, the peak temperature and the lift-to-drag read
 # off the marched field next to each case file, then compared against the
-# reference values in gates.json with a percentage tolerance.
+# reference values in reference.json with a percentage tolerance.
 #
 # run from the case directory:
 #   nufor run case.toml            # writes the vtk and the run log
 #   python3 gates.py               # writes gates.json
+#
+# gates.json is the committed record of the sweep. it is only rewritten
+# when every station marched, so a run that finds some fields missing
+# leaves the committed record intact instead of truncating it.
 #
 # every number comes from the marched field and the case's own initial
 # condition. nothing is hardcoded and nothing is read from outside the
@@ -142,6 +146,7 @@ def within(value, reference, pct):
 def main():
     results = []
     failures = []
+    missing_field = False
     for tag, dirname in STATIONS:
         # the station configurations and their marched fields live in the
         # sibling case directories; this gate only holds the thresholds.
@@ -151,6 +156,7 @@ def main():
         if not os.path.exists(vtk):
             print(f"MISS: no marched field for {dirname} (run the case)")
             failures.append(f"{dirname}: missing marched field")
+            missing_field = True
             continue
         got = measure(vtk, case)
         got.update(read_log(os.path.join(cdir, "run-log.txt")))
@@ -195,9 +201,15 @@ def main():
             f"{entry.get('wall_flux_mwm2', 0.0):.4f} MW/m^2"
         )
 
-    with open(os.path.join(HERE, "gates.json"), "w") as fh:
-        json.dump(results, fh, indent=1)
-        fh.write("\n")
+    # the committed record describes the full sweep. rewriting it from a
+    # partial run would drop the stations that did not march, so only a
+    # complete sweep updates it.
+    if not missing_field:
+        with open(os.path.join(HERE, "gates.json"), "w") as fh:
+            json.dump(results, fh, indent=1)
+            fh.write("\n")
+    else:
+        print("some stations did not march: the committed gates.json is left as it is")
 
     if failures:
         print("")

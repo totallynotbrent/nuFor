@@ -111,6 +111,8 @@ It compares the replay against the solver's own record row by row:
 - the recorded tank pressure and density match the replay on every row;
 - the drawn mass equals the tank's own level drop;
 - the polytropic invariant holds along the record;
+- the record starts from the declared tank state, with no mass drawn,
+  so a damaged first row cannot pass unnoticed;
 - the reservoir actually drained.
 
 The gate reads the committed record in `cases/tank-feed/record/`, so it
