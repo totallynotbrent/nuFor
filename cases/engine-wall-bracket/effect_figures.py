@@ -83,7 +83,7 @@ def frame(ax, title, xlabel, ylabel):
 def gather(runs_dir):
     """the gate's own measurement of every leg."""
     rows = []
-    for tag, wall_kind in gates.BRACKET:
+    for tag, wall_kind in gates.bracket.BRACKET:
         info = gates.measure_one_leg(tag, runs_dir)
         info["specified_wall_k"] = wall_kind
         info["progress_path"] = os.path.join(runs_dir, tag, "progress.json")
@@ -166,7 +166,7 @@ def effect_figure(rows, result, out_dir):
             list(by_field["mass_flow"][cls.REFERENCE_TAG].values()))
         reference_t0 = statistics.fmean(
             list(by_field["chamber_t0"][cls.REFERENCE_TAG].values()))
-        scale = gates.predict_duty_temperature_drop(
+        scale = gates.bracket.predict_duty_temperature_drop(
             {"mass_flow": reference_mass_flow, "chamber_t0": reference_t0},
             leg.get("duty_mw"))
         near = paired_stats(dep[tag]["near_wall_t"], window_set)
@@ -287,8 +287,8 @@ def effect_figure(rows, result, out_dir):
 
 def mode_figure(rows, out_dir):
     """the chamber's ring, and why it cannot be removed."""
-    mode = gates.measure_shared_mode(rows, "mass_flow")
-    series, _steps = gates.collect_mode_series(rows, "mass_flow")
+    mode = gates.bracket.measure_shared_mode(rows, "mass_flow")
+    series, _steps = gates.bracket.collect_mode_series(rows, "mass_flow")
 
     fig, axes = figure(nrows=1, ncols=2, figsize=(9.4, 4.0))
     fig.suptitle("the chamber's common mode: frequent, coherent, and not removable")

@@ -9,7 +9,6 @@
 //! rather than fall back to a perfect gas.
 
 use crate::axi::compute_axi_fluxes;
-use crate::combustion as comb;
 use crate::combustion_closure as closure9;
 use crate::combustion_thermo as ct;
 use crate::error::Error;
@@ -20,39 +19,73 @@ use crate::state2d::cons_to_prim2d;
 use crate::state2d::ConservedState2d;
 use crate::thermo::ThermoModel;
 
-/// per-cell 9-species mass fractions, `y[s][k]`.
+/// per-cell species mass fractions, `y[s][k]`, one row per species.
+///
+/// the row count follows the mechanism the case selects, so the chamber
+/// carries a nine-species hydrogen field and a fifty-three-species
+/// methane field through the same code.
 #[derive(Clone, Debug)]
 pub struct CombustionState {
     pub y: Vec<Vec<f64>>,
+    /// the mechanism the field carries; it fixes the row count and the
+    /// mixture closure the consumers read.
+    pub lane: crate::chem_lane::ChemLane,
     /// the composition the case injects: what an inflow face's
     /// species ghost carries. stored at construction so a burned
     /// edge cell never feeds itself back through the inflow.
-    pub fill: [f64; ct::NS],
+    pub fill: Vec<f64>,
 }
 
 impl CombustionState {
-    /// uniform composition; `fractions` must sum to 1.
-    pub fn uniform(n: usize, fractions: &[f64; ct::NS]) -> Self {
+    /// uniform composition; the fractions are taken at the lane's own
+    /// width (shorter fills pad with zeros, longer ones trim).
+    pub fn uniform(lane: crate::chem_lane::ChemLane, n: usize, fractions: &[f64]) -> Self {
+        let ns = lane.n_species();
+        let norm: Vec<f64> = (0..ns)
+            .map(|i| fractions.get(i).copied().unwrap_or(0.0))
+            .collect();
         CombustionState {
-            y: fractions.iter().map(|f| vec![*f; n]).collect(),
-            fill: *fractions,
+            y: norm.iter().map(|f| vec![*f; n]).collect(),
+            lane,
+            fill: norm,
         }
     }
 
     /// the state whose field and injection composition are the given
     /// mass fractions: the chamber case injects the burned gas, the
-    /// premix case the unburned one.
-    pub fn with_fill(n: usize, fill: &[f64; ct::NS]) -> Self {
-        CombustionState::uniform(n, fill)
+    /// premix case the unburned one. `fill` is normalized to the
+    /// lane's own width, so a hand-built case array cannot overrun
+    /// the field's rows.
+    pub fn with_fill(lane: crate::chem_lane::ChemLane, n: usize, fill: &[f64]) -> Self {
+        CombustionState::uniform(lane, n, fill)
     }
 
     /// stoichiometric unburned h2/o2: 1 mol H2 + 0.5 mol O2, mass
     /// fractions 2.016/18.016 and 16.0/18.016.
     pub fn stoich_h2o2(n: usize) -> Self {
-        let mut y = [0.0f64; ct::NS];
-        y[ct::IH2] = 2.016 / 18.016;
-        y[ct::IO2] = 16.0 / 18.016;
-        CombustionState::uniform(n, &y)
+        let lane = crate::chem_lane::ChemLane::Li2004;
+        let y = lane.li2004_stoich_premix();
+        CombustionState::uniform(lane, n, &y)
+    }
+
+    /// the number of species the field carries.
+    pub fn n_species(&self) -> usize {
+        self.y.len()
+    }
+
+    /// one cell's composition as a slice, in species order.
+    pub fn cell(&self, k: usize) -> Vec<f64> {
+        self.y.iter().map(|row| row[k]).collect()
+    }
+
+    /// one cell's composition into a caller-owned buffer, so a loop over
+    /// cells pays no allocation per cell.
+    pub fn cell_into(&self, k: usize, out: &mut Vec<f64>) {
+        out.clear();
+        out.reserve(self.y.len());
+        for row in &self.y {
+            out.push(row[k]);
+        }
     }
 
     /// rescale the cell's mass fractions to sum to one without
@@ -62,7 +95,7 @@ impl CombustionState {
     pub fn renorm(&mut self, k: usize) {
         let sum: f64 = self.y.iter().map(|row| row[k]).sum();
         if sum > 0.0 {
-            for i in 0..ct::NS {
+            for i in 0..self.y.len() {
                 self.y[i][k] /= sum;
             }
         }
@@ -72,7 +105,7 @@ impl CombustionState {
     pub fn sanitize(&mut self, k: usize) -> f64 {
         let mut sum = 0.0f64;
         let mut worst = 0.0f64;
-        for i in 0..ct::NS {
+        for i in 0..self.y.len() {
             if self.y[i][k] < 0.0 {
                 worst = worst.max(-self.y[i][k]);
                 self.y[i][k] = 0.0;
@@ -84,7 +117,7 @@ impl CombustionState {
             sum += self.y[i][k];
         }
         if sum > 0.0 {
-            for i in 0..ct::NS {
+            for i in 0..self.y.len() {
                 self.y[i][k] /= sum;
             }
         }
@@ -122,19 +155,17 @@ pub fn advance2d_combustion(
     let (nx, ny) = (g.nx, g.ny);
     let idx = |i: usize, j: usize| j * nx + i;
     let n = nx * ny;
+    let lane = species.lane;
     let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
     let mut e_int = vec![0.0f64; n];
     let mut p = vec![0.0f64; n];
     let mut a = vec![0.0f64; n];
+    let mut y_cell: Vec<f64> = Vec::with_capacity(lane.n_species());
     for k in 0..n {
         e_int[k] = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
-        let mut y_cell = [0.0f64; ct::NS];
-        #[allow(clippy::needless_range_loop)]
-        for s in 0..ct::NS {
-            y_cell[s] = species.y[s][k];
-        }
-        p[k] = closure9::pressure_at(state.rho[k], e_int[k], &y_cell);
-        a[k] = closure9::sound_speed_at(state.rho[k], e_int[k], &y_cell);
+        species.cell_into(k, &mut y_cell);
+        p[k] = lane.pressure_at(state.rho[k], e_int[k], &y_cell);
+        a[k] = lane.sound_speed_at(state.rho[k], e_int[k], &y_cell);
     }
     let mut smax = 0.0f64;
     for k in 0..n {
@@ -147,14 +178,15 @@ pub fn advance2d_combustion(
     // large negative value, so zero is not the floor.
     let mut e_floor = vec![0.0f64; n];
     for (k, floor) in e_floor.iter_mut().enumerate() {
-        let mut y_cell = [0.0f64; ct::NS];
-        for (s, dst) in y_cell.iter_mut().enumerate() {
-            *dst = species.y[s][k];
-        }
-        *floor = closure9::internal_energy_at(200.0, &y_cell);
+        species.cell_into(k, &mut y_cell);
+        *floor = lane.floor_energy_at(&y_cell);
     }
 
-    let model = ThermoModel::Combustion9 { gamma_shaping: 1.2 };
+    // the faces evaluate the mechanism the field carries
+    let model = ThermoModel::Combustion {
+        gamma_shaping: 1.2,
+        lane,
+    };
     let (fx, fy) = compute_axi_fluxes(
         model,
         state,
@@ -264,7 +296,7 @@ pub fn advance2d_combustion_rk2(
         state.my[k] = 0.5 * state.my[k] + 0.5 * s1.my[k];
         state.e[k] = 0.5 * state.e[k] + 0.5 * s1.e[k];
     }
-    for s in 0..ct::NS {
+    for s in 0..species.n_species() {
         for k in 0..n {
             species.y[s][k] = 0.5 * species.y[s][k] + 0.5 * y1.y[s][k];
         }
@@ -276,17 +308,15 @@ pub fn advance2d_combustion_rk2(
     // the same probe the park lane uses; the march itself never
     // advances a third time.
     let (dt, _) = {
+        let lane = species.lane;
         let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
         let n = g.nx * g.ny;
         let mut smax = 0.0f64;
+        let mut y_stage: Vec<f64> = Vec::with_capacity(lane.n_species());
         for k in 0..n {
             let e_int = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
-            let mut y_cell = [0.0f64; ct::NS];
-            #[allow(clippy::needless_range_loop)]
-            for s in 0..ct::NS {
-                y_cell[s] = species.y[s][k];
-            }
-            let a = closure9::sound_speed_at(state.rho[k], e_int, &y_cell);
+            species.cell_into(k, &mut y_stage);
+            let a = lane.sound_speed_at(state.rho[k], e_int, &y_stage);
             smax = smax.max(u[k].abs().max(v[k].abs()) + a);
         }
         (cfl * g.dx.min(g.dy) / smax.max(1e-12), 0.0)
@@ -315,19 +345,17 @@ pub fn advance2d_combustion_axi(
     let (nx, ny) = (g.nx, g.ny);
     let idx = |i: usize, j: usize| j * nx + i;
     let n = nx * ny;
+    let lane = species.lane;
     let (u, v, et) = crate::state2d::cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
     let mut e_int = vec![0.0f64; n];
     let mut p = vec![0.0f64; n];
     let mut a = vec![0.0f64; n];
+    let mut y_cell: Vec<f64> = Vec::with_capacity(lane.n_species());
     for k in 0..n {
         e_int[k] = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
-        let mut y_cell = [0.0f64; ct::NS];
-        #[allow(clippy::needless_range_loop)]
-        for s in 0..ct::NS {
-            y_cell[s] = species.y[s][k];
-        }
-        p[k] = closure9::pressure_at(state.rho[k], e_int[k], &y_cell);
-        a[k] = closure9::sound_speed_at(state.rho[k], e_int[k], &y_cell);
+        species.cell_into(k, &mut y_cell);
+        p[k] = lane.pressure_at(state.rho[k], e_int[k], &y_cell);
+        a[k] = lane.sound_speed_at(state.rho[k], e_int[k], &y_cell);
     }
     let mut smax = 0.0f64;
     for k in 0..n {
@@ -340,13 +368,14 @@ pub fn advance2d_combustion_axi(
     // large negative value, so zero is not the floor.
     let mut e_floor = vec![0.0f64; n];
     for (k, floor) in e_floor.iter_mut().enumerate() {
-        let mut y_cell = [0.0f64; ct::NS];
-        for (s, dst) in y_cell.iter_mut().enumerate() {
-            *dst = species.y[s][k];
-        }
-        *floor = closure9::internal_energy_at(200.0, &y_cell);
+        species.cell_into(k, &mut y_cell);
+        *floor = lane.floor_energy_at(&y_cell);
     }
-    let model = ThermoModel::Combustion9 { gamma_shaping: 1.2 };
+    // the faces evaluate the mechanism the field carries
+    let model = ThermoModel::Combustion {
+        gamma_shaping: 1.2,
+        lane,
+    };
     let (fx, fy) = crate::axi::compute_axi_fluxes(
         model,
         state,
@@ -479,7 +508,7 @@ pub fn advance2d_combustion_axi_rk2(
         state.my[k] = 0.5 * state.my[k] + 0.5 * s1.my[k];
         state.e[k] = 0.5 * state.e[k] + 0.5 * s1.e[k];
     }
-    for s in 0..ct::NS {
+    for s in 0..species.n_species() {
         for k in 0..n {
             species.y[s][k] = 0.5 * species.y[s][k] + 0.5 * y1.y[s][k];
         }
@@ -490,17 +519,15 @@ pub fn advance2d_combustion_axi_rk2(
     // dt for the chemistry substep comes from the post-step state,
     // the same probe the planar lane uses.
     let (dt, _) = {
+        let lane = species.lane;
         let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
         let n = g.nx * g.ny;
         let mut smax = 0.0f64;
+        let mut y_stage: Vec<f64> = Vec::with_capacity(lane.n_species());
         for k in 0..n {
             let e_int = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
-            let mut y_cell = [0.0f64; ct::NS];
-            #[allow(clippy::needless_range_loop)]
-            for s in 0..ct::NS {
-                y_cell[s] = species.y[s][k];
-            }
-            let a = closure9::sound_speed_at(state.rho[k], e_int, &y_cell);
+            species.cell_into(k, &mut y_stage);
+            let a = lane.sound_speed_at(state.rho[k], e_int, &y_stage);
             smax = smax.max(u[k].abs().max(v[k].abs()) + a);
         }
         (cfl * g.dx.min(g.dy) / smax.max(1e-12), 0.0)
@@ -526,38 +553,28 @@ pub fn chemistry_substep9(
 ) -> Result<f64, Error> {
     let n = g.nx * g.ny;
     let (u, v, et) = cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
+    let lane = species.lane;
     let threads = nthr.clamp(1, 8).min(n.div_ceil(24));
-    if threads <= 1 {
-        let mut worst = 0.0f64;
-        for k in 0..n {
-            let e_int = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
-            let mut y = [0.0f64; ct::NS];
-            for (ys, ys_src) in y.iter_mut().zip(species.y.iter()) {
-                *ys = ys_src[k];
-            }
-            worst = worst.max(react_cell(e_int, state.rho[k], &mut y, dt));
-            for (ys_dst, ys) in species.y.iter_mut().zip(y.iter()) {
-                ys_dst[k] = *ys;
-            }
-        }
-        return Ok(worst);
-    }
-    // chunked over cells: each thread owns a disjoint window of every
-    // species row, so the result matches the serial loop exactly.
-    let chunk = n.div_ceil(threads);
-    let bounds: Vec<(usize, usize)> = (0..n)
-        .step_by(chunk)
-        .map(|s| (s, (s + chunk).min(n)))
+
+    // the cells are independent: each one reads its own composition,
+    // density and energy and writes back only its own column. the work
+    // therefore splits into disjoint slabs of cells, and the slab
+    // split changes no number.
+    //
+    // the per-cell step lives in the kernel adapter, which dispatches on
+    // the mechanism: the hydrogen arm keeps the legacy nine-species
+    // arithmetic exactly, the methane arm solves the fifty-three
+    // species implicitly.
+    let e_int: Vec<f64> = (0..n)
+        .map(|k| et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]))
         .collect();
-    let mut worst = 0.0f64;
-    let species = &mut species.y;
-    // one pass per chunk: carve disjoint windows out of every species
-    // row before any thread starts, so no row is borrowed twice.
-    // carve the disjoint windows with ONE pass over the rows: each row
-    // splits successively per chunk, so every window is unique and the
-    // thread bodies never alias.
+
+    // one thread owns a disjoint window of every species row, so the
+    // rows are carved apart before any thread starts and no row is
+    // borrowed twice.
+    let bounds = crate::par_slabs::slab_bounds(n, threads);
     let mut chunk_windows: Vec<Vec<&mut [f64]>> = (0..bounds.len()).map(|_| Vec::new()).collect();
-    for row in species.iter_mut() {
+    for row in species.y.iter_mut() {
         let mut rest: &mut [f64] = row;
         let mut off = 0usize;
         for (ci, (start, end)) in bounds.iter().enumerate() {
@@ -567,40 +584,53 @@ pub fn chemistry_substep9(
             off = *end;
         }
     }
-    std::thread::scope(|sc| {
+
+    let mut worst = 0.0f64;
+    std::thread::scope(|sc| -> Result<(), Error> {
         let mut handles = Vec::new();
         for ((start, end), mut wins) in bounds.iter().zip(chunk_windows) {
-            let et = &et;
-            let u = &u;
-            let v = &v;
+            let e_int = &e_int;
             let rho = &state.rho;
             handles.push(sc.spawn(move || {
                 let mut w = 0.0f64;
+                let mut parcel = vec![0.0f64; lane.n_species()];
                 for k in *start..*end {
-                    let e_int = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
-                    let mut y = [0.0f64; ct::NS];
-                    for (ys, ys_src) in y.iter_mut().zip(wins.iter()) {
-                        *ys = ys_src[k - start];
+                    for (slot, row) in parcel.iter_mut().zip(wins.iter()) {
+                        *slot = row[k - start];
                     }
-                    w = w.max(react_cell(e_int, rho[k], &mut y, dt));
-                    for (ys_dst, ys) in wins.iter_mut().zip(y.iter()) {
-                        ys_dst[k - start] = *ys;
+                    match crate::chem_kernel::advance_cell(lane, e_int[k], rho[k], &mut parcel, dt)
+                    {
+                        Ok(oversub) => {
+                            w = w.max(oversub);
+                            for (row, val) in wins.iter_mut().zip(parcel.iter()) {
+                                row[k - start] = *val;
+                            }
+                        }
+                        Err(err) => return Err(err),
                     }
                 }
-                w
+                Ok::<f64, Error>(w)
             }));
         }
         for h in handles {
-            worst = worst.max(h.join().unwrap());
+            match h.join() {
+                Ok(Ok(w)) => worst = worst.max(w),
+                Ok(Err(err)) => return Err(err),
+                Err(_) => return Err(Error::KernelFailure),
+            }
         }
-    });
+        Ok(())
+    })?;
     Ok(worst)
 }
 
 /// advance one cell's composition over dt at fixed total energy.
 /// returns the chemistry timescale violation, the march's stiffness
 /// report.
+#[cfg(test)]
 fn react_cell(e_int: f64, rho: f64, y: &mut [f64; ct::NS], dt: f64) -> f64 {
+    use crate::combustion as comb;
+    use crate::combustion_closure as closure9;
     let mut worst_oversub = 0.0f64;
     {
         let mut t = closure9::temperature_at(e_int, y);
@@ -668,9 +698,15 @@ pub fn h2o2_ic_energy(rho: f64, p: f64) -> f64 {
 /// from the fill's own mixture gas constant, then the closure energy
 /// at that composition. a burned-injection case (the chamber) needs
 /// the energy of the burned gas, not the premix's.
-pub fn h2o2_ic_energy_at(rho: f64, p: f64, fill: &[f64; ct::NS]) -> f64 {
-    let t = p / (rho * closure9::mix_gas_constant(fill));
-    closure9::internal_energy_at(t, fill)
+pub fn h2o2_ic_energy_at(rho: f64, p: f64, fill: &[f64]) -> f64 {
+    // the hydrogen fill is nine species wide; a narrower or wider
+    // argument is trimmed or padded so the read cannot overrun.
+    let mut y = [0.0f64; ct::NS];
+    for (dst, src) in y.iter_mut().zip(fill.iter()) {
+        *dst = *src;
+    }
+    let t = p / (rho * closure9::mix_gas_constant(&y));
+    closure9::internal_energy_at(t, &y)
 }
 
 /// the closure energy of a uniform fill held at a stated temperature.
@@ -679,14 +715,18 @@ pub fn h2o2_ic_energy_at(rho: f64, p: f64, fill: &[f64; ct::NS]) -> f64 {
 /// 70 bar, where the chain is frozen and nothing burns however long the
 /// march runs. a case that wants the mix to burn states the temperature
 /// it starts at, and the fill's energy follows from it.
-pub fn h2o2_ic_energy_at_temp(fill: &[f64; ct::NS], t_fill: f64) -> f64 {
-    closure9::internal_energy_at(t_fill, fill)
+pub fn h2o2_ic_energy_at_temp(fill: &[f64], t_fill: f64) -> f64 {
+    let mut y = [0.0f64; ct::NS];
+    for (dst, src) in y.iter_mut().zip(fill.iter()) {
+        *dst = *src;
+    }
+    closure9::internal_energy_at(t_fill, &y)
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        advance2d_combustion, advance2d_combustion_axi, advance2d_combustion_rk2, closure9, ct,
+        advance2d_combustion, advance2d_combustion_axi, advance2d_combustion_rk2, ct,
         h2o2_ic_energy, react_cell, Boundaries2d, CombustionState, ConservedState2d,
     };
 
@@ -762,7 +802,10 @@ mod tests {
             south: crate::Bc2d::SlipWall,
             north: crate::Bc2d::SlipWall,
         };
-        let model = crate::ThermoModel::Combustion9 { gamma_shaping: 1.2 };
+        let model = crate::ThermoModel::Combustion {
+            gamma_shaping: 1.2,
+            lane: crate::chem_lane::ChemLane::Li2004,
+        };
         // the ghost takes the chamber's own pressure and temperature:
         // the gas leaving the reservoir has expanded and mixed into the
         // chamber, and it sits at the chamber's state.
@@ -903,7 +946,7 @@ mod tests {
         // hot IC: e_int for 4000 K unburned-like mix
         let y = CombustionState::stoich_h2o2(n).fill;
         let t_hot = 4000.0f64;
-        let e_int = closure9::internal_energy_at(t_hot, &y);
+        let e_int = crate::chem_lane::ChemLane::Li2004.internal_energy_at(t_hot, &y);
         let mut st = ConservedState2d {
             rho: vec![rho; n],
             mx: vec![0.0; n],

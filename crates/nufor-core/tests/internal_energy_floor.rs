@@ -52,8 +52,9 @@ fn the_reacting_lane_floor_is_the_compositions_own_energy() {
         0.00009298,
         0.0,
     ];
-    let model = ThermoModel::Combustion9 {
+    let model = ThermoModel::Combustion {
         gamma_shaping: 1.195,
+        lane: nufor_core::chem_lane::ChemLane::Li2004,
     };
     let floor = internal_energy_floor(model, Some(&fill)).expect("the reacting lane has a floor");
     let want = nufor_core::combustion_closure::internal_energy_at(200.0, &fill);

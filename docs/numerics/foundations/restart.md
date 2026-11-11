@@ -34,6 +34,26 @@ This is the restart analogue of the schema policy: never corrupt a file to
 force a read - reject, report, and migrate only when the change is deliberate
 and documented.
 
+## Auxiliary planes
+
+A lane that carries more than the conserved state writes it alongside them.
+SA RANS stores the turbulence plane as a fifth plane after the four conserved
+arrays. The plane is part of the run's meaning: resuming without it restarts
+the eddy field from its initial value, which is a different march from the one
+being continued.
+
+Files that carry no auxiliary plane still load. The loader accepts both the
+four-plane and the five-plane layout and reports which one it found, so a
+restart written before the auxiliary plane existed keeps working.
+
+## Distributed runs
+
+Under MPI the restart file is written once by rank 0 and read by every rank at
+the start of the resumed run. Both the conserved state and the auxiliary plane
+are broadcast to every rank between chunks, so all ranks march on the same
+numbers. See [[numerics/parallel/mpi|MPI]] for the gate that holds the
+resumed march to the uninterrupted one.
+
 ## See also
 
 - [[numerics/foundations/output|Output]]

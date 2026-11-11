@@ -761,7 +761,7 @@ pub fn add_viscous_cells_mu(
             crate::thermo::ThermoModel::Perfect { .. } => {
                 crate::thermo::temperature(cl, &state.rho, &p)?
             }
-            crate::thermo::ThermoModel::Park5 { .. } | ThermoModel::Combustion9 { .. } => {
+            crate::thermo::ThermoModel::Park5 { .. } | ThermoModel::Combustion { .. } => {
                 // the species lanes are inviscid-cartesian only; every other
                 // lane must reject them loudly.
                 return Err(Error::InvalidArgs);

@@ -209,8 +209,8 @@ quadratic shear, the Fourier conduction at the wall temperature, and
 zero-gradient species (a non-catalytic wall). Two limits are honest
 here: the wall flux sits at the resolution of the first cell, so a
 thermal boundary layer much thinner than the near-wall cell barely
-moves the mean field (the cooled-wall bracket at 70 bar with 5 mm
-cells cools the first cell by degrees per flow-through, not hundreds
+moves the mean field (the cooled-wall bracket at 70 bar with 1.5 mm by
+2.5 mm cells cools the first cell by degrees per flow-through, not hundreds
 of kelvin), and the film-cooling enthalpy-injection wall rides the
 same species-plus-enthalpy flux machinery the transport already
 carries, with no separate model.

@@ -1,0 +1,50 @@
+{
+  "case": "cases/chamber-throat/case.toml",
+  "steps": 40,
+  "outputs": [
+    "vtk-000020.vtk",
+    "vtk-000040.vtk",
+    "snapshots.csv",
+    "chamber-throat.vtk"
+  ],
+  "runs": {
+    "pre_migration_threads_1": {
+      "wall_s": 103.32,
+      "sha256": {
+        "vtk-000020.vtk": "e73ae39cec0c052cc5c5f6bbf6b1ea99c261ee968553b4285793b8f2e15f3f47",
+        "vtk-000040.vtk": "f20acf4cade716d4a0521b3bd9c633037944f44b54cdc3f69f7363f7daeb4eae",
+        "snapshots.csv": "c437032e5eb43fb16a6169327cdf3a57a910b572395b00e0a2a77878acedce36",
+        "chamber-throat.vtk": "f20acf4cade716d4a0521b3bd9c633037944f44b54cdc3f69f7363f7daeb4eae"
+      }
+    },
+    "post_migration_threads_1": {
+      "wall_s": 49.7,
+      "sha256": {
+        "vtk-000020.vtk": "e73ae39cec0c052cc5c5f6bbf6b1ea99c261ee968553b4285793b8f2e15f3f47",
+        "vtk-000040.vtk": "f20acf4cade716d4a0521b3bd9c633037944f44b54cdc3f69f7363f7daeb4eae",
+        "snapshots.csv": "c437032e5eb43fb16a6169327cdf3a57a910b572395b00e0a2a77878acedce36",
+        "chamber-throat.vtk": "f20acf4cade716d4a0521b3bd9c633037944f44b54cdc3f69f7363f7daeb4eae"
+      }
+    },
+    "post_migration_threads_4": {
+      "wall_s": 19.5,
+      "sha256": {
+        "vtk-000020.vtk": "e73ae39cec0c052cc5c5f6bbf6b1ea99c261ee968553b4285793b8f2e15f3f47",
+        "vtk-000040.vtk": "f20acf4cade716d4a0521b3bd9c633037944f44b54cdc3f69f7363f7daeb4eae",
+        "snapshots.csv": "c437032e5eb43fb16a6169327cdf3a57a910b572395b00e0a2a77878acedce36",
+        "chamber-throat.vtk": "f20acf4cade716d4a0521b3bd9c633037944f44b54cdc3f69f7363f7daeb4eae"
+      }
+    },
+    "post_migration_threads_8": {
+      "wall_s": 16.9,
+      "sha256": {
+        "vtk-000020.vtk": "e73ae39cec0c052cc5c5f6bbf6b1ea99c261ee968553b4285793b8f2e15f3f47",
+        "vtk-000040.vtk": "f20acf4cade716d4a0521b3bd9c633037944f44b54cdc3f69f7363f7daeb4eae",
+        "snapshots.csv": "c437032e5eb43fb16a6169327cdf3a57a910b572395b00e0a2a77878acedce36",
+        "chamber-throat.vtk": "f20acf4cade716d4a0521b3bd9c633037944f44b54cdc3f69f7363f7daeb4eae"
+      }
+    }
+  },
+  "sha256_identical_across_pre_migration_and_one_four_eight_threads": true,
+  "note": "the wall_s figures are one back-to-back release-build matrix; the pre-migration row was timed on its own"
+}

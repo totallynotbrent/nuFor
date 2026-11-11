@@ -79,7 +79,7 @@ def legends(ax):
 
 def gather(runs_dir):
     rows = []
-    for tag, wall_k in gates.BRACKET:
+    for tag, wall_k in gates.bracket.BRACKET:
         info = gates.measure_one_leg(tag, runs_dir)
         info["specified_wall_k"] = wall_k
         info["progress_path"] = os.path.join(runs_dir, tag, "progress.json")

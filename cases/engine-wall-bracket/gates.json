@@ -1,0 +1,1551 @@
+{
+  "bracket": [
+    {
+      "tag": "wall-adiabatic",
+      "ran": true,
+      "conduction_mw": 0.0,
+      "fields_saved": 63,
+      "film_mw": 0.0,
+      "logged_wall_k": 0.0,
+      "radiation_mw": 0.0,
+      "surface_k": 3689.524591195,
+      "surface_perimeter_m": 22.886502,
+      "density_track": {
+        "source": "saved fields",
+        "samples": 63,
+        "start_step": 250,
+        "end_step": 15750,
+        "rho_max_start": 3.688686,
+        "rho_max_end": 3.702875,
+        "total_climb_pct": 0.384662723,
+        "early_window": [
+          250,
+          5250
+        ],
+        "late_window": [
+          10750,
+          15750
+        ],
+        "early_rate_pct_per_1000_steps": -0.030786031,
+        "late_rate_pct_per_1000_steps": 0.001469358,
+        "late_over_early_rate": -0.047728073
+      },
+      "duty_rows": 318,
+      "duty_samples": 318,
+      "duty_first_step": 50.0,
+      "duty_last_step": 15900.0,
+      "duty_mw": 0.0,
+      "duty_direction": "the wall exchanges no heat",
+      "duty_net_sign": 0,
+      "leading_mode": "conduction",
+      "leading_mode_mw": 0.0,
+      "mode_total_mw": 0,
+      "modes": {
+        "conduction": 0.0,
+        "radiation": 0.0,
+        "film": 0.0
+      },
+      "duty_settled": {
+        "qualified": true,
+        "window_start": 186,
+        "window_end": 318,
+        "window_length": 132,
+        "observables": {
+          "heat_mw": {
+            "mean": 0.0,
+            "standard_error": 0.0,
+            "effective_n": 132.0,
+            "noise_fraction": 0.0,
+            "drift_fraction": 0.0,
+            "slope_sigma": 0.0,
+            "qualifies": true
+          },
+          "surface_t_k": {
+            "mean": 3693.963409091,
+            "standard_error": 0.221529262,
+            "effective_n": 132.0,
+            "noise_fraction": 0.00068901,
+            "drift_fraction": 3.25e-06,
+            "slope_sigma": 1.828021462,
+            "qualifies": true
+          },
+          "perimeter_m": {
+            "mean": 22.886502,
+            "standard_error": 0.0,
+            "effective_n": 132.0,
+            "noise_fraction": 0.0,
+            "drift_fraction": 0.0,
+            "slope_sigma": 0.0,
+            "qualifies": true
+          }
+        },
+        "reason": ""
+      },
+      "duty_mw_settled": 0.0,
+      "surface_k_settled": 3693.963409091,
+      "conservation": {
+        "samples": 63,
+        "mean": 0.007603996,
+        "min": 0.007523707,
+        "max": 0.007650815,
+        "inventory_drift_pct": 1.68943844,
+        "spread_pct": 1.67159991
+      },
+      "contraction": {
+        "samples": 63,
+        "rho_max_first": 3.688686,
+        "rho_max_last": 3.702875,
+        "rho_max_climb_pct": 0.384662723,
+        "t_at_rho_max_first": 3707.806,
+        "t_at_rho_max_last": 3694.44,
+        "t_at_rho_max_drop_k": 13.366
+      },
+      "absolute_settling": {
+        "qualified": false,
+        "window_start": 33,
+        "window_end": 63,
+        "window_length": 30,
+        "observables": {
+          "mass_flow": {
+            "mean": 3.836093942,
+            "standard_error": 0.001315153,
+            "effective_n": 30.0,
+            "noise_fraction": 0.001877793,
+            "drift_fraction": 0.000155679,
+            "slope_sigma": 5.002261835,
+            "qualifies": false
+          },
+          "chamber_p0": {
+            "mean": 7119715.131694326,
+            "standard_error": 572.474879094,
+            "effective_n": 26.202288181,
+            "noise_fraction": 0.000411589,
+            "drift_fraction": 0.000198381,
+            "slope_sigma": 15.135469814,
+            "qualifies": false
+          },
+          "chamber_t0": {
+            "mean": 3708.811967176,
+            "standard_error": 0.148552627,
+            "effective_n": 30.0,
+            "noise_fraction": 0.000219385,
+            "drift_fraction": 3.1514e-05,
+            "slope_sigma": 6.799358535,
+            "qualifies": false
+          },
+          "near_wall_t": {
+            "mean": 3692.5754,
+            "standard_error": 0.720153565,
+            "effective_n": 30.0,
+            "noise_fraction": 0.001068209,
+            "drift_fraction": -1.9618e-05,
+            "slope_sigma": 0.584440471,
+            "qualifies": true
+          }
+        },
+        "reason": "mass_flow: the drift biases the mean by 0.234%, more than the 0.188% noise around it; the trend stands 5.0 standard errors from flat (tolerance 2.0); chamber_p0: the drift biases the mean by 0.298%, more than the 0.041% noise around it; the trend stands 15.1 standard errors from flat (tolerance 2.0); chamber_t0: the drift biases the mean by 0.047%, more than the 0.022% noise around it; the trend stands 6.8 standard errors from flat (tolerance 2.0)"
+      },
+      "absolute_settling_note": "the level drifted on its own; the judgement is made on the departure from the adiabatic reference",
+      "specified_wall_k": null,
+      "measurement_basis": "the leg's level over the joint window, with the settlement judgement made on its departure from the adiabatic reference",
+      "mass_flow": 3.839889845,
+      "mass_flow_sem": 0.001386317,
+      "mass_flow_effective_n": 14,
+      "chamber_p0": 7130698.924498953,
+      "chamber_p0_sem": 1264.18870844,
+      "chamber_p0_effective_n": 14,
+      "chamber_t0": 3709.672722042,
+      "chamber_t0_sem": 0.243296161,
+      "chamber_t0_effective_n": 14,
+      "near_wall_t": 3691.240214286,
+      "near_wall_t_sem": 0.752550376,
+      "near_wall_t_effective_n": 14,
+      "window_start": 49,
+      "window_end": 63,
+      "window_length": 14,
+      "settling": {
+        "qualified": true,
+        "window_start": 49,
+        "window_end": 63,
+        "window_length": 14,
+        "reason": "the reference supplies the common trajectory the other legs are judged against",
+        "observables": {}
+      },
+      "mode_limits_absolute_precision": {
+        "ring_percent": 0.417084675,
+        "quoted_sem_percent": 0.036396001
+      }
+    },
+    {
+      "tag": "wall-radiating",
+      "ran": true,
+      "conduction_mw": 0.142975399,
+      "duty_mw": 0.570660626,
+      "fields_saved": 63,
+      "film_mw": 0.0,
+      "logged_wall_k": 400.0,
+      "radiation_mw": 0.562402,
+      "surface_k": 400.0,
+      "surface_perimeter_m": 22.886502,
+      "wall_k": 400.0,
+      "density_track": {
+        "source": "saved fields",
+        "samples": 63,
+        "start_step": 250,
+        "end_step": 15750,
+        "rho_max_start": 3.701882,
+        "rho_max_end": 3.978489,
+        "total_climb_pct": 7.47206421,
+        "early_window": [
+          250,
+          5250
+        ],
+        "late_window": [
+          10750,
+          15750
+        ],
+        "early_rate_pct_per_1000_steps": 0.518730743,
+        "late_rate_pct_per_1000_steps": 0.411266486,
+        "late_over_early_rate": 0.792832295
+      },
+      "duty_rows": 318,
+      "duty_samples": 318,
+      "duty_first_step": 50.0,
+      "duty_last_step": 15900.0,
+      "duty_direction": "the wall takes heat from the gas",
+      "duty_net_sign": 1,
+      "leading_mode": "radiation",
+      "leading_mode_mw": 0.562402,
+      "mode_total_mw": 0.705377399,
+      "modes": {
+        "conduction": 0.142975399,
+        "radiation": 0.562402,
+        "film": 0.0
+      },
+      "duty_settled": {
+        "qualified": true,
+        "window_start": 254,
+        "window_end": 318,
+        "window_length": 64,
+        "observables": {
+          "heat_mw": {
+            "mean": 0.554955016,
+            "standard_error": 0.00028285,
+            "effective_n": 64.0,
+            "noise_fraction": 0.004077449,
+            "drift_fraction": -5.561e-05,
+            "slope_sigma": 1.999059989,
+            "qualifies": true
+          },
+          "surface_t_k": {
+            "mean": 400.0,
+            "standard_error": 0.0,
+            "effective_n": 64.0,
+            "noise_fraction": 0.0,
+            "drift_fraction": 0.0,
+            "slope_sigma": 0.0,
+            "qualifies": true
+          },
+          "perimeter_m": {
+            "mean": 22.886502,
+            "standard_error": 0.0,
+            "effective_n": 64.0,
+            "noise_fraction": 0.0,
+            "drift_fraction": 0.0,
+            "slope_sigma": 0.0,
+            "qualifies": true
+          }
+        },
+        "reason": ""
+      },
+      "duty_mw_settled": 0.554955016,
+      "surface_k_settled": 400.0,
+      "conservation": {
+        "samples": 63,
+        "mean": 0.007607386,
+        "min": 0.00752369,
+        "max": 0.007660149,
+        "inventory_drift_pct": 1.813722664,
+        "spread_pct": 1.793768008
+      },
+      "contraction": {
+        "samples": 63,
+        "rho_max_first": 3.701882,
+        "rho_max_last": 3.978489,
+        "rho_max_climb_pct": 7.47206421,
+        "t_at_rho_max_first": 3709.17,
+        "t_at_rho_max_last": 3515.04,
+        "t_at_rho_max_drop_k": 194.13
+      },
+      "absolute_settling": {
+        "qualified": false,
+        "window_start": 33,
+        "window_end": 63,
+        "window_length": 30,
+        "observables": {
+          "mass_flow": {
+            "mean": 3.830731867,
+            "standard_error": 0.001021349,
+            "effective_n": 30.0,
+            "noise_fraction": 0.001460337,
+            "drift_fraction": 0.000241473,
+            "slope_sigma": 8.593553886,
+            "qualifies": false
+          },
+          "chamber_p0": {
+            "mean": 7107359.108097435,
+            "standard_error": 520.138201048,
+            "effective_n": 30.0,
+            "noise_fraction": 0.00040084,
+            "drift_fraction": 0.000183762,
+            "slope_sigma": 14.220946039,
+            "qualifies": false
+          },
+          "chamber_t0": {
+            "mean": 3708.735548731,
+            "standard_error": 0.178716843,
+            "effective_n": 30.0,
+            "noise_fraction": 0.000263937,
+            "drift_fraction": 4.3379e-05,
+            "slope_sigma": 6.588677341,
+            "qualifies": false
+          },
+          "near_wall_t": {
+            "mean": 3646.023333333,
+            "standard_error": 0.41230751,
+            "effective_n": 30.0,
+            "noise_fraction": 0.000619387,
+            "drift_fraction": -0.000173799,
+            "slope_sigma": 11.9480811,
+            "qualifies": false
+          }
+        },
+        "reason": "mass_flow: the drift biases the mean by 0.362%, more than the 0.146% noise around it; the trend stands 8.6 standard errors from flat (tolerance 2.0); chamber_p0: the drift biases the mean by 0.276%, more than the 0.040% noise around it; the trend stands 14.2 standard errors from flat (tolerance 2.0); chamber_t0: the drift biases the mean by 0.065%, more than the 0.026% noise around it; the trend stands 6.6 standard errors from flat (tolerance 2.0); near_wall_t: the drift biases the mean by 0.261%, more than the 0.062% noise around it; the trend stands 11.9 standard errors from flat (tolerance 2.0)"
+      },
+      "absolute_settling_note": "the level drifted on its own; the judgement is made on the departure from the adiabatic reference",
+      "specified_wall_k": 400.0,
+      "measurement_basis": "the leg's level over the joint window, with the settlement judgement made on its departure from the adiabatic reference",
+      "mass_flow": 3.83744136,
+      "mass_flow_sem": 0.001968822,
+      "mass_flow_effective_n": 14,
+      "chamber_p0": 7117639.42116678,
+      "chamber_p0_sem": 1324.273498652,
+      "chamber_p0_effective_n": 14,
+      "chamber_t0": 3710.203241748,
+      "chamber_t0_sem": 0.263340305,
+      "chamber_t0_effective_n": 14,
+      "near_wall_t": 3640.562428571,
+      "near_wall_t_sem": 0.794546679,
+      "near_wall_t_effective_n": 14,
+      "window_start": 49,
+      "window_end": 63,
+      "window_length": 14,
+      "chamber_p0_difference_from_adiabatic": -13059.503332171,
+      "chamber_t0_difference_from_adiabatic": 0.530519707,
+      "mass_flow_difference_from_adiabatic": -0.002448486,
+      "settling": {
+        "qualified": true,
+        "window_start": 49,
+        "window_end": 63,
+        "window_length": 14,
+        "reason": "",
+        "observables": {
+          "chamber_p0": {
+            "n": 14,
+            "mean": -13059.503332171,
+            "noise_fraction": 0.000343274,
+            "drift_fraction": -8.701e-06,
+            "drift_to_noise": 0.025348369,
+            "slope_sigma": 0.343790561,
+            "effective_n": 14.0,
+            "standard_error": 654.197529307,
+            "drift_bias_fraction": 6.091e-05,
+            "qualifies": true,
+            "reason": "",
+            "sigma": 2447.783017942,
+            "residual_acf1": 0.105858767,
+            "slope_tolerance": 3.527352025
+          },
+          "chamber_t0": {
+            "n": 14,
+            "mean": 0.530519707,
+            "noise_fraction": 0.000247959,
+            "drift_fraction": -9.661e-06,
+            "drift_to_noise": 0.03896384,
+            "slope_sigma": 0.524263921,
+            "effective_n": 14.0,
+            "standard_error": 0.245839418,
+            "drift_bias_fraction": 6.763e-05,
+            "qualifies": true,
+            "reason": "",
+            "sigma": 0.919846874,
+            "residual_acf1": 0.113719865,
+            "slope_tolerance": 3.527352025
+          },
+          "mass_flow": {
+            "n": 14,
+            "mean": -0.002448486,
+            "noise_fraction": 0.001971497,
+            "drift_fraction": 0.000147191,
+            "drift_to_noise": 0.07465961,
+            "slope_sigma": 1.121342487,
+            "effective_n": 14.0,
+            "standard_error": 0.002023256,
+            "drift_bias_fraction": 0.001030338,
+            "qualifies": true,
+            "reason": "",
+            "sigma": 0.007570332,
+            "residual_acf1": 0.004232454,
+            "slope_tolerance": 3.527352025
+          }
+        }
+      },
+      "mass_flow_paired_contrast": {
+        "delta": -0.002448486,
+        "delta_pct": -0.063764477,
+        "sd": 0.007647994,
+        "effective_n": 14.0,
+        "standard_error": 0.002044012,
+        "sigma": -1.197881966,
+        "reference_mean": 3.839889845,
+        "n": 14
+      },
+      "chamber_t0_paired_contrast": {
+        "delta": 0.530519707,
+        "delta_pct": 0.014300984,
+        "sd": 0.896388342,
+        "effective_n": 14.0,
+        "standard_error": 0.239569861,
+        "sigma": 2.214467644,
+        "reference_mean": 3709.672722042,
+        "n": 14
+      },
+      "chamber_p0_paired_contrast": {
+        "delta": -13059.503332171,
+        "delta_pct": -0.183144787,
+        "sd": 2366.034421279,
+        "effective_n": 14.0,
+        "standard_error": 632.349297839,
+        "sigma": -20.652356817,
+        "reference_mean": 7130698.924498953,
+        "n": 14
+      },
+      "near_wall_t_paired_contrast": {
+        "delta": -50.677785714,
+        "delta_pct": -1.372920286,
+        "sd": 3.397702803,
+        "effective_n": 14.0,
+        "standard_error": 0.908074271,
+        "sigma": -55.807974469,
+        "reference_mean": 3691.240214286,
+        "n": 14
+      },
+      "mass_departure": {
+        "delta": 7.893e-06,
+        "delta_pct": 0.103254158,
+        "reference_mean": 0.007644107,
+        "n": 14,
+        "tolerance_pct": 0.5,
+        "within_tolerance": true
+      },
+      "predicted_effect": {
+        "reference_p0_pa": 7130698.924498953,
+        "reference_t0_k": 3709.672722042,
+        "chamber_p0_ratio": 0.998168552,
+        "chamber_t0_ratio": 1.00014301,
+        "predicted_mdot_kg_s": 3.832583249,
+        "predicted_mdot_delta_kg_s": -0.007306597,
+        "predicted_mdot_delta_pct": -0.190281418,
+        "measured_mdot_kg_s": 3.83744136,
+        "measured_error_pct": 0.126758138
+      },
+      "duty_scale_effect": {
+        "duty_mw": 0.570660626,
+        "scale_dt0_k": -45.559105185,
+        "scale_dt0_fraction": -0.012281166
+      },
+      "duty_shielding_ratio": 85.876367298,
+      "mode_limits_absolute_precision": {
+        "ring_percent": 0.354821483,
+        "quoted_sem_percent": 0.051728534
+      }
+    },
+    {
+      "tag": "wall-filmcooled",
+      "ran": true,
+      "conduction_mw": 0.140046283,
+      "duty_mw": 0.864719572,
+      "fields_saved": 63,
+      "film_mw": 0.408116557,
+      "logged_wall_k": 400.0,
+      "radiation_mw": 0.544828623,
+      "surface_k": 400.0,
+      "surface_perimeter_m": 22.886502,
+      "wall_k": 400.0,
+      "density_track": {
+        "source": "saved fields",
+        "samples": 63,
+        "start_step": 250,
+        "end_step": 15750,
+        "rho_max_start": 3.691985,
+        "rho_max_end": 4.095196,
+        "total_climb_pct": 10.921252389,
+        "early_window": [
+          250,
+          5250
+        ],
+        "late_window": [
+          10750,
+          15750
+        ],
+        "early_rate_pct_per_1000_steps": 0.855973142,
+        "late_rate_pct_per_1000_steps": 0.525603436,
+        "late_over_early_rate": 0.614041971
+      },
+      "duty_rows": 318,
+      "duty_samples": 318,
+      "duty_first_step": 50.0,
+      "duty_last_step": 15900.0,
+      "duty_direction": "the wall takes heat from the gas",
+      "duty_net_sign": 1,
+      "leading_mode": "radiation",
+      "leading_mode_mw": 0.544828623,
+      "mode_total_mw": 1.092991462,
+      "modes": {
+        "conduction": 0.140046283,
+        "radiation": 0.544828623,
+        "film": 0.408116557
+      },
+      "duty_settled": {
+        "qualified": true,
+        "window_start": 291,
+        "window_end": 318,
+        "window_length": 27,
+        "observables": {
+          "heat_mw": {
+            "mean": 0.835308778,
+            "standard_error": 0.000500053,
+            "effective_n": 27.0,
+            "noise_fraction": 0.003110647,
+            "drift_fraction": -0.000101969,
+            "slope_sigma": 1.417981477,
+            "qualifies": true
+          },
+          "surface_t_k": {
+            "mean": 400.0,
+            "standard_error": 0.0,
+            "effective_n": 27.0,
+            "noise_fraction": 0.0,
+            "drift_fraction": 0.0,
+            "slope_sigma": 0.0,
+            "qualifies": true
+          },
+          "perimeter_m": {
+            "mean": 22.886502,
+            "standard_error": 0.0,
+            "effective_n": 27.0,
+            "noise_fraction": 0.0,
+            "drift_fraction": 0.0,
+            "slope_sigma": 0.0,
+            "qualifies": true
+          }
+        },
+        "reason": ""
+      },
+      "duty_mw_settled": 0.835308778,
+      "surface_k_settled": 400.0,
+      "conservation": {
+        "samples": 63,
+        "mean": 0.007608826,
+        "min": 0.007523689,
+        "max": 0.007663279,
+        "inventory_drift_pct": 1.855340416,
+        "spread_pct": 1.834580579
+      },
+      "contraction": {
+        "samples": 63,
+        "rho_max_first": 3.691985,
+        "rho_max_last": 4.095196,
+        "rho_max_climb_pct": 10.921252389,
+        "t_at_rho_max_first": 3701.088,
+        "t_at_rho_max_last": 3436.166,
+        "t_at_rho_max_drop_k": 264.922
+      },
+      "absolute_settling": {
+        "qualified": false,
+        "window_start": 33,
+        "window_end": 63,
+        "window_length": 30,
+        "observables": {
+          "mass_flow": {
+            "mean": 3.827812759,
+            "standard_error": 0.001406745,
+            "effective_n": 30.0,
+            "noise_fraction": 0.002012914,
+            "drift_fraction": 0.000181228,
+            "slope_sigma": 6.54178332,
+            "qualifies": false
+          },
+          "chamber_p0": {
+            "mean": 7099454.435772477,
+            "standard_error": 719.336699178,
+            "effective_n": 30.0,
+            "noise_fraction": 0.000554968,
+            "drift_fraction": 0.000169758,
+            "slope_sigma": 13.466179725,
+            "qualifies": false
+          },
+          "chamber_t0": {
+            "mean": 3707.880921375,
+            "standard_error": 0.182261144,
+            "effective_n": 30.0,
+            "noise_fraction": 0.000269233,
+            "drift_fraction": 4.1412e-05,
+            "slope_sigma": 6.09708188,
+            "qualifies": false
+          },
+          "near_wall_t": {
+            "mean": 3628.331633333,
+            "standard_error": 0.567077252,
+            "effective_n": 30.0,
+            "noise_fraction": 0.000856044,
+            "drift_fraction": -0.000269065,
+            "slope_sigma": 9.407528119,
+            "qualifies": false
+          }
+        },
+        "reason": "mass_flow: the drift biases the mean by 0.272%, more than the 0.201% noise around it; the trend stands 6.5 standard errors from flat (tolerance 2.0); chamber_p0: the drift biases the mean by 0.255%, more than the 0.055% noise around it; the trend stands 13.5 standard errors from flat (tolerance 2.0); chamber_t0: the drift biases the mean by 0.062%, more than the 0.027% noise around it; the trend stands 6.1 standard errors from flat (tolerance 2.0); near_wall_t: the drift biases the mean by 0.404%, more than the 0.086% noise around it; the trend stands 9.4 standard errors from flat (tolerance 2.0)"
+      },
+      "absolute_settling_note": "the level drifted on its own; the judgement is made on the departure from the adiabatic reference",
+      "specified_wall_k": 400.0,
+      "measurement_basis": "the leg's level over the joint window, with the settlement judgement made on its departure from the adiabatic reference",
+      "mass_flow": 3.831979381,
+      "mass_flow_sem": 0.002165379,
+      "mass_flow_effective_n": 14,
+      "chamber_p0": 7108619.571538152,
+      "chamber_p0_sem": 1598.067912679,
+      "chamber_p0_effective_n": 14,
+      "chamber_t0": 3709.161952701,
+      "chamber_t0_sem": 0.348065803,
+      "chamber_t0_effective_n": 14,
+      "near_wall_t": 3619.856571429,
+      "near_wall_t_sem": 1.390191914,
+      "near_wall_t_effective_n": 14,
+      "window_start": 49,
+      "window_end": 63,
+      "window_length": 14,
+      "chamber_p0_difference_from_adiabatic": -22079.3529608,
+      "chamber_t0_difference_from_adiabatic": -0.51076934,
+      "mass_flow_difference_from_adiabatic": -0.007910464,
+      "settling": {
+        "qualified": true,
+        "window_start": 49,
+        "window_end": 63,
+        "window_length": 14,
+        "reason": "",
+        "observables": {
+          "chamber_p0": {
+            "n": 14,
+            "mean": -22079.3529608,
+            "noise_fraction": 0.000658203,
+            "drift_fraction": 9.5e-06,
+            "drift_to_noise": 0.014432755,
+            "slope_sigma": 0.178201162,
+            "effective_n": 14.0,
+            "standard_error": 1254.375722448,
+            "drift_bias_fraction": 6.6498e-05,
+            "qualifies": true,
+            "reason": "",
+            "sigma": 4693.444187688,
+            "residual_acf1": 0.197531369,
+            "slope_tolerance": 3.527352025
+          },
+          "chamber_t0": {
+            "n": 14,
+            "mean": -0.51076934,
+            "noise_fraction": 0.000336112,
+            "drift_fraction": 3.6048e-05,
+            "drift_to_noise": 0.107250533,
+            "slope_sigma": 1.253111523,
+            "effective_n": 14.0,
+            "standard_error": 0.33323839,
+            "drift_bias_fraction": 0.000252337,
+            "qualifies": true,
+            "reason": "",
+            "sigma": 1.246863882,
+            "residual_acf1": 0.249948327,
+            "slope_tolerance": 3.527352025
+          },
+          "mass_flow": {
+            "n": 14,
+            "mean": -0.007910464,
+            "noise_fraction": 0.001881648,
+            "drift_fraction": 0.000253855,
+            "drift_to_noise": 0.13491109,
+            "slope_sigma": 3.056781883,
+            "effective_n": 14.0,
+            "standard_error": 0.001931048,
+            "drift_bias_fraction": 0.001776986,
+            "qualifies": true,
+            "reason": "",
+            "sigma": 0.00722532,
+            "residual_acf1": -0.385860221,
+            "slope_tolerance": 3.527352025
+          }
+        }
+      },
+      "mass_flow_paired_contrast": {
+        "delta": -0.007910464,
+        "delta_pct": -0.206007576,
+        "sd": 0.008050947,
+        "effective_n": 14.0,
+        "standard_error": 0.002151706,
+        "sigma": -3.676368251,
+        "reference_mean": 3.839889845,
+        "n": 14
+      },
+      "chamber_t0_paired_contrast": {
+        "delta": -0.51076934,
+        "delta_pct": -0.013768582,
+        "sd": 1.322130724,
+        "effective_n": 14.0,
+        "standard_error": 0.353354299,
+        "sigma": -1.445487833,
+        "reference_mean": 3709.672722042,
+        "n": 14
+      },
+      "chamber_p0_paired_contrast": {
+        "delta": -22079.3529608,
+        "delta_pct": -0.309637992,
+        "sd": 4518.210422506,
+        "effective_n": 14.0,
+        "standard_error": 1207.542528741,
+        "sigma": -18.284534445,
+        "reference_mean": 7130698.924498953,
+        "n": 14
+      },
+      "near_wall_t_paired_contrast": {
+        "delta": -71.383642857,
+        "delta_pct": -1.933866091,
+        "sd": 5.4930774,
+        "effective_n": 14.0,
+        "standard_error": 1.468086688,
+        "sigma": -48.623588407,
+        "reference_mean": 3691.240214286,
+        "n": 14
+      },
+      "mass_departure": {
+        "delta": 1.0616e-05,
+        "delta_pct": 0.138882211,
+        "reference_mean": 0.007644107,
+        "n": 14,
+        "tolerance_pct": 0.5,
+        "within_tolerance": true
+      },
+      "predicted_effect": {
+        "reference_p0_pa": 7130698.924498953,
+        "reference_t0_k": 3709.672722042,
+        "chamber_p0_ratio": 0.99690362,
+        "chamber_t0_ratio": 0.999862314,
+        "predicted_mdot_kg_s": 3.828263645,
+        "predicted_mdot_delta_kg_s": -0.0116262,
+        "predicted_mdot_delta_pct": -0.302774308,
+        "measured_mdot_kg_s": 3.831979381,
+        "measured_error_pct": 0.097060607
+      },
+      "duty_scale_effect": {
+        "duty_mw": 0.864719572,
+        "scale_dt0_k": -69.035514579,
+        "scale_dt0_fraction": -0.018609597
+      },
+      "duty_shielding_ratio": 135.159864045,
+      "mode_limits_absolute_precision": {
+        "ring_percent": 0.373254546,
+        "quoted_sem_percent": 0.056901971
+      }
+    },
+    {
+      "tag": "wall-regenerative",
+      "ran": true,
+      "conduction_mw": 0.123507739,
+      "duty_mw": 0.811864365,
+      "fields_saved": 63,
+      "film_mw": 0.358340082,
+      "logged_wall_k": 400.0,
+      "radiation_mw": 0.547187217,
+      "surface_k": 795.463930818,
+      "surface_perimeter_m": 22.886502,
+      "wall_k": 400.0,
+      "density_track": {
+        "source": "saved fields",
+        "samples": 63,
+        "start_step": 250,
+        "end_step": 15750,
+        "rho_max_start": 3.682351,
+        "rho_max_end": 4.063262,
+        "total_climb_pct": 10.344233888,
+        "early_window": [
+          250,
+          5250
+        ],
+        "late_window": [
+          10750,
+          15750
+        ],
+        "early_rate_pct_per_1000_steps": 0.784770382,
+        "late_rate_pct_per_1000_steps": 0.496666396,
+        "late_over_early_rate": 0.632881168
+      },
+      "duty_rows": 318,
+      "duty_samples": 318,
+      "duty_first_step": 50.0,
+      "duty_last_step": 15900.0,
+      "duty_direction": "the wall takes heat from the gas",
+      "duty_net_sign": 1,
+      "leading_mode": "radiation",
+      "leading_mode_mw": 0.547187217,
+      "mode_total_mw": 1.029035038,
+      "modes": {
+        "conduction": 0.123507739,
+        "radiation": 0.547187217,
+        "film": 0.358340082
+      },
+      "duty_settled": {
+        "qualified": true,
+        "window_start": 305,
+        "window_end": 318,
+        "window_length": 13,
+        "observables": {
+          "heat_mw": {
+            "mean": 0.786954,
+            "standard_error": 0.000799797,
+            "effective_n": 13.0,
+            "noise_fraction": 0.003664391,
+            "drift_fraction": -0.000168873,
+            "slope_sigma": 1.149055288,
+            "qualifies": true
+          },
+          "surface_t_k": {
+            "mean": 779.571538462,
+            "standard_error": 0.365952999,
+            "effective_n": 13.0,
+            "noise_fraction": 0.001692548,
+            "drift_fraction": -0.000111008,
+            "slope_sigma": 1.674521864,
+            "qualifies": true
+          },
+          "perimeter_m": {
+            "mean": 22.886502,
+            "standard_error": 0.0,
+            "effective_n": 13.0,
+            "noise_fraction": 0.0,
+            "drift_fraction": 0.0,
+            "slope_sigma": 0.0,
+            "qualifies": true
+          }
+        },
+        "reason": ""
+      },
+      "duty_mw_settled": 0.786954,
+      "surface_k_settled": 779.571538462,
+      "conservation": {
+        "samples": 63,
+        "mean": 0.007608751,
+        "min": 0.007523677,
+        "max": 0.007663813,
+        "inventory_drift_pct": 1.862598357,
+        "spread_pct": 1.841772677
+      },
+      "contraction": {
+        "samples": 63,
+        "rho_max_first": 3.682351,
+        "rho_max_last": 4.063262,
+        "rho_max_climb_pct": 10.344233888,
+        "t_at_rho_max_first": 3686.75,
+        "t_at_rho_max_last": 3484.18,
+        "t_at_rho_max_drop_k": 202.57
+      },
+      "absolute_settling": {
+        "qualified": false,
+        "window_start": 33,
+        "window_end": 63,
+        "window_length": 30,
+        "observables": {
+          "mass_flow": {
+            "mean": 3.827285472,
+            "standard_error": 0.00173042,
+            "effective_n": 30.0,
+            "noise_fraction": 0.002476403,
+            "drift_fraction": 0.000237238,
+            "slope_sigma": 4.48684659,
+            "qualifies": false
+          },
+          "chamber_p0": {
+            "mean": 7101552.392858893,
+            "standard_error": 459.237226347,
+            "effective_n": 30.0,
+            "noise_fraction": 0.000354197,
+            "drift_fraction": 0.000187209,
+            "slope_sigma": 27.401413699,
+            "qualifies": false
+          },
+          "chamber_t0": {
+            "mean": 3708.225083207,
+            "standard_error": 0.151859153,
+            "effective_n": 30.0,
+            "noise_fraction": 0.000224303,
+            "drift_fraction": 4.6463e-05,
+            "slope_sigma": 10.514826851,
+            "qualifies": false
+          },
+          "near_wall_t": {
+            "mean": 3633.683033333,
+            "standard_error": 0.527058894,
+            "effective_n": 21.475694452,
+            "noise_fraction": 0.00067218,
+            "drift_fraction": -0.000189964,
+            "slope_sigma": 9.780695063,
+            "qualifies": false
+          }
+        },
+        "reason": "mass_flow: the drift biases the mean by 0.356%, more than the 0.248% noise around it; the trend stands 4.5 standard errors from flat (tolerance 2.0); chamber_p0: the drift biases the mean by 0.281%, more than the 0.035% noise around it; the trend stands 27.4 standard errors from flat (tolerance 2.0); chamber_t0: the drift biases the mean by 0.070%, more than the 0.022% noise around it; the trend stands 10.5 standard errors from flat (tolerance 2.0); near_wall_t: the drift biases the mean by 0.285%, more than the 0.067% noise around it; the trend stands 9.8 standard errors from flat (tolerance 2.0)"
+      },
+      "absolute_settling_note": "the level drifted on its own; the judgement is made on the departure from the adiabatic reference",
+      "specified_wall_k": 400.0,
+      "measurement_basis": "the leg's level over the joint window, with the settlement judgement made on its departure from the adiabatic reference",
+      "mass_flow": 3.835152581,
+      "mass_flow_sem": 0.00181204,
+      "mass_flow_effective_n": 14,
+      "chamber_p0": 7112142.242347791,
+      "chamber_p0_sem": 1410.013425637,
+      "chamber_p0_effective_n": 14,
+      "chamber_t0": 3709.681912092,
+      "chamber_t0_sem": 0.287354613,
+      "chamber_t0_effective_n": 14,
+      "near_wall_t": 3628.549857143,
+      "near_wall_t_sem": 1.526480812,
+      "near_wall_t_effective_n": 14,
+      "window_start": 49,
+      "window_end": 63,
+      "window_length": 14,
+      "chamber_p0_difference_from_adiabatic": -18556.682151162,
+      "chamber_t0_difference_from_adiabatic": 0.00919005,
+      "mass_flow_difference_from_adiabatic": -0.004737265,
+      "settling": {
+        "qualified": true,
+        "window_start": 49,
+        "window_end": 63,
+        "window_length": 14,
+        "reason": "",
+        "observables": {
+          "chamber_p0": {
+            "n": 14,
+            "mean": -18556.682151162,
+            "noise_fraction": 0.00036065,
+            "drift_fraction": 1.5323e-05,
+            "drift_to_noise": 0.042487284,
+            "slope_sigma": 0.53069096,
+            "effective_n": 14.0,
+            "standard_error": 687.311891957,
+            "drift_bias_fraction": 0.000107261,
+            "qualifies": true,
+            "reason": "",
+            "sigma": 2571.685617557,
+            "residual_acf1": 0.186395283,
+            "slope_tolerance": 3.527352025
+          },
+          "chamber_t0": {
+            "n": 14,
+            "mean": 0.00919005,
+            "noise_fraction": 0.00035088,
+            "drift_fraction": 1.9558e-05,
+            "drift_to_noise": 0.055741026,
+            "slope_sigma": 1.086507452,
+            "effective_n": 14.0,
+            "standard_error": 0.34788078,
+            "drift_bias_fraction": 0.000136909,
+            "qualifies": true,
+            "reason": "",
+            "sigma": 1.301650692,
+            "residual_acf1": -0.250955346,
+            "slope_tolerance": 3.527352025
+          },
+          "mass_flow": {
+            "n": 14,
+            "mean": -0.004737265,
+            "noise_fraction": 0.002162775,
+            "drift_fraction": 7.142e-05,
+            "drift_to_noise": 0.033022189,
+            "slope_sigma": 0.702157926,
+            "effective_n": 14.0,
+            "standard_error": 0.002219555,
+            "drift_bias_fraction": 0.000499937,
+            "qualifies": true,
+            "reason": "",
+            "sigma": 0.008304816,
+            "residual_acf1": -0.330512495,
+            "slope_tolerance": 3.527352025
+          }
+        }
+      },
+      "mass_flow_paired_contrast": {
+        "delta": -0.004737265,
+        "delta_pct": -0.123369807,
+        "sd": 0.008061064,
+        "effective_n": 14.0,
+        "standard_error": 0.00215441,
+        "sigma": -2.198868773,
+        "reference_mean": 3.839889845,
+        "n": 14
+      },
+      "chamber_t0_paired_contrast": {
+        "delta": 0.00919005,
+        "delta_pct": 0.000247732,
+        "sd": 1.286891232,
+        "effective_n": 14.0,
+        "standard_error": 0.343936149,
+        "sigma": 0.026720221,
+        "reference_mean": 3709.672722042,
+        "n": 14
+      },
+      "chamber_p0_paired_contrast": {
+        "delta": -18556.682151162,
+        "delta_pct": -0.260236512,
+        "sd": 2512.718972464,
+        "effective_n": 14.0,
+        "standard_error": 671.552393158,
+        "sigma": -27.632515855,
+        "reference_mean": 7130698.924498953,
+        "n": 14
+      },
+      "near_wall_t_paired_contrast": {
+        "delta": -62.690357143,
+        "delta_pct": -1.698354848,
+        "sd": 5.266569627,
+        "effective_n": 14.0,
+        "standard_error": 1.407549939,
+        "sigma": -44.538637959,
+        "reference_mean": 3691.240214286,
+        "n": 14
+      },
+      "mass_departure": {
+        "delta": 1.1033e-05,
+        "delta_pct": 0.14432864,
+        "reference_mean": 0.007644107,
+        "n": 14,
+        "tolerance_pct": 0.5,
+        "within_tolerance": true
+      },
+      "predicted_effect": {
+        "reference_p0_pa": 7130698.924498953,
+        "reference_t0_k": 3709.672722042,
+        "chamber_p0_ratio": 0.997397635,
+        "chamber_t0_ratio": 1.000002477,
+        "predicted_mdot_kg_s": 3.829892306,
+        "predicted_mdot_delta_kg_s": -0.009997539,
+        "predicted_mdot_delta_pct": -0.260360055,
+        "measured_mdot_kg_s": 3.835152581,
+        "measured_error_pct": 0.137347847
+      },
+      "duty_scale_effect": {
+        "duty_mw": 0.811864365,
+        "scale_dt0_k": -64.815780728,
+        "scale_dt0_fraction": -0.017472102
+      },
+      "duty_shielding_ratio": 7052.821347433,
+      "mode_limits_absolute_precision": {
+        "ring_percent": 0.335709306,
+        "quoted_sem_percent": 0.047629742
+      }
+    },
+    {
+      "tag": "wall-conjugate",
+      "ran": true,
+      "conduction_mw": 0.073849509,
+      "duty_mw": 0.624869097,
+      "fields_saved": 63,
+      "film_mw": 0.212447919,
+      "logged_wall_k": 400.0,
+      "radiation_mw": 0.512375306,
+      "surface_k": 1957.0265,
+      "surface_perimeter_m": 22.886502,
+      "wall_k": 400.0,
+      "density_track": {
+        "source": "saved fields",
+        "samples": 63,
+        "start_step": 250,
+        "end_step": 15750,
+        "rho_max_start": 3.692394,
+        "rho_max_end": 3.983923,
+        "total_climb_pct": 7.895392529,
+        "early_window": [
+          250,
+          5250
+        ],
+        "late_window": [
+          10750,
+          15750
+        ],
+        "early_rate_pct_per_1000_steps": 0.639801711,
+        "late_rate_pct_per_1000_steps": 0.411982037,
+        "late_over_early_rate": 0.643921436
+      },
+      "duty_rows": 320,
+      "duty_samples": 320,
+      "duty_first_step": 50.0,
+      "duty_last_step": 15900.0,
+      "duty_direction": "the wall takes heat from the gas",
+      "duty_net_sign": 1,
+      "leading_mode": "radiation",
+      "leading_mode_mw": 0.512375306,
+      "mode_total_mw": 0.798672734,
+      "modes": {
+        "conduction": 0.073849509,
+        "radiation": 0.512375306,
+        "film": 0.212447919
+      },
+      "duty_settled": {
+        "qualified": true,
+        "window_start": 299,
+        "window_end": 320,
+        "window_length": 21,
+        "observables": {
+          "heat_mw": {
+            "mean": 0.612781714,
+            "standard_error": 0.000301129,
+            "effective_n": 21.0,
+            "noise_fraction": 0.002251936,
+            "drift_fraction": -0.000129819,
+            "slope_sigma": 1.607592573,
+            "qualifies": true
+          },
+          "surface_t_k": {
+            "mean": 1920.95,
+            "standard_error": 0.623049362,
+            "effective_n": 21.0,
+            "noise_fraction": 0.001486333,
+            "drift_fraction": -9.7611e-05,
+            "slope_sigma": 1.995557765,
+            "qualifies": true
+          },
+          "perimeter_m": {
+            "mean": 22.886502,
+            "standard_error": 0.0,
+            "effective_n": 21.0,
+            "noise_fraction": 0.0,
+            "drift_fraction": 0.0,
+            "slope_sigma": 0.0,
+            "qualifies": true
+          }
+        },
+        "reason": ""
+      },
+      "duty_mw_settled": 0.612781714,
+      "surface_k_settled": 1920.95,
+      "conservation": {
+        "samples": 63,
+        "mean": 0.007607527,
+        "min": 0.007523664,
+        "max": 0.007660456,
+        "inventory_drift_pct": 1.818148509,
+        "spread_pct": 1.798105917
+      },
+      "contraction": {
+        "samples": 63,
+        "rho_max_first": 3.692394,
+        "rho_max_last": 3.983923,
+        "rho_max_climb_pct": 7.895392529,
+        "t_at_rho_max_first": 3692.776,
+        "t_at_rho_max_last": 3528.274,
+        "t_at_rho_max_drop_k": 164.502
+      },
+      "absolute_settling": {
+        "qualified": false,
+        "window_start": 33,
+        "window_end": 63,
+        "window_length": 30,
+        "observables": {
+          "mass_flow": {
+            "mean": 3.830498889,
+            "standard_error": 0.001070938,
+            "effective_n": 30.0,
+            "noise_fraction": 0.001531332,
+            "drift_fraction": 0.000180497,
+            "slope_sigma": 6.292327408,
+            "qualifies": false
+          },
+          "chamber_p0": {
+            "mean": 7105365.187474383,
+            "standard_error": 598.851248263,
+            "effective_n": 30.0,
+            "noise_fraction": 0.000461629,
+            "drift_fraction": 0.000192618,
+            "slope_sigma": 15.777569025,
+            "qualifies": false
+          },
+          "chamber_t0": {
+            "mean": 3708.59928159,
+            "standard_error": 0.224210888,
+            "effective_n": 30.0,
+            "noise_fraction": 0.000331137,
+            "drift_fraction": 5.5085e-05,
+            "slope_sigma": 7.337279861,
+            "qualifies": false
+          },
+          "near_wall_t": {
+            "mean": 3644.4963,
+            "standard_error": 0.402570664,
+            "effective_n": 30.0,
+            "noise_fraction": 0.000605014,
+            "drift_fraction": -0.000208055,
+            "slope_sigma": 14.483723027,
+            "qualifies": false
+          }
+        },
+        "reason": "mass_flow: the drift biases the mean by 0.271%, more than the 0.153% noise around it; the trend stands 6.3 standard errors from flat (tolerance 2.0); chamber_p0: the drift biases the mean by 0.289%, more than the 0.046% noise around it; the trend stands 15.8 standard errors from flat (tolerance 2.0); chamber_t0: the drift biases the mean by 0.083%, more than the 0.033% noise around it; the trend stands 7.3 standard errors from flat (tolerance 2.0); near_wall_t: the drift biases the mean by 0.312%, more than the 0.061% noise around it; the trend stands 14.5 standard errors from flat (tolerance 2.0)"
+      },
+      "absolute_settling_note": "the level drifted on its own; the judgement is made on the departure from the adiabatic reference",
+      "specified_wall_k": 400.0,
+      "measurement_basis": "the leg's level over the joint window, with the settlement judgement made on its departure from the adiabatic reference",
+      "mass_flow": 3.836230523,
+      "mass_flow_sem": 0.001163553,
+      "mass_flow_effective_n": 14,
+      "chamber_p0": 7115957.493922046,
+      "chamber_p0_sem": 1425.373594112,
+      "chamber_p0_effective_n": 14,
+      "chamber_t0": 3710.256413192,
+      "chamber_t0_sem": 0.379378215,
+      "chamber_t0_effective_n": 14,
+      "near_wall_t": 3638.475285714,
+      "near_wall_t_sem": 0.768713935,
+      "near_wall_t_effective_n": 14,
+      "window_start": 49,
+      "window_end": 63,
+      "window_length": 14,
+      "chamber_p0_difference_from_adiabatic": -14741.430576907,
+      "chamber_t0_difference_from_adiabatic": 0.58369115,
+      "mass_flow_difference_from_adiabatic": -0.003659322,
+      "settling": {
+        "qualified": true,
+        "window_start": 49,
+        "window_end": 63,
+        "window_length": 14,
+        "reason": "",
+        "observables": {
+          "chamber_p0": {
+            "n": 14,
+            "mean": -14741.430576907,
+            "noise_fraction": 0.000578654,
+            "drift_fraction": -8.515e-06,
+            "drift_to_noise": 0.014714421,
+            "slope_sigma": 0.251624536,
+            "effective_n": 14.0,
+            "standard_error": 1102.775852192,
+            "drift_bias_fraction": 5.9602e-05,
+            "qualifies": true,
+            "reason": "",
+            "sigma": 4126.209413312,
+            "residual_acf1": -0.124879614,
+            "slope_tolerance": 3.527352025
+          },
+          "chamber_t0": {
+            "n": 14,
+            "mean": 0.58369115,
+            "noise_fraction": 0.000491917,
+            "drift_fraction": -1.122e-05,
+            "drift_to_noise": 0.022808319,
+            "slope_sigma": 0.386172429,
+            "effective_n": 14.0,
+            "standard_error": 0.487712221,
+            "drift_bias_fraction": 7.8539e-05,
+            "qualifies": true,
+            "reason": "",
+            "sigma": 1.824852033,
+            "residual_acf1": -0.115071547,
+            "slope_tolerance": 3.527352025
+          },
+          "mass_flow": {
+            "n": 14,
+            "mean": -0.003659322,
+            "noise_fraction": 0.001581992,
+            "drift_fraction": 4.5483e-05,
+            "drift_to_noise": 0.028750716,
+            "slope_sigma": 0.65226419,
+            "effective_n": 14.0,
+            "standard_error": 0.001623525,
+            "drift_bias_fraction": 0.000318384,
+            "qualifies": true,
+            "reason": "",
+            "sigma": 0.006074673,
+            "residual_acf1": -0.386953366,
+            "slope_tolerance": 3.527352025
+          }
+        }
+      },
+      "mass_flow_paired_contrast": {
+        "delta": -0.003659322,
+        "delta_pct": -0.095297575,
+        "sd": 0.00588191,
+        "effective_n": 14.0,
+        "standard_error": 0.001572007,
+        "sigma": -2.327803072,
+        "reference_mean": 3.839889845,
+        "n": 14
+      },
+      "chamber_t0_paired_contrast": {
+        "delta": 0.58369115,
+        "delta_pct": 0.015734303,
+        "sd": 1.761885672,
+        "effective_n": 14.0,
+        "standard_error": 0.470883753,
+        "sigma": 1.239565278,
+        "reference_mean": 3709.672722042,
+        "n": 14
+      },
+      "chamber_p0_paired_contrast": {
+        "delta": -14741.430576907,
+        "delta_pct": -0.206731917,
+        "sd": 3972.461736343,
+        "effective_n": 14.0,
+        "standard_error": 1061.685057105,
+        "sigma": -13.884937419,
+        "reference_mean": 7130698.924498953,
+        "n": 14
+      },
+      "near_wall_t_paired_contrast": {
+        "delta": -52.764928571,
+        "delta_pct": -1.429463419,
+        "sd": 2.484404695,
+        "effective_n": 14.0,
+        "standard_error": 0.663985084,
+        "sigma": -79.467038996,
+        "reference_mean": 3691.240214286,
+        "n": 14
+      },
+      "mass_departure": {
+        "delta": 8.197e-06,
+        "delta_pct": 0.107238271,
+        "reference_mean": 0.007644107,
+        "n": 14,
+        "tolerance_pct": 0.5,
+        "within_tolerance": true
+      },
+      "predicted_effect": {
+        "reference_p0_pa": 7130698.924498953,
+        "reference_t0_k": 3709.672722042,
+        "chamber_p0_ratio": 0.997932681,
+        "chamber_t0_ratio": 1.000157343,
+        "predicted_mdot_kg_s": 3.831650138,
+        "predicted_mdot_delta_kg_s": -0.008239708,
+        "predicted_mdot_delta_pct": -0.214581878,
+        "measured_mdot_kg_s": 3.836230523,
+        "measured_error_pct": 0.119540816
+      },
+      "duty_scale_effect": {
+        "duty_mw": 0.624869097,
+        "scale_dt0_k": -49.886877813,
+        "scale_dt0_fraction": -0.013447784
+      },
+      "duty_shielding_ratio": 85.467935938,
+      "mode_limits_absolute_precision": {
+        "ring_percent": 0.310719256,
+        "quoted_sem_percent": 0.030566581
+      }
+    }
+  ],
+  "problems": [],
+  "cautions": [
+    "the near-wall temperature had not settled on the joint window (wall-filmcooled/near_wall_t: the drift biases the mean by 0.140%, more than the 0.128% noise around it)",
+    "the near-wall temperature had not settled on the joint window (wall-regenerative/near_wall_t: the drift biases the mean by 0.196%, more than the 0.085% noise around it; the trend stands 6.6 standard errors from flat (tolerance 3.5))",
+    "the wall-adiabatic leg quotes its choked mass flow to 0.0364 % while the chamber's own ring moves it by 0.417 %; the absolute level inherits the ring's uncertainty, and the paired contrast carries the claim",
+    "the wall-conjugate leg quotes its choked mass flow to 0.0306 % while the chamber's own ring moves it by 0.311 %; the absolute level inherits the ring's uncertainty, and the paired contrast carries the claim",
+    "the wall-filmcooled leg quotes its choked mass flow to 0.0569 % while the chamber's own ring moves it by 0.373 %; the absolute level inherits the ring's uncertainty, and the paired contrast carries the claim",
+    "the wall-radiating leg quotes its choked mass flow to 0.0517 % while the chamber's own ring moves it by 0.355 %; the absolute level inherits the ring's uncertainty, and the paired contrast carries the claim",
+    "the wall-regenerative leg quotes its choked mass flow to 0.0476 % while the chamber's own ring moves it by 0.336 %; the absolute level inherits the ring's uncertainty, and the paired contrast carries the claim"
+  ],
+  "shared_mode": {
+    "checked": true,
+    "observable": "mass_flow",
+    "period_steps": 7085.0,
+    "period_band": {
+      "tolerance_fraction": 0.01,
+      "lower_steps": 6709.0,
+      "upper_steps": 7531.0,
+      "candidates": 412,
+      "grid_step": 2.0,
+      "objective_within_band": 0.002526337,
+      "objective_across_scan": 0.028406193,
+      "ring_percent_min": 0.289533427,
+      "ring_percent_max": 0.417934753,
+      "worst_ring_percent_min": 0.387729047,
+      "worst_ring_percent_max": 0.417934753,
+      "worst_ring_percent_at_optimum": 0.417084675
+    },
+    "samples": 63,
+    "span_steps": 15500,
+    "cycles_covered": 2.187720536,
+    "adequately_sampled": true,
+    "phase_coherence": 0.997741425,
+    "cross_predictions": {
+      "wall-adiabatic": 0.35906584,
+      "wall-radiating": 0.317403388,
+      "wall-filmcooled": 0.320294192,
+      "wall-regenerative": 0.295072807,
+      "wall-conjugate": 0.273356177
+    },
+    "weakest_cross_prediction": 0.273356177,
+    "shares": false,
+    "adjusted_explained_fraction": 0.071850978,
+    "trend_confounding": 0.029748062,
+    "levels": {
+      "wall-adiabatic": {
+        "mean": 3.808982287,
+        "amplitude": 0.015886681,
+        "amplitude_pct": 0.417084675
+      },
+      "wall-radiating": {
+        "mean": 3.806065347,
+        "amplitude": 0.013504737,
+        "amplitude_pct": 0.354821483
+      },
+      "wall-filmcooled": {
+        "mean": 3.805455443,
+        "amplitude": 0.014204035,
+        "amplitude_pct": 0.373254546
+      },
+      "wall-regenerative": {
+        "mean": 3.804429179,
+        "amplitude": 0.012771823,
+        "amplitude_pct": 0.335709306
+      },
+      "wall-conjugate": {
+        "mean": 3.806616867,
+        "amplitude": 0.011827892,
+        "amplitude_pct": 0.310719256
+      }
+    },
+    "worst_ring_percent": 0.417084675,
+    "residuals": {
+      "wall-adiabatic": {
+        "constant": 3.750293555,
+        "drift": 0.117592652,
+        "amplitude": 0.015886681,
+        "phase": -3.113836268,
+        "cosine_coefficient": -0.015880562,
+        "sine_coefficient": -0.0004409
+      },
+      "wall-radiating": {
+        "constant": 3.750042488,
+        "drift": 0.112182891,
+        "amplitude": 0.013504737,
+        "phase": -3.025780786,
+        "cosine_coefficient": -0.013414273,
+        "sine_coefficient": -0.001560515
+      },
+      "wall-filmcooled": {
+        "constant": 3.753023081,
+        "drift": 0.105138345,
+        "amplitude": 0.014204035,
+        "phase": -3.069020258,
+        "cosine_coefficient": -0.014166647,
+        "sine_coefficient": -0.001029916
+      },
+      "wall-regenerative": {
+        "constant": 3.751599066,
+        "drift": 0.105901438,
+        "amplitude": 0.012771823,
+        "phase": -2.950740945,
+        "cosine_coefficient": -0.012539925,
+        "sine_coefficient": -0.002422754
+      },
+      "wall-conjugate": {
+        "constant": 3.752759228,
+        "drift": 0.107516494,
+        "amplitude": 0.011827892,
+        "phase": -3.140707945,
+        "cosine_coefficient": -0.011827887,
+        "sine_coefficient": -1.0464e-05
+      }
+    }
+  },
+  "settlement_criterion": {
+    "basis": "each leg's departure from the adiabatic reference",
+    "core_keys": [
+      "mass_flow",
+      "chamber_p0",
+      "chamber_t0"
+    ],
+    "secondary_keys": [
+      "near_wall_t"
+    ],
+    "window_start": 49,
+    "window_end": 63,
+    "window_length": 14,
+    "window_fields": [
+      12500,
+      12750,
+      13000,
+      13250,
+      13500,
+      13750,
+      14000,
+      14250,
+      14500,
+      14750,
+      15000,
+      15250,
+      15500,
+      15750
+    ],
+    "comparisons": 12,
+    "slope_tolerance": 3.527352025,
+    "qualified": true,
+    "reason": "",
+    "secondary_unsettled": [
+      "wall-filmcooled/near_wall_t: the drift biases the mean by 0.140%, more than the 0.128% noise around it",
+      "wall-regenerative/near_wall_t: the drift biases the mean by 0.196%, more than the 0.085% noise around it; the trend stands 6.6 standard errors from flat (tolerance 3.5)"
+    ]
+  },
+  "period_survey": {
+    "wall-adiabatic": {
+      "checked": true,
+      "fields": 63,
+      "checksum_period": null,
+      "best_autocorrelation_lag": 1,
+      "best_autocorrelation": 0.734953445,
+      "periodic": false
+    },
+    "wall-radiating": {
+      "checked": true,
+      "fields": 63,
+      "checksum_period": null,
+      "best_autocorrelation_lag": 1,
+      "best_autocorrelation": 0.743870679,
+      "periodic": false
+    },
+    "wall-filmcooled": {
+      "checked": true,
+      "fields": 63,
+      "checksum_period": null,
+      "best_autocorrelation_lag": 1,
+      "best_autocorrelation": 0.754786493,
+      "periodic": false
+    },
+    "wall-regenerative": {
+      "checked": true,
+      "fields": 63,
+      "checksum_period": null,
+      "best_autocorrelation_lag": 1,
+      "best_autocorrelation": 0.785488869,
+      "periodic": false
+    },
+    "wall-conjugate": {
+      "checked": true,
+      "fields": 63,
+      "checksum_period": null,
+      "best_autocorrelation_lag": 1,
+      "best_autocorrelation": 0.725721774,
+      "periodic": false
+    }
+  }
+}

@@ -90,17 +90,34 @@ DETECTION_AMPLICADES = (0.005, 0.01, 0.02, 0.05, 0.1, 0.2)
 MINIMUM_DETECTION_BASELINE = 15
 
 
-def load_rows(campaign_root):
+def portable_campaign(root):
+    """the campaign path as it should be written into a shipped artefact.
+
+    an absolute path would tie the artefact to one machine and name the
+    owner's home directory, so the record folder is named relatively.
+    """
+    text = os.path.abspath(str(root)).replace(os.sep, "/")
+    if "/record" in text:
+        return text.rsplit("/", 1)[-1]
+    return os.path.basename(text.rstrip("/")) or text
+
+
+def load_rows(campaign_root, from_record=False):
     """the analyser's own rows for a campaign, loaded through the gate.
 
     the gate reads the saved fields and measures the observables, so the
-    calibration sees exactly the numbers the published screen saw.
+    calibration sees exactly the numbers the published screen saw. the
+    record path reads the same measurements from the committed record,
+    so the studies can be reproduced from what the repository ships.
     """
     import gates
 
     rows = []
-    for tag, wall_k in gates.BRACKET:
-        info = gates.measure_one_leg(tag, campaign_root)
+    for tag, wall_k in gates.bracket.BRACKET:
+        if from_record:
+            info = gates.measure_one_leg_from_record(tag)
+        else:
+            info = gates.measure_one_leg(tag, campaign_root)
         info["specified_wall_k"] = wall_k
         rows.append(info)
     return [row for row in rows if row.get("tag")]
@@ -298,9 +315,9 @@ def surrogate_rows(kind, rows, rng):
 
 
 def calibrate(campaign_root, trials=DEFAULT_TRIALS, seed=DEFAULT_SEED,
-              null_kind="detrended_rotation"):
+              null_kind="detrended_rotation", from_record=False):
     """the full calibration of the settlement screen."""
-    rows = load_rows(campaign_root)
+    rows = load_rows(campaign_root, from_record=from_record)
     rng = random.Random(seed)
 
     observed_qualified, observed_length, observed_tolerance = assessed(rows)
@@ -375,7 +392,7 @@ def calibrate(campaign_root, trials=DEFAULT_TRIALS, seed=DEFAULT_SEED,
             minimum_detectable = amplitude
 
     return {
-        "campaign": campaign_root,
+        "campaign": portable_campaign(campaign_root),
         "seed": seed,
         "trials": trials,
         "null_construction": null_kind,
@@ -411,6 +428,11 @@ def main(argv=None):
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--json", default=None)
     parser.add_argument(
+        "--record",
+        action="store_true",
+        help="read the committed record instead of a marched campaign",
+    )
+    parser.add_argument(
         "--null",
         choices=NULL_CONSTRUCTIONS,
         default="detrended_rotation",
@@ -419,7 +441,11 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     summary = calibrate(
-        args.campaign, args.trials, args.seed, null_kind=args.null
+        args.campaign,
+        args.trials,
+        args.seed,
+        null_kind=args.null,
+        from_record=args.record,
     )
     print(json.dumps(summary, indent=1))
     if args.json:

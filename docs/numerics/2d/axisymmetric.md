@@ -56,6 +56,13 @@ The setup and the checked numbers are on
 [[verification/axisymmetric-sphere|the sphere validation page]].
 
 ![Steady Mach field of the entry capsule run on the axisymmetric lane, 320x160: shock, subsonic pocket, shoulder expansion](img/capsule-eqair-mach.png)
+The same run in its other fields:
+
+![Density field, same run](img/capsule-eqair-rho.png)
+
+![Pressure field, same run](img/capsule-eqair-p.png)
+
+![Temperature field, same run](img/capsule-eqair-t.png)
 
 ## The chamber lane
 

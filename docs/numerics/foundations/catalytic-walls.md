@@ -174,11 +174,33 @@ reflected atoms are worth the most formation enthalpy.
 
 ![Wall heat flux along the surface for each wall accommodation](cyl-park5visc-accommodation-qw.png)
 
+![Heat-flux peak growth folded back onto the accommodation swept between the bracketing cases](cyl-park5visc-qw-bracket.png)
+
+![Atomic nitrogen mass fraction along the stagnation line: the catalytic wall drains atoms from the near-wall layer](cyl-park5visc-yn-stagline.png)
+
 ![Peak wall heat flux against the wall accommodation](cyl-park5visc-accommodation-peak.png)
 
 ![Fully catalytic wall run, temperature field: the hottest gas pressed against the stagnation region](img/cyl-park5visc-full-t.png)
+The same run in its other fields:
+
+![Schlieren view, fully catalytic wall run](img/cyl-park5visc-full-schlieren.png)
+
+![Mach field, fully catalytic wall run](img/cyl-park5visc-full-mach.png)
+
+![Density field, fully catalytic wall run](img/cyl-park5visc-full-rho.png)
+
+![Pressure field, fully catalytic wall run](img/cyl-park5visc-full-p.png)
 
 ![Non-catalytic wall run, temperature field, same grid: cooler shock layer, weaker recombination heating](img/cyl-park5visc-none-t.png)
+The same run in its other fields:
+
+![Schlieren view, non-catalytic wall run](img/cyl-park5visc-none-schlieren.png)
+
+![Mach field, non-catalytic wall run](img/cyl-park5visc-none-mach.png)
+
+![Density field, non-catalytic wall run](img/cyl-park5visc-none-rho.png)
+
+![Pressure field, non-catalytic wall run](img/cyl-park5visc-none-p.png)
 
 The figures are a model study, not a bracket of the wall heat flux.
 The obstacle is the continuum criterion, and it is not a modelling

@@ -79,6 +79,7 @@ silently change a run.
 | `physics.eos` | string | no (default `perfect`) | `perfect` \| `eqair` \| `park2t` \| `park5` | Thermodynamic closure: constant-gamma perfect gas, equilibrium air via the CEA grid (see [[numerics/foundations/equilibrium-air|equilibrium air]]), two-temperature nitrogen with a live vibrational field (see [[numerics/foundations/two-temperature|two-temperature]]), or five-species finite-rate chemistry (see [[numerics/foundations/five-species|five species]]). |
 | `physics.gas` | string | no (default `air`) | `air` \| `n2` | Freestream composition for `eos = "park5"`: standard air (0.767 N2 / 0.233 O2 by mass) or pure nitrogen for the dissociation gates. |
 | `physics.gas_constant` | float | yes | > 0 | Specific gas constant, J/(kg K) in SI. |
+| `physics.mechanism` | string | no (default `li2004-h2`) | `li2004-h2` \| `gri30` | Chemistry mechanism for the reacting lane: the nine-species hydrogen mechanism or the 53-species methane mechanism. `gri30` needs `eos = "combustion"`. The lane fixes the width of the composition the march carries and writes (see [[numerics/2d/gri30-chemistry|GRI-Mech chemistry]]). |
 | `physics.unit_system` | string | no (default `si`) | `si` \| `nondim` | Unit convention for reported fields. |
 | `physics.reference` | table | no | rho, p, l > 0 | Nondimensionalization reference state. |
 | `physics.mu` | float | no | > 0 | Molecular dynamic viscosity; required for `rans_2d_sa`. For planar 2D euler cases, any positive value routes the run to the viscous march (see [[numerics/foundations/equilibrium-air#a-way-to-run-viscous|viscous closure]]). |
@@ -115,7 +116,7 @@ silently change a run.
 | `boundaries.inflow_profile.leading_edge` | float | with `type = "blasius"` | | The virtual x station where the layer starts, strictly upstream of the inflow face (the similarity solution is singular at the edge itself, so an edge at or past the inflow plane is rejected). |
 | `boundaries.inflow_profile.path` | string | with `type = "table"` | | A profile file: one `y u v` row per line, y strictly increasing, `#` comments allowed. |
 | `numerics.flux` | string | yes | `hll` \| `hllc` | Riemann solver / approximate flux. |
-| `numerics.reconstruction` | string | yes | `first_order` \| `muscl` | Spatial reconstruction. |
+| `numerics.reconstruction` | string | yes | `first_order` \| `muscl` | Spatial reconstruction. Every lane honors it, including the cut-cell walls, which take the first-order update when the case asks for it. |
 | `numerics.cfl` | float | yes | in (0, 1] | CFL number for the explicit time step. |
 | `numerics.local_time_stepping` | bool | no (default false) | | Experimental steady-state acceleration, not time-accurate. The inviscid stage advances each cell at its own bound in residual form; the viscous stage holds the field at the minimum increment. Intermediate states are not conservative and on impulsive blunt-body starts the march can still fail, so the default global-dt path remains the validated one. |
 | `time.final_time` | float | no (default 0) | >= 0 | Stop time. |

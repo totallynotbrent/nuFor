@@ -26,7 +26,7 @@ flowchart LR
 
 | field | value |
 | --- | --- |
-| equations | `euler_axi`, `eos = "combustion"`, nine species, chemistry on |
+| equations | `euler_axi`, `eos = "combustion"`, nine species on the `li2004-h2` lane, chemistry on |
 | chamber | 7.0 MPa, 3676.53 K, the burned-gas injection map |
 | reservoir | 12.0 MPa, 6.191 kg/m3, fed through a 7.0146e-4 m2 injector |
 | throat area | 1.3338e-3 m2 on the contour, 1.3439e-3 m2 cut into the 110 by 40 cells |
@@ -197,6 +197,11 @@ almost nothing. Doubling the radial spacing instead buys two to four
 points of deficit. That is the fingerprint of a radial representation
 problem, so it settled what the fix had to be.
 
+![the resolution sweep: the deficit follows radial spacing, not axial refinement](chamber-throat-resolution.png)
+
+Each point is a marched grid rather than an interpolation between them,
+and the series splits by which spacing was refined.
+
 | grid | radial spacing | sonic pressure | the gas's isentrope | deficit |
 | --- | --- | --- | --- | --- |
 | 110 by 40 | 2.50 mm | 3.7483 MPa | 4.0422 MPa | -7.27 percent |
@@ -271,13 +276,14 @@ bounded, and it is bounded by the measure's own bias rather than by the
 grid. The bias is +0.19 percent, and it comes from the ray integral
 crossing the curved wall rather than following it.
 
-The cut-cell march's own pressure is not measured yet. The geometry
-above is a property of the measure and it stands on its own: the throat's
-area is grid-invariant and +0.19 percent from the truth. The pressure
-needs the march to survive the cut band, and it does not yet. Until it
-does, the contracted figure below is the staircase's, and this page
-offers the cut cell as the settled cure for the geometry rather than as
-a settled cure for the deficit.
+The cut-cell march's own pressure is now measured: the march survives
+the cut band to the case's full horizon (final_time reached at step
+4582, with the density minimum holding at 0.53 kg/m3, temperatures in
+the 2980-3710 K band, peak pressure 7.04 MPa and no floored cells),
+using state redistribution over ring-grown neighborhoods, the same
+scheme the perfect-gas march uses. The geometry above is therefore a
+property of the measure, and the cut cell is now both the settled cure
+for the geometry and a settled walker of the band.
 
 ## The gate
 
@@ -299,11 +305,11 @@ cd cases/chamber-throat && python3 gates.py
 | contract | tolerance | measured |
 | --- | --- | --- |
 | the throat chokes | the flux mach crosses 1 | it does |
-| the sonic temperature | within 5 percent of CEA | -0.5 percent |
-| the sonic pressure | within 12 percent of CEA | -7.3 percent |
-| the mass flow is conserved | within 8 percent | -0.3 percent |
-| the chamber runs subsonic | mach below 0.1 | 0.005 |
-| the exit runs supersonic | flux mach above 1 | 1.6769 |
+| the sonic temperature | within 5 percent of CEA | -0.39 percent |
+| the sonic pressure | within 12 percent of CEA | -7.53 percent |
+| the mass flow is conserved | within 8 percent | -0.28 percent |
+| the chamber runs subsonic | mach below 0.1 | 0.0022 |
+| the exit runs supersonic | flux mach above 1 | 1.677 |
 | the gas agrees with CEA | within 1 percent | 0.28 percent |
 | the march agrees with its gas | within 10 percent | -7.27 percent |
 | the deficit shrinks radially | a finer radial spacing improves it | it does |
@@ -372,6 +378,55 @@ cargo test -p nufor-cli --test chamber_throat_thermo
 python3 cases/chamber-throat/resolution.py --write \
   cases/chamber-throat/settled/resolution.csv <record dir> [...]
 ```
+
+## Picking the mechanism
+
+The case file chooses the chemistry lane:
+
+```toml
+[physics]
+eos = "combustion"
+chemistry = "on"
+mechanism = "li2004-h2"
+```
+
+`mechanism` accepts `li2004-h2` (the default, so a case without the
+field behaves exactly as it did) or `gri30`. Selecting `gri30` without
+`eos = "combustion"` is a configuration error and the loader says so.
+
+The lane travels with the gas, not with the file. The composition state
+holds one row per mechanism species, and the marcher, the face fluxes,
+the inlet pressure and the snapshot writer all read that width. A case
+on the nine-species lane grows nine rows. A case on the methane lane
+grows fifty-three.
+
+`cases/chamber-throat-gri30` runs the same duct on the methane lane with
+a stoichiometric methane-air premix. Its march writes all fifty-three
+species to the snapshot, and the carbon chemistry does something: water
+and carbon dioxide form while the methane burns off across the chamber.
+The species spreads from that march are in
+`cases/chamber-throat-gri30/recorded-run.json`.
+
+## More than one core
+
+The chemistry substep splits the cells across threads. Each shard owns a
+disjoint window of every species row, so the split cannot change a cell's
+arithmetic. It only changes where the cell sits in the queue.
+
+The forty-step case shows what that buys. Its four output files hash
+identically on one thread, four threads and eight threads, and they match
+the record I took before the migration. The hashes are in
+`cases/chamber-throat/bit-identity.json`:
+
+| threads | wall seconds |
+| --- | --- |
+| 1 | 49.7 |
+| 4 | 19.5 |
+| 8 | 16.9 |
+
+Four threads buy 2.5 times the speed, eight buy 2.9. The margin narrows
+past four because the chemistry is most of the work and each shard spends
+part of its life waiting on the slowest sibling.
 
 ## What is not settled
 

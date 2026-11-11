@@ -34,6 +34,17 @@ import os
 # the transient's own length.
 MAX_LAG = 96
 
+# the smallest overlap a lag may keep and still be believed.
+#
+# a correlation computed from a handful of overlapping pairs is a
+# coincidence dressed as a signal: the tails of the search reach
+# lags whose overlap is a few fields wide, and there the numbers swing
+# hard for no reason in the flow. a lag has to keep at least this many
+# pairs, and at least this share of the series, before its correlation
+# is allowed to speak.
+MIN_OVERLAP = 8
+MIN_OVERLAP_SHARE = 0.25
+
 
 def digest(path):
     """the field's checksum."""
@@ -78,7 +89,7 @@ def signal_correlation(values, lag):
 
 
 
-def detect_period(fields):
+def detect_period(digests):
     """the flow's period in saved fields, from the fields' checksums.
 
     a strict PERIODIC orbit repeats a field exactly, so two saved
@@ -86,8 +97,7 @@ def detect_period(fields):
     settled flow repeats nothing, and this returns None.
     """
     seen = {}
-    for index, path in enumerate(fields):
-        value = digest(path)
+    for index, value in enumerate(digests):
         if value in seen:
             gap = index - seen[value]
             if gap > 0:
@@ -96,28 +106,29 @@ def detect_period(fields):
     return None, None, None
 
 
-def detect_period_by_signal(case, fields, reader):
+def detect_period_by_signal(values):
     """the period suggested by an observable's own autocorrelation.
 
     this is the weaker of the two tests, and it is prone to suggesting
     spurious lags from a short series whose trend mimics a cycle. it
     is kept for the report, where the value of a LOW best correlation
     is the point.
+
+    only lags that keep enough overlapping pairs are considered. the
+    search reaches far past the series' own length, and there the
+    surviving pairs are numbered in single digits, which makes the
+    correlation swing hard for reasons that have nothing to do with the
+    flow.
     """
-    if len(fields) < 4:
-        return None, 0.0
-    values = []
-    for path in fields:
-        row = reader(case, path)
-        if row is None:
-            continue
-        values.append(row.get("mass_flow"))
-    values = [v for v in values if v is not None]
     if len(values) < 4:
         return None, 0.0
+    count = len(values)
+    floor = max(MIN_OVERLAP, int(count * MIN_OVERLAP_SHARE))
     best_lag = None
     best_score = 0.0
-    for lag in range(1, min(MAX_LAG, len(values) - 3)):
+    for lag in range(1, min(MAX_LAG, count - 3)):
+        if count - lag < floor:
+            break
         score = signal_correlation(values, lag)
         if score > best_score:
             best_lag = lag
@@ -127,31 +138,30 @@ def detect_period_by_signal(case, fields, reader):
     return best_lag, best_score
 
 
-def survey(root, tags, reader):
+def survey(per_leg):
     """whether the bracket's legs are periodic, for the report only.
 
     the legs march the same chamber, so a genuine period would be
     shared. the survey reports, for each leg, the checksum repeat and
     the strongest autocorrelation, so the gate's report can say that
     the flows were checked and found not to oscillate.
+
+    `per_leg` maps a leg's name to its saved fields' checksums and the
+    mass flow read from them. the caller supplies both, so the survey
+    reads the same way over the marched field and over the record.
     """
     out = {}
-    for tag in tags:
-        run_dir = os.path.join(root, tag)
-        fields = sorted(glob.glob(os.path.join(run_dir, "vtk-*.vtk")))
-        if not fields:
+    for tag, fields in per_leg.items():
+        digests = fields.get("digests") or []
+        values = fields.get("values") or []
+        if not digests and not values:
             out[tag] = {"checked": False, "why": "no saved fields"}
             continue
-        gap, _, _ = detect_period(fields)
-        case = os.path.join(os.path.dirname(run_dir), tag, "case.toml")
-        best_lag, best_score = (None, 0.0)
-        if os.path.exists(case):
-            best_lag, best_score = detect_period_by_signal(
-                case, fields, reader
-            )
+        gap, _, _ = detect_period(digests)
+        best_lag, best_score = detect_period_by_signal(values)
         out[tag] = {
             "checked": True,
-            "fields": len(fields),
+            "fields": len(digests) or len(values),
             "checksum_period": gap,
             "best_autocorrelation_lag": best_lag,
             "best_autocorrelation": best_score,

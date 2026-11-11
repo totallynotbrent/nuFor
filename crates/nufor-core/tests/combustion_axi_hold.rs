@@ -23,7 +23,7 @@ fn axi_combustion_holds_a_moving_state() {
     let g = nufor_core::grid2d(nx, ny, 0.0, 0.08, 0.0, 0.08).unwrap();
     let n = nx * ny;
     let fill = chamber_fill();
-    let mut sp = CombustionState::with_fill(n, &fill);
+    let mut sp = CombustionState::with_fill(nufor_core::chem_lane::ChemLane::Li2004, n, &fill);
     let rho = 3.6116f64;
     let p = 7.0e6f64;
     let u = 200.0f64;

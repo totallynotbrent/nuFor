@@ -15,6 +15,8 @@ pub mod catalytic;
 mod cfl;
 pub mod chem_closure;
 pub mod chem_convert;
+pub mod chem_kernel;
+pub mod chem_lane;
 pub mod chem_react;
 pub mod chem_scheme;
 pub mod chem_select;
@@ -150,8 +152,8 @@ pub use rectilinear::{
 };
 pub use render2d::{colormap, render_line1d, render_png, render_png_gray, render_png_rect};
 pub use restart::{
-    read_restart, read_restart2d, write_restart, write_restart2d, RestartData, RestartData2d,
-    RESTART_VERSION,
+    read_restart, read_restart2d, write_restart, write_restart2d, write_restart2d_aux,
+    Restart2dMeta, RestartData, RestartData2d, RESTART_VERSION,
 };
 pub use sa::{
     chi, eddy_viscosity, fv1, fv2, fw, g_func, r_func, source, stilde, C_B1, C_B2, C_V1, C_W1,

@@ -607,7 +607,7 @@ mod tests {
             my: vec![0.0; n],
             e: vec![rho * e_int; n],
         };
-        let sp = CombustionState::uniform(n, &y);
+        let sp = CombustionState::uniform(crate::chem_lane::ChemLane::Li2004, n, &y);
         let tr = combustion_transport(&st, &sp, &g).unwrap();
         let mut s1 = st.clone();
         let mut y1 = sp.clone();

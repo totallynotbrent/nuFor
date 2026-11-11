@@ -76,8 +76,9 @@ fn choked_flux() -> f64 {
 
 /// the mass flow the injector passes at a chamber's pressure.
 fn injector_flow(bc: &Bc2d, p_chamber: f64) -> f64 {
-    let model = ThermoModel::Combustion9 {
+    let model = ThermoModel::Combustion {
         gamma_shaping: 1.195,
+        lane: nufor_core::chem_lane::ChemLane::Li2004,
     };
     injector_mass_flow(bc, model, p_chamber).unwrap()
 }
@@ -121,8 +122,9 @@ fn the_unchoked_flow_rises_with_the_chambers_pressure() {
 #[test]
 fn a_plain_reservoir_feeds_the_whole_face() {
     let bc = reservoir_bc(None);
-    let model = ThermoModel::Combustion9 {
+    let model = ThermoModel::Combustion {
         gamma_shaping: 1.195,
+        lane: nufor_core::chem_lane::ChemLane::Li2004,
     };
     let (rho, u, _) = reservoir_real_gas_at(&bc, model, 70.0e5, 3673.0).unwrap();
     assert!(rho > 0.0 && u > 0.0);
@@ -142,8 +144,9 @@ fn a_plain_reservoir_feeds_the_whole_face() {
 fn the_injectors_area_sets_its_mass_flow() {
     let injector_area = 7.205373e-4;
     let bc = reservoir_bc(Some(injector_area));
-    let model = ThermoModel::Combustion9 {
+    let model = ThermoModel::Combustion {
         gamma_shaping: 1.195,
+        lane: nufor_core::chem_lane::ChemLane::Li2004,
     };
     let flow = injector_mass_flow(&bc, model, 70.0e5).unwrap();
     // the injector's mass flow is its area times the choked flux.
@@ -157,8 +160,9 @@ fn the_injectors_area_sets_its_mass_flow() {
 #[test]
 fn a_side_without_an_injector_has_no_flow() {
     let bc = reservoir_bc(None);
-    let model = ThermoModel::Combustion9 {
+    let model = ThermoModel::Combustion {
         gamma_shaping: 1.195,
+        lane: nufor_core::chem_lane::ChemLane::Li2004,
     };
     assert!(injector_mass_flow(&bc, model, 70.0e5).is_none());
 }

@@ -64,6 +64,10 @@ quantitative standoff comparison against the published hy2Foam and
 dsmcFoam profiles needs the wall-resolved viscous lane, which is the
 Fay-Riddell gate's work (see the roadmap ladder).
 
+The gate curves put the reference temperature and the marched one on the
+same axis, and the stagnation line plots the same disagreement along the
+wall-normal coordinate, where the vibrational lag sits closest to the wall:
+
 ![park 2T gate curves](park2t-gates.png)
 
 ![casseau stagnation line](casseau-stagnation.png)
@@ -83,3 +87,13 @@ eos = "park2t"
 The run writes the vibrational temperature field alongside the main
 snapshot as `<case>-tv.vtk` (scalar `t_vib`, K), so the T/T_v split
 can be plotted directly against the translational temperature field.
+
+The vibrational plane also has an MPI-native form. The Fortran core
+holds a two-temperature substep that exchanges its own halo and updates
+the plane on the rank slabs, and the plane is gathered and broadcast with
+the conserved state each chunk; restart carries it as an extra plane. A
+case file with `eos = "park2t"` still runs on the serial path, because that
+closure is a perfect-gas lane the MPI router does not admit, so the MPI
+form is reached through the equilibrium-air core instead. Its parity with
+this serial substep is held bit for bit by the gate in
+[[numerics/parallel/mpi|the MPI page]], at np=1 through np=5.

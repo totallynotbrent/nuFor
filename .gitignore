@@ -53,6 +53,11 @@ cases/**/__pycache__/
 !cases/cylinder-stagnation-fay/run-log.txt
 !cases/cylinder-stagnation-fay/run-log.csv
 !cases/cylinder-stagnation-fay/run-log-refined.csv
+# the feed-tank gate audits the committed blowdown record the same way.
+# the per-step tank trajectory is a run product, except the committed copy.
+cases/**/feed-tank.csv
+!cases/tank-feed/record/
+!cases/tank-feed/record/**
 # generated mesh files (rebuild with each case's mesh_gen.py)
 cases/**/mesh_faces.txt
 cases/**/mesh_faces_refined.txt
@@ -113,9 +118,8 @@ results/
 uploads/
 cases/*/run-log-last.txt
 
-# the engine wall bracket gate writes its findings here; the findings
-# are read out of the marched records, not carried in the tree
-cases/engine-wall-bracket/gates.json
-
 # scratch march outputs from the case studies
 cases/*/runs/
+
+# the settlement studies ship their results, not their run logs
+cases/engine-wall-bracket/studies/*.log

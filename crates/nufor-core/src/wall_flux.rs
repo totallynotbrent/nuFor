@@ -59,7 +59,7 @@ fn lane_gamma(model: ThermoModel) -> f64 {
     match model {
         ThermoModel::Perfect { gamma } => gamma,
         ThermoModel::EqAir { .. } => 1.4,
-        ThermoModel::Park5 { gamma_shaping } | ThermoModel::Combustion9 { gamma_shaping } => {
+        ThermoModel::Park5 { gamma_shaping } | ThermoModel::Combustion { gamma_shaping, .. } => {
             gamma_shaping
         }
     }
@@ -148,7 +148,7 @@ pub fn wall_flux(
                     let p = crate::thermo::pressure(setup.model, &state.rho, &e_int, &u, &v)?;
                     crate::thermo::temperature(setup.model, &state.rho, &p)?
                 }
-                ThermoModel::Park5 { .. } | ThermoModel::Combustion9 { .. } => {
+                ThermoModel::Park5 { .. } | ThermoModel::Combustion { .. } => {
                     // the species lanes need their composition: without it
                     // the transport is undefined, so refuse rather than
                     // report a number from the wrong closure.

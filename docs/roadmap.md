@@ -53,10 +53,9 @@ which carries 3D axisymmetric reality at 2D cost).
   trajectory sweep (30/34.6/40/42.5 km, alpha 22.5) is validated at
   320x176 and anchored at 1280x640.
 
-  ![Station h30.0 km, schlieren: bow shock and wake](img/aeroshell-h30-schlieren.png)
-  ![Station h34.6 km, Mach field: post-shock pocket and shoulder acceleration](img/aeroshell-h34.6-mach.png)
-  ![Station h40.0 km, density field: thinner, closer shock layer at altitude](img/aeroshell-h40-rho.png)
-  ![Station h42.5 km, temperature field](img/aeroshell-h42.5-t.png)
+  The station fields and the sweep table are on the
+  [[research/results|station sweep figures and numbers]].
+
 - Performance: the static body classification is cached and the closure
   passes are threaded; the hi-res anchor runs 8x faster than the serial
   march (3.96 h for 11,549 steps at 1280x640 on my desktop).
@@ -235,11 +234,22 @@ flowchart LR
    transport the nine-species lane uses, so a gated 53-species GRI-Mech
    composition crosses a planar flow step with every species present
    and a worst per-cell composition-sum error of 3.775e-15; the
-   nine-species scheme passes the same interface unchanged. Coupling
-   finite-rate GRI-Mech chemistry to that spatial composition remains,
-   as do the chamber's remaining fixed-width call sites, the engine
-   contour's own wall treatment, and the march on more than one core.
-   That coupling is now in: each cell runs the reactor's own
+   nine-species scheme passes the same interface unchanged. The coupling
+   of finite-rate GRI-Mech chemistry to that spatial composition is in,
+   along with the engine contour's own wall treatment. The chamber's
+   remaining fixed-width call sites now ride the scheme-width lane: the
+   composition state carries one row per mechanism species, and the
+   marcher, the face fluxes, the inlet pressure and the snapshot writer
+   all read that lane's own width. The case file picks the mechanism,
+   so the same chamber runs on either lane: `physics.mechanism` selects
+   `li2004-h2` (the default) or `gri30`, and
+   `cases/chamber-throat-gri30` runs a stoichiometric methane-air premix
+   on the 53-species lane with every species written to the snapshot.
+   The chamber marches on more than one core as well: the chemistry
+   substep shards its cells across threads, and the same forty-step case
+   produces byte-identical output on one, four and eight threads while
+   the wall time falls from 49.7 s to 19.5 s and then 16.9 s.
+   Each cell runs the reactor's own
    backward-euler step as a closed parcel, and a gated field of four
    methane-air parcels matches the zero-dimensional reactor to a worst
    relative error of 7.153e-12. Per-cell reaction-set selection now
@@ -259,23 +269,37 @@ flowchart LR
    exact because per-cell chemistry depends only on the cell's own
    state. A scheme-width composition state carries the GRI-Mech
    mechanism alongside the fixed-width nine-species lane, which stays
-   untouched. The engine contour's own wall treatment landed in rung 9b: the five-leg nozzle-contour bracket under `cases/engine-wall-bracket` reported zero outstanding problems, with per-leg settlement caveats recorded alongside.
-9b. **Engine wall conditions**: partly built. Cooled-wall and
-   film-cooling treatments for the engine lane: isothermal and Bartz-style
-   conjugate wall options on the nozzle contour, an injected-wall
-   species/enthalpy flux for film cooling, and the wall heat flux
-   bracket the report wants (cold wall vs cooled wall). The blown-in
-   film now crosses the wall into the gas whatever the wall's thermal
-   treatment is, and its area and mass flow are published beside the
-   wall's duty: a chamber under an adiabatic wall takes exactly the
-   coolant the report books for it, with a relative difference of
-   1.213e-15. The contour's own wall treatment is likewise measured:
-   the bracket in `cases/engine-wall-bracket` marches the real nozzle
-   contour under five gated legs (adiabatic, radiating, film-cooled,
-   regenerative, conjugate), each settling on a qualified heat duty
-   once the chamber's shared acoustic mode is removed, with the
-   adiabatic reference leg exchanging exactly zero. Rides on the
-   species, catalytic-wall, and combustion steps; the TPS
+   untouched. The engine contour's own wall treatment landed with the
+   engine wall conditions below.
+9b. **Engine wall conditions**: closed. Cooled-wall and film-cooling
+   treatments for the engine lane: isothermal and Bartz-style conjugate
+   wall options on the nozzle contour, an injected-wall species and
+   enthalpy flux for film cooling, and the wall heat flux bracket the
+   report wants. The blown-in film now crosses the wall into the gas
+   whatever the wall's thermal treatment is, and its area and mass flow
+   are published beside the wall's duty: a chamber under an adiabatic
+   wall takes exactly the coolant the report books for it, with a
+   relative difference of 1.213e-15. The contour's own wall treatment is
+   measured rather than asserted. The bracket under
+   `cases/engine-wall-bracket` marches the real nozzle contour under five
+   gated legs (adiabatic, radiating, film-cooled, regenerative,
+   conjugate) and adjudicates each one's heat duty from a committed
+   record, with the adiabatic reference leg exchanging exactly zero. The
+   gate found and closed a defect in which the wall booked heat the gas
+   never received; every leg in the page now comes from a remarch.
+   Twelve core settlement screens pass on the judged window. Two
+   secondary screens do not: the near-wall temperature on the
+   film-cooled and regenerative legs still carries a drift larger than
+   the noise around it, and those two failures are recorded as cautions
+   rather than folded into the bulk gate. The wall's imprint on the
+   throat reaches at most 0.206 percent, against the chamber's own
+   0.417 percent common mode, so the two are not mistaken for each
+   other. The settlement screen's power and the cost of letting it
+   choose its own window are measured against the record rather than
+   argued: a drift of 0.2 percent across the whole record is caught in
+   90.95 percent of the baseline-certified pairs, and searching for the
+   window costs between 8.80 and 14.01 percentage points of extra misses.
+   Rides on the species, catalytic-wall, and combustion steps; the TPS
    catalytic-wall machinery is the same wall machinery pointed at
    engine conditions.
 10. **3D SA/RANS**: cut. nuFor is a 2D code (planar and
@@ -374,12 +398,38 @@ flowchart LR
     laminar viscous and SA lanes run the full two-stage Heun in one
     bridge call and sit at roundoff against the serial drivers
     on all five fields at np=1, 2, and 3 (the worst relative difference
-    is 8.2e-14), with the CLI routing
+    is 8.5e-14), with the CLI routing
     body-free eqair cases through the Fortran core. Phase F3's first
     slice is in: `nfor_mpi_gather_nf` collects an arbitrary number of
     field planes through the same x-slab decomposition and reassembles
     them exactly on rank 0 at np=1, 2, and 3, so composition travels
-    through the same layout as the conserved fields. The third lands all
+    through the same layout as the conserved fields. Restart support for
+    the scattered state is in: a run interrupted at a chunk boundary
+    writes its conserved planes and, for SA RANS, the turbulence plane,
+    and the resumed march reproduces the uninterrupted one exactly on
+    all five planes at np=1, 2, and 3. Carrying the turbulence plane
+    turned out to be the load-bearing part: with the conserved state
+    travelling but the plane staying on rank 0, the non-root ranks
+    marched on a seeded eddy field and the plane at the rank seam
+    differed from rank 0's by 1.441e-2 while the state planes still
+    came out identical. The distributed restart gate holds both
+    properties now, so that class of drift cannot come back unnoticed.
+    Also in: the first slice of the live two-temperature lane. The
+    vibrational-energy plane `e_v` now travels the MPI core as an extra
+    plane with its own halo exchange (modeled on the turbulence plane),
+    its substep delegates to the same Fortran march so the two cannot
+    drift apart, and it rides the generic restart aux-plane path with no
+    format change. The parity gate holds the plane bit-for-bit against
+    the serial Rust substep at np=1 through np=5 (five gaussian bumps
+    seeded to straddle every rank seam), asserts the conserved planes are
+    untouched, and asserts the plane actually moved, so the check cannot
+    pass on an inert field; the restart gate reproduces the uninterrupted
+    march including `e_v`, bit for bit, at np=1 through np=4. Getting to
+    bitwise parity meant pinning `-ffp-contract=off` on the Fortran
+    build and seeding the closure in a calm regime, both noted on the
+    [[numerics/parallel/mpi|MPI page]], and the committed gate artefact
+    is `cases/mpi-parity/gates.json` with `verify_committed_gate.py`
+    beside it. The third lands all
     new physics (live 2T, species, combustion) MPI-native from day one,
     which pulls the nonequilibrium and species work inside this one.
 
@@ -403,7 +453,9 @@ Open research items, worked when they block a milestone rather than on
 a schedule: the near-wall u+ odd-even checkerboard from the
 grid-convergence study (quantified by the `uplus_metric` second-difference
 score: 0 monotone, 1 pure alternating). The feed-system tanks are no
-longer open: `physics.tank_feed` couples them to the chamber march.
+longer open: `physics.tank_feed` couples them to the chamber march, and
+`cases/tank-feed` marches one end to end and gates the blowdown against
+an independent replay of the discharge law.
 
 ## The case workflow
 
@@ -472,11 +524,11 @@ state closely enough to hang contracts on:
 | contract | tolerance | measured |
 | --- | --- | --- |
 | the throat chokes | the flux mach crosses 1 | it does |
-| the sonic temperature | within 5 percent of CEA | -0.5 percent |
-| the sonic pressure | within 12 percent of CEA | -7.3 percent |
-| the mass flow is conserved | within 8 percent | -0.3 percent |
-| the chamber runs subsonic | mach below 0.1 | 0.005 |
-| the exit runs supersonic | flux mach above 1 | 1.710 |
+| the sonic temperature | within 5 percent of CEA | -0.39 percent |
+| the sonic pressure | within 12 percent of CEA | -7.53 percent |
+| the mass flow is conserved | within 8 percent | -0.28 percent |
+| the chamber runs subsonic | mach below 0.1 | 0.0022 |
+| the exit runs supersonic | flux mach above 1 | 1.677 |
 | the gas agrees with CEA | within 1 percent | 0.28 percent |
 | the march agrees with its gas | within 10 percent | -7.27 percent |
 | the deficit shrinks radially | a finer radial spacing improves it | it does |
@@ -514,8 +566,7 @@ checks that the page publishes the numbers. The closure's own gates
 run there as well: the flame temperature at 70 bar against CEA, the
 adiabatic round trip at the flame point, and the chamber sound speed.
 
-What the lane does not have yet: no engine cycle, no turbomachinery, no
-propellant tank model. Parallelism arrived ahead of that wish list: the
+What the lane does not have yet: no engine cycle and no turbomachinery. Parallelism arrived ahead of that wish list: the
 lane and every other march route onto the MPI Fortran core at bit parity
 with the serial drivers (rung 14). The wall treatments an engine report
 wants (conjugate cooling, film cooling, the cold wall against the cooled

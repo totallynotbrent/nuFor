@@ -21,8 +21,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gfortran cmake libhdf5-dev
+          bash .github/scripts/linux_toolchain.sh gfortran cmake libhdf5-dev python3-numpy
           rustup component add rustfmt clippy
       - name: Install toolchain (Windows)
         if: runner.os == 'Windows'
@@ -47,6 +46,43 @@ jobs:
         shell: bash
         run: python tools/repo_hygiene.py
 
+  # the engine wall bracket ships its raw campaign and the judgement made
+  # from it. the job re-judges the committed record and compares the
+  # artefact, so a number on the page cannot drift away from the evidence
+  # underneath it. the judgement runs on the python standard library
+  # alone, and it solves its own least squares in plain python, so the
+  # verdict does not move with whichever maths library the runner
+  # happens to ship.
+  bracket-evidence:
+    name: engine wall bracket evidence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Re-judge the committed record and compare the artefact
+        shell: bash
+        run: python3 cases/engine-wall-bracket/verify_committed_gate.py
+      - name: Re-run the settlement studies and compare them
+        shell: bash
+        run: python3 cases/engine-wall-bracket/verify_committed_studies.py
+      - name: Republish the pages and check them against the committed artefacts
+        shell: bash
+        run: |
+          python3 cases/engine-wall-bracket/publish_bracket_results.py \
+            docs/numerics/2d/engine-wall-bracket.md
+          python3 cases/engine-wall-bracket/publish_bracket_results.py \
+            docs/numerics/2d/conjugate-engine-walls.md
+          python3 cases/engine-wall-bracket/publish_settlement_tables.py \
+            docs/numerics/2d/engine-wall-bracket.md \
+            --power=cases/engine-wall-bracket/studies/power.json \
+            --search=cases/engine-wall-bracket/studies/search.json \
+            --calibration=cases/engine-wall-bracket/studies/calibration.json
+          if ! git diff --quiet -- docs/numerics/2d; then
+            echo "::error::the published pages disagree with the committed artefacts"
+            git diff --stat -- docs/numerics/2d
+            git diff -- docs/numerics/2d
+            exit 1
+          fi
+
   # Real mixed build: build.rs drives CMake into the Fortran kernels, then the
   # FFI integration tests run against the linked library (PLAN step 2).
   native:
@@ -57,8 +93,7 @@ jobs:
       - name: Install toolchain
         shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gfortran cmake libhdf5-dev libopenmpi-dev openmpi-bin
+          bash .github/scripts/linux_toolchain.sh gfortran cmake libhdf5-dev libopenmpi-dev openmpi-bin
           rustup component add rustfmt clippy
       - name: Lint + format
         shell: bash
@@ -115,6 +150,10 @@ jobs:
           # the sa gate asserts its own tolerance inside the test
           check 1 mpi_np1_sa_matches_rust
           check 2 mpi_np1_sa_matches_rust
+          # the two-temperature gate holds exact-zero parity on the e_v
+          # plane and on the conserved march (it asserts both in the test)
+          check 1 mpi_np1_2t_matches_rust
+          check 2 mpi_np1_2t_matches_rust
           # the capsule body gate asserts its own 1e-6 tolerance inside
           # the test (roundoff at the wall faces is not exact zero)
           capok=0
@@ -129,3 +168,26 @@ jobs:
             echo "::error::capsule body parity gate failed"
             exit 1
           fi
+      - name: MPI distributed restart gate (np=1 + np=2 + np=3)
+        shell: bash
+        run: |
+          bin=$(ls -t target/debug/deps/mpi_restart-* | grep -v '\.d$' | head -1)
+          export NUFOUR_MPI_RESTART_DIR="$RUNNER_TEMP/nufor_mpi_restart_gate"
+          mkdir -p "$NUFOUR_MPI_RESTART_DIR"
+          for test in mpi_split_restart_reproduces_continuous mpi_split_restart_2t_reproduces_continuous; do
+          for np in 1 2 3; do
+            log=""
+            ok=0
+            for attempt in 1 2 3; do
+              log=$(mpirun --allow-run-as-root --oversubscribe -np "$np" "$bin" --exact "$test" --nocapture --ignored 2>&1) || true
+              echo "$log"
+              ok=$(echo "$log" | grep -c '1 passed; 0 failed')
+              if [ "$ok" -ge 1 ]; then break; fi
+              echo "attempt $attempt for np=$np lost the harness output, retrying"
+            done
+            if [ "$ok" -lt 1 ]; then
+              echo "::error::np=$np $test failed (ok=$ok)"
+              exit 1
+            fi
+          done
+          done
