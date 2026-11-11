@@ -21,16 +21,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          installed=1
-          for i in 1 2 3 4 5; do
-            if sudo apt-get update && sudo apt-get install -y --no-install-recommends gfortran cmake libhdf5-dev python3-numpy; then
-              installed=0
-              break
-            fi
-            echo "apt attempt $i failed, retrying in 15s"
-            sleep 15
-          done
-          [ "$installed" -eq 0 ] || { echo "apt could not reach the archive"; exit 1; }
+          bash .github/scripts/linux_toolchain.sh gfortran cmake libhdf5-dev python3-numpy
           rustup component add rustfmt clippy
       - name: Install toolchain (Windows)
         if: runner.os == 'Windows'
@@ -102,16 +93,7 @@ jobs:
       - name: Install toolchain
         shell: bash
         run: |
-          installed=1
-          for i in 1 2 3 4 5; do
-            if sudo apt-get update && sudo apt-get install -y --no-install-recommends gfortran cmake libhdf5-dev libopenmpi-dev openmpi-bin; then
-              installed=0
-              break
-            fi
-            echo "apt attempt $i failed, retrying in 15s"
-            sleep 15
-          done
-          [ "$installed" -eq 0 ] || { echo "apt could not reach the archive"; exit 1; }
+          bash .github/scripts/linux_toolchain.sh gfortran cmake libhdf5-dev libopenmpi-dev openmpi-bin
           rustup component add rustfmt clippy
       - name: Lint + format
         shell: bash
