@@ -81,6 +81,15 @@ h-box), not a configuration change.
 ![Density field, same run: the shock layer hugging the body and the sampled surface](img/capsule-eqair-fine-rho.png)
 
 ![Same capsule on the body-fitted curvilinear O-grid, schlieren](img/capsule-ogrid-schlieren.png)
+The same run in its other fields:
+
+![Mach field, same run](img/capsule-ogrid-mach.png)
+
+![Density field, same run](img/capsule-ogrid-rho.png)
+
+![Pressure field, same run](img/capsule-ogrid-p.png)
+
+![Temperature field, same run](img/capsule-ogrid-t.png)
 
 The Cp(x) cross-check plot with the divergence annotated is in the case directory; the panel-method Cp on the STL facets is computed by the trajectory tooling, not by nuFor.
 

@@ -118,13 +118,26 @@ The shock-layer scalars survived both faults because the enthalpy did,
 so the family agreed with its references while flying a stream the case
 never asked for.
 
-![Shock-layer temperature and atomic nitrogen mass fraction](cyl-park5-fields.png)
+Three views of the same run carry the lane's behaviour. The shock-layer
+panels put the temperature rise next to the atomic nitrogen mass fraction
+alongside it, the stagnation line is drawn as a curve of temperature and
+composition against the wall-normal coordinate, and the field map shows the
+hot region wrapping the nose:
+
+![Shock-layer atomic nitrogen mass fraction](img/cyl-park5-yn.png)
 
 ![Stagnation-line temperature and composition](cyl-park5-stagline.png)
 
 ![Temperature field, Mach 20 nitrogen over the cylinder (400x200): the hot stagnation region wrapping the nose](img/cyl-park5-t.png)
 
 ![Same run, schlieren: the detached bow shock standing off ahead of the stagnation point](img/cyl-park5-schlieren.png)
+The same run in its other fields:
+
+![Mach field, same run](img/cyl-park5-mach.png)
+
+![Density field, same run](img/cyl-park5-rho.png)
+
+![Pressure field, same run](img/cyl-park5-p.png)
 
 The standoff sits at the non-reacting value rather than the
 published reacting one: the published reduction is a shock-layer

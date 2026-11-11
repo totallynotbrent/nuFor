@@ -46,6 +46,7 @@ RESULT = os.path.join(SETTLED, "thermo_result.csv")
 CURVE = os.path.join(SETTLED, "isentrope.csv")
 FIELD = os.path.join(SETTLED, "vtk-final.vtk")
 PAGE = os.path.join(ROOT, "docs", "numerics", "2d", "chamber-throat.md")
+ROADMAP_PAGE = os.path.join(ROOT, "docs", "roadmap.md")
 RESOLUTION = os.path.join(SETTLED, "resolution.csv")
 
 
@@ -127,9 +128,9 @@ PUBLISHED_SPLIT = {
 }
 
 
-def published_rows():
+def published_rows(path=PAGE):
     """the page's tables, as {label: [cells]}."""
-    text = open(PAGE).read()
+    text = open(path).read()
     rows = {}
     for line in text.splitlines():
         if not line.startswith("| ") or line.startswith("|--"):
@@ -253,6 +254,44 @@ def main():
         print(("PASS " if ok else "FAIL ") + f"the page's {label}: {got} against the recorded {want:.4f}")
         if not ok:
             failures.append(f"the page's {label}")
+
+    # the contract table's measured column has to agree with the same
+    # numbers the contracts are computed from, on every page that repeats
+    # the table, so the published margins cannot drift from the record.
+    contract_numbers = {
+        "the sonic temperature": (
+            100.0 * (values["temperature_k"] / cea["throat_T_k"] - 1.0), 0.01
+        ),
+        "the sonic pressure": (
+            100.0 * (values["pressure_mpa"] * 1e6 / cea["throat_p_pa"] - 1.0), 0.01
+        ),
+        "the mass flow is conserved": (
+            100.0 * (values["mass_flow_kg_s"] - 3.80) / 3.80, 0.01
+        ),
+        "the chamber runs subsonic": (values["chamber_mach"], 0.0001),
+        "the exit runs supersonic": (values["exit_mach"], 0.001),
+        "the gas agrees with cea": (
+            abs(100.0 * (cea["throat_p_pa"] / float(result["isentrope_sonic_p_pa"]) - 1.0)),
+            0.01,
+        ),
+        "the march agrees with its gas": (
+            100.0 * (values["pressure_mpa"] * 1e6 / float(result["isentrope_sonic_p_pa"]) - 1.0),
+            0.01,
+        ),
+    }
+    for page_label, page_path in (("the page", PAGE), ("the roadmap", ROADMAP_PAGE)):
+        page_rows = published_rows(page_path)
+        for label, (want, tol) in contract_numbers.items():
+            if label not in page_rows:
+                continue
+            got = first_number(page_rows[label][0][2])
+            ok = got is not None and abs(got - want) <= tol
+            print(
+                ("PASS " if ok else "FAIL ")
+                + f"{page_label}'s contract '{label}': {got} against {want:.4f}"
+            )
+            if not ok:
+                failures.append(f"{page_label}'s contract '{label}'")
 
     # the resolution study has to ship and has to agree with the case.
     if not os.path.exists(RESOLUTION):

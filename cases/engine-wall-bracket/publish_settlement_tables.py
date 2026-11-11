@@ -84,6 +84,26 @@ def power_detail(payload):
     return "\n".join(lines)
 
 
+def calibration_block(payload):
+    """the screen's own calibration against the surrogate null."""
+    trials = payload.get("trials", 0)
+    certified = payload.get("flat_null_certified_count", 0)
+    declined = trials - certified
+    rate = payload.get("flat_null_false_alarm_rate")
+    lines = [
+        "surrogates built: {}, of which {} were declined, a decline rate "
+        "of {}".format(trials, declined, "{:.4f}".format(rate)),
+        "windows the search chose: {}".format(
+            payload.get("flat_null_distinct_lengths")
+        ),
+        "smallest drift detected at {} percent, against a target of {}".format(
+            payload.get("minimum_detectable_percent"),
+            payload.get("detection_target"),
+        ),
+    ]
+    return "\n".join(lines)
+
+
 def search_table(payload):
     """the price of the window search, one block per drift design."""
     blocks = []
@@ -166,6 +186,7 @@ def main(argv=None):
     parser.add_argument("page", help="the markdown page to rewrite")
     parser.add_argument("--power", help="the detection-power JSON")
     parser.add_argument("--search", help="the search-multiplicity JSON")
+    parser.add_argument("--calibration", help="the screen calibration JSON")
     args = parser.parse_args(argv)
     payloads = {}
     if args.power:
@@ -174,6 +195,9 @@ def main(argv=None):
     if args.search:
         with open(args.search) as handle:
             payloads["search"] = json.load(handle)
+    if args.calibration:
+        with open(args.calibration) as handle:
+            payloads["calibration"] = json.load(handle)
 
     with open(args.page) as handle:
         page = handle.read()
@@ -182,6 +206,10 @@ def main(argv=None):
         page = replace_region(page, "powers", powers_table(payloads["power"]))
         page = replace_region(
             page, "power-detail", power_detail(payloads["power"])
+        )
+    if "calibration" in payloads:
+        page = replace_region(
+            page, "calibration", calibration_block(payloads["calibration"])
         )
     if "search" in payloads:
         page = replace_region(

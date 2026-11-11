@@ -383,7 +383,7 @@ pub fn advance2d_axi_curv(
         // the curvilinear march does not serve the species lanes
         // (the cartesian species marches); a species case on this lane
         // is rejected by the config dispatch before the march runs.
-        ThermoModel::Park5 { gamma_shaping } | ThermoModel::Combustion9 { gamma_shaping } => {
+        ThermoModel::Park5 { gamma_shaping } | ThermoModel::Combustion { gamma_shaping, .. } => {
             gamma_shaping
         }
     };
@@ -396,7 +396,7 @@ pub fn advance2d_axi_curv(
     let face_prim = |model: ThermoModel, rho: f64, un: f64, ut: f64, x: f64| -> FacePrim {
         match model {
             ThermoModel::Perfect { gamma } => FacePrim::perfect(rho, un, ut, x, gamma),
-            ThermoModel::Park5 { .. } | ThermoModel::Combustion9 { .. } => {
+            ThermoModel::Park5 { .. } | ThermoModel::Combustion { .. } => {
                 // the curvilinear lane does not serve the species marches.
                 unreachable!("species lane rejected before the curvilinear march")
             }
@@ -651,7 +651,7 @@ fn freestream_e(model: crate::thermo::ThermoModel, fs: &Freestream) -> f64 {
     match model {
         crate::thermo::ThermoModel::Perfect { .. } => fs.p,
         crate::thermo::ThermoModel::Park5 { .. }
-        | crate::thermo::ThermoModel::Combustion9 { .. } => {
+        | crate::thermo::ThermoModel::Combustion { .. } => {
             // the curvilinear lane does not serve the species marches.
             unreachable!("species lane rejected before the curvilinear march")
         }
@@ -671,7 +671,7 @@ fn closure_state(model: crate::thermo::ThermoModel, p: f64, e_int: f64) -> f64 {
     match model {
         crate::thermo::ThermoModel::Perfect { .. } => p,
         crate::thermo::ThermoModel::Park5 { .. }
-        | crate::thermo::ThermoModel::Combustion9 { .. }
+        | crate::thermo::ThermoModel::Combustion { .. }
         | crate::thermo::ThermoModel::EqAir { .. } => e_int,
     }
 }

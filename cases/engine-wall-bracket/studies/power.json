@@ -1,0 +1,301 @@
+{
+ "pairs_per_amplitude": 800,
+ "campaign": "record",
+ "settlement_window": 14,
+ "arms": [
+  {
+   "design": "whole_record",
+   "null_construction": "detrended_rotation",
+   "amplitude_percent": 0.005,
+   "pairs": 800,
+   "baseline_certificates": 212,
+   "drift_arm_certificates": 197,
+   "certificate_survives_drift_rate": 0.24625,
+   "certificate_survives_drift_interval": [
+    0.21765522128166478,
+    0.2772700584307935
+   ],
+   "detected_among_baseline": 0.08962264150943396,
+   "detected_among_baseline_interval": [
+    0.058126142266582526,
+    0.13572660084477262
+   ],
+   "certificate_withdrawn": 19,
+   "certificate_appeared": 4,
+   "neither_arm_certified": 584
+  },
+  {
+   "design": "whole_record",
+   "null_construction": "detrended_rotation",
+   "amplitude_percent": 0.01,
+   "pairs": 800,
+   "baseline_certificates": 207,
+   "drift_arm_certificates": 188,
+   "certificate_survives_drift_rate": 0.235,
+   "certificate_survives_drift_interval": [
+    0.2069282656353107,
+    0.26560453879346346
+   ],
+   "detected_among_baseline": 0.16908212560386474,
+   "detected_among_baseline_interval": [
+    0.12415947498449342,
+    0.22606319598871788
+   ],
+   "certificate_withdrawn": 35,
+   "certificate_appeared": 16,
+   "neither_arm_certified": 577
+  },
+  {
+   "design": "whole_record",
+   "null_construction": "detrended_rotation",
+   "amplitude_percent": 0.02,
+   "pairs": 800,
+   "baseline_certificates": 190,
+   "drift_arm_certificates": 165,
+   "certificate_survives_drift_rate": 0.20625,
+   "certificate_survives_drift_interval": [
+    0.1796479927183911,
+    0.23565959709652368
+   ],
+   "detected_among_baseline": 0.23157894736842105,
+   "detected_among_baseline_interval": [
+    0.1772760059195332,
+    0.2965207732180896
+   ],
+   "certificate_withdrawn": 44,
+   "certificate_appeared": 19,
+   "neither_arm_certified": 591
+  },
+  {
+   "design": "whole_record",
+   "null_construction": "detrended_rotation",
+   "amplitude_percent": 0.05,
+   "pairs": 800,
+   "baseline_certificates": 208,
+   "drift_arm_certificates": 143,
+   "certificate_survives_drift_rate": 0.17875,
+   "certificate_survives_drift_interval": [
+    0.15375431780743867,
+    0.20681611020291493
+   ],
+   "detected_among_baseline": 0.4567307692307692,
+   "detected_among_baseline_interval": [
+    0.39043277867741616,
+    0.5245980179614695
+   ],
+   "certificate_withdrawn": 95,
+   "certificate_appeared": 30,
+   "neither_arm_certified": 562
+  },
+  {
+   "design": "whole_record",
+   "null_construction": "detrended_rotation",
+   "amplitude_percent": 0.1,
+   "pairs": 800,
+   "baseline_certificates": 193,
+   "drift_arm_certificates": 97,
+   "certificate_survives_drift_rate": 0.12125,
+   "certificate_survives_drift_interval": [
+    0.1004224664313941,
+    0.14569753235124072
+   ],
+   "detected_among_baseline": 0.6683937823834197,
+   "detected_among_baseline_interval": [
+    0.5992570316804611,
+    0.7309579564090036
+   ],
+   "certificate_withdrawn": 129,
+   "certificate_appeared": 33,
+   "neither_arm_certified": 574
+  },
+  {
+   "design": "whole_record",
+   "null_construction": "detrended_rotation",
+   "amplitude_percent": 0.2,
+   "pairs": 800,
+   "baseline_certificates": 210,
+   "drift_arm_certificates": 32,
+   "certificate_survives_drift_rate": 0.04,
+   "certificate_survives_drift_interval": [
+    0.028474533684568995,
+    0.05592203249368059
+   ],
+   "detected_among_baseline": 0.9095238095238095,
+   "detected_among_baseline_interval": [
+    0.8630213831815138,
+    0.9413128226353186
+   ],
+   "certificate_withdrawn": 191,
+   "certificate_appeared": 13,
+   "neither_arm_certified": 577
+  },
+  {
+   "design": "whole_record",
+   "null_construction": "detrended_rotation",
+   "amplitude_percent": 0.5,
+   "pairs": 800,
+   "baseline_certificates": 198,
+   "drift_arm_certificates": 0,
+   "certificate_survives_drift_rate": 0.0,
+   "certificate_survives_drift_interval": [
+    0.0,
+    0.004778876280706083
+   ],
+   "detected_among_baseline": 1.0,
+   "detected_among_baseline_interval": [
+    0.9809679393788213,
+    1.0000000000000002
+   ],
+   "certificate_withdrawn": 198,
+   "certificate_appeared": 0,
+   "neither_arm_certified": 602
+  },
+  {
+   "design": "confined",
+   "null_construction": "detrended_rotation",
+   "amplitude_percent": 0.005,
+   "pairs": 800,
+   "baseline_certificates": 205,
+   "drift_arm_certificates": 186,
+   "certificate_survives_drift_rate": 0.2325,
+   "certificate_survives_drift_interval": [
+    0.20454831722042072,
+    0.26300838158975703
+   ],
+   "detected_among_baseline": 0.1902439024390244,
+   "detected_among_baseline_interval": [
+    0.14240560908344987,
+    0.24947758939494277
+   ],
+   "certificate_withdrawn": 39,
+   "certificate_appeared": 20,
+   "neither_arm_certified": 575
+  },
+  {
+   "design": "confined",
+   "null_construction": "detrended_rotation",
+   "amplitude_percent": 0.01,
+   "pairs": 800,
+   "baseline_certificates": 195,
+   "drift_arm_certificates": 135,
+   "certificate_survives_drift_rate": 0.16875,
+   "certificate_survives_drift_interval": [
+    0.14439354824316203,
+    0.1962724572928058
+   ],
+   "detected_among_baseline": 0.49230769230769234,
+   "detected_among_baseline_interval": [
+    0.42296759634517006,
+    0.5619450068067162
+   ],
+   "certificate_withdrawn": 96,
+   "certificate_appeared": 36,
+   "neither_arm_certified": 569
+  },
+  {
+   "design": "confined",
+   "null_construction": "detrended_rotation",
+   "amplitude_percent": 0.02,
+   "pairs": 800,
+   "baseline_certificates": 218,
+   "drift_arm_certificates": 111,
+   "certificate_survives_drift_rate": 0.13875,
+   "certificate_survives_drift_interval": [
+    0.11651705774182217,
+    0.16443568037098802
+   ],
+   "detected_among_baseline": 0.6284403669724771,
+   "detected_among_baseline_interval": [
+    0.5625896906473493,
+    0.6898428360877222
+   ],
+   "certificate_withdrawn": 137,
+   "certificate_appeared": 30,
+   "neither_arm_certified": 552
+  },
+  {
+   "design": "confined",
+   "null_construction": "detrended_rotation",
+   "amplitude_percent": 0.05,
+   "pairs": 800,
+   "baseline_certificates": 213,
+   "drift_arm_certificates": 18,
+   "certificate_survives_drift_rate": 0.0225,
+   "certificate_survives_drift_interval": [
+    0.0142789357951178,
+    0.035284891052956506
+   ],
+   "detected_among_baseline": 0.9624413145539906,
+   "detected_among_baseline_interval": [
+    0.927650123874698,
+    0.9808477298860182
+   ],
+   "certificate_withdrawn": 205,
+   "certificate_appeared": 10,
+   "neither_arm_certified": 577
+  },
+  {
+   "design": "confined",
+   "null_construction": "detrended_rotation",
+   "amplitude_percent": 0.1,
+   "pairs": 800,
+   "baseline_certificates": 185,
+   "drift_arm_certificates": 0,
+   "certificate_survives_drift_rate": 0.0,
+   "certificate_survives_drift_interval": [
+    0.0,
+    0.004778876280706083
+   ],
+   "detected_among_baseline": 1.0,
+   "detected_among_baseline_interval": [
+    0.9796577568079969,
+    1.0000000000000002
+   ],
+   "certificate_withdrawn": 185,
+   "certificate_appeared": 0,
+   "neither_arm_certified": 615
+  },
+  {
+   "design": "confined",
+   "null_construction": "detrended_rotation",
+   "amplitude_percent": 0.2,
+   "pairs": 800,
+   "baseline_certificates": 192,
+   "drift_arm_certificates": 0,
+   "certificate_survives_drift_rate": 0.0,
+   "certificate_survives_drift_interval": [
+    0.0,
+    0.004778876280706083
+   ],
+   "detected_among_baseline": 1.0,
+   "detected_among_baseline_interval": [
+    0.980384853629872,
+    1.0
+   ],
+   "certificate_withdrawn": 192,
+   "certificate_appeared": 0,
+   "neither_arm_certified": 608
+  },
+  {
+   "design": "confined",
+   "null_construction": "detrended_rotation",
+   "amplitude_percent": 0.5,
+   "pairs": 800,
+   "baseline_certificates": 220,
+   "drift_arm_certificates": 0,
+   "certificate_survives_drift_rate": 0.0,
+   "certificate_survives_drift_interval": [
+    0.0,
+    0.004778876280706083
+   ],
+   "detected_among_baseline": 1.0,
+   "detected_among_baseline_interval": [
+    0.9828384835387749,
+    1.0
+   ],
+   "certificate_withdrawn": 220,
+   "certificate_appeared": 0,
+   "neither_arm_certified": 580
+  }
+ ]
+}

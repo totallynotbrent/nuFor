@@ -105,7 +105,7 @@ pub fn advance_ugrid(
             }
             (p, a)
         }
-        ThermoModel::Park5 { .. } | ThermoModel::Combustion9 { .. } => {
+        ThermoModel::Park5 { .. } | ThermoModel::Combustion { .. } => {
             return Err(Error::InvalidArgs);
         }
     };
@@ -208,7 +208,7 @@ pub fn advance_ugrid(
                     },
                 )
             }
-            ThermoModel::Park5 { .. } | ThermoModel::Combustion9 { .. } => {
+            ThermoModel::Park5 { .. } | ThermoModel::Combustion { .. } => {
                 return Err(Error::InvalidArgs);
             }
         };
@@ -335,7 +335,7 @@ pub fn advance_ugrid_recon(
             }
             (p, a)
         }
-        ThermoModel::Park5 { .. } | ThermoModel::Combustion9 { .. } => {
+        ThermoModel::Park5 { .. } | ThermoModel::Combustion { .. } => {
             return Err(Error::InvalidArgs);
         }
     };
@@ -520,7 +520,7 @@ pub fn advance_ugrid_recon(
                 };
                 (lfp, rfp)
             }
-            ThermoModel::Park5 { .. } | ThermoModel::Combustion9 { .. } => {
+            ThermoModel::Park5 { .. } | ThermoModel::Combustion { .. } => {
                 return Err(Error::InvalidArgs);
             }
         };

@@ -197,16 +197,13 @@ pub fn apply_solid_combustion(
     rho_fs: f64,
     u_fs: f64,
     p_fs: f64,
-    fill: &[f64; crate::combustion_thermo::NS],
+    lane: crate::chem_lane::ChemLane,
+    fill: &[f64],
 ) {
     // e is per volume: quiescent freestream internal energy at the
     // fill composition, no kinetic term.
-    let mut y = [0.0f64; crate::combustion_thermo::NS];
-    for (dst, src) in y.iter_mut().zip(fill.iter()) {
-        *dst = *src;
-    }
-    let t_fs = p_fs / (rho_fs * crate::combustion_closure::mix_gas_constant(&y));
-    let e_int = crate::combustion_closure::internal_energy_at(t_fs, &y);
+    let t_fs = p_fs / (rho_fs * lane.mix_gas_constant(fill));
+    let e_int = lane.internal_energy_at(t_fs, fill);
     let band = 1.5 * g.dx.min(g.dy);
     let cache = body_cache(g, dist, band);
     for k in &cache.solid_cells {

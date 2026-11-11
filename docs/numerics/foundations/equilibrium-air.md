@@ -149,3 +149,7 @@ the next steps past equilibrium.
 ![Same run, temperature: the heated shock layer wrapped around the nose](img/capsule-eqair-fine-t.png)
 
 ![Same run, Mach number: subsonic pocket behind the bow shock, supersonic shoulders](img/capsule-eqair-fine-mach.png)
+The same run in its other fields:
+
+![Pressure field, same run](img/capsule-eqair-fine-p.png)
+

@@ -1,0 +1,434 @@
+{
+ "pairs_per_cell": 400,
+ "campaign": "record",
+ "settlement_window": 14,
+ "null_construction": "detrended_rotation",
+ "arms": {
+  "scan_full": "the legacy screen over its whole candidate range",
+  "scan_width_matched": "the same scan capped at the registered horizon's width, so it may choose among neighbouring widths but not widen",
+  "registered": "one declared horizon, fixed before inspection"
+ },
+ "interpretation": "the surrogates are trend-free, so certifying one is correct behaviour rather than a false alarm. these cells price the search at matched width against the registered arm, and the width against the unrestricted scan.",
+ "cells": [
+  {
+   "design": "whole_record",
+   "amplitude_percent": 0.01,
+   "pairs": 400,
+   "arms": {
+    "scan_full": {
+     "quiet_records_certified": 397,
+     "drifted_records_certified": 397,
+     "certificates_surviving_drift": 395,
+     "certificates_withdrawn": 2,
+     "yield_on_quiet_record": 0.9925,
+     "detected_among_baseline": 0.005037783375314861,
+     "miss_rate_given_baseline_certificate": 0.9949622166246851,
+     "certificate_survives_drift_rate": 0.9875
+    },
+    "scan_width_matched": {
+     "quiet_records_certified": 193,
+     "drifted_records_certified": 186,
+     "certificates_surviving_drift": 182,
+     "certificates_withdrawn": 11,
+     "yield_on_quiet_record": 0.4825,
+     "detected_among_baseline": 0.05699481865284974,
+     "miss_rate_given_baseline_certificate": 0.9430051813471503,
+     "certificate_survives_drift_rate": 0.455
+    },
+    "registered": {
+     "quiet_records_certified": 103,
+     "drifted_records_certified": 98,
+     "certificates_surviving_drift": 87,
+     "certificates_withdrawn": 16,
+     "yield_on_quiet_record": 0.2575,
+     "detected_among_baseline": 0.1553398058252427,
+     "miss_rate_given_baseline_certificate": 0.8446601941747572,
+     "certificate_survives_drift_rate": 0.2175
+    }
+   },
+   "search_cost_at_matched_width": {
+    "match_scan_miss_rate": 0.9430051813471503,
+    "registered_miss_rate": 0.8446601941747572,
+    "miss_rate_difference": 0.09834498717239304
+   }
+  },
+  {
+   "design": "whole_record",
+   "amplitude_percent": 0.02,
+   "pairs": 400,
+   "arms": {
+    "scan_full": {
+     "quiet_records_certified": 397,
+     "drifted_records_certified": 389,
+     "certificates_surviving_drift": 388,
+     "certificates_withdrawn": 9,
+     "yield_on_quiet_record": 0.9925,
+     "detected_among_baseline": 0.022670025188916875,
+     "miss_rate_given_baseline_certificate": 0.9773299748110831,
+     "certificate_survives_drift_rate": 0.97
+    },
+    "scan_width_matched": {
+     "quiet_records_certified": 193,
+     "drifted_records_certified": 186,
+     "certificates_surviving_drift": 180,
+     "certificates_withdrawn": 13,
+     "yield_on_quiet_record": 0.4825,
+     "detected_among_baseline": 0.06735751295336788,
+     "miss_rate_given_baseline_certificate": 0.9326424870466321,
+     "certificate_survives_drift_rate": 0.45
+    },
+    "registered": {
+     "quiet_records_certified": 103,
+     "drifted_records_certified": 99,
+     "certificates_surviving_drift": 87,
+     "certificates_withdrawn": 16,
+     "yield_on_quiet_record": 0.2575,
+     "detected_among_baseline": 0.1553398058252427,
+     "miss_rate_given_baseline_certificate": 0.8446601941747572,
+     "certificate_survives_drift_rate": 0.2175
+    }
+   },
+   "search_cost_at_matched_width": {
+    "match_scan_miss_rate": 0.9326424870466321,
+    "registered_miss_rate": 0.8446601941747572,
+    "miss_rate_difference": 0.08798229287187487
+   }
+  },
+  {
+   "design": "whole_record",
+   "amplitude_percent": 0.05,
+   "pairs": 400,
+   "arms": {
+    "scan_full": {
+     "quiet_records_certified": 397,
+     "drifted_records_certified": 341,
+     "certificates_surviving_drift": 341,
+     "certificates_withdrawn": 56,
+     "yield_on_quiet_record": 0.9925,
+     "detected_among_baseline": 0.14105793450881612,
+     "miss_rate_given_baseline_certificate": 0.8589420654911839,
+     "certificate_survives_drift_rate": 0.8525
+    },
+    "scan_width_matched": {
+     "quiet_records_certified": 193,
+     "drifted_records_certified": 144,
+     "certificates_surviving_drift": 133,
+     "certificates_withdrawn": 60,
+     "yield_on_quiet_record": 0.4825,
+     "detected_among_baseline": 0.31088082901554404,
+     "miss_rate_given_baseline_certificate": 0.689119170984456,
+     "certificate_survives_drift_rate": 0.3325
+    },
+    "registered": {
+     "quiet_records_certified": 103,
+     "drifted_records_certified": 73,
+     "certificates_surviving_drift": 58,
+     "certificates_withdrawn": 45,
+     "yield_on_quiet_record": 0.2575,
+     "detected_among_baseline": 0.4368932038834951,
+     "miss_rate_given_baseline_certificate": 0.5631067961165048,
+     "certificate_survives_drift_rate": 0.145
+    }
+   },
+   "search_cost_at_matched_width": {
+    "match_scan_miss_rate": 0.689119170984456,
+    "registered_miss_rate": 0.5631067961165048,
+    "miss_rate_difference": 0.12601237486795114
+   }
+  },
+  {
+   "design": "whole_record",
+   "amplitude_percent": 0.1,
+   "pairs": 400,
+   "arms": {
+    "scan_full": {
+     "quiet_records_certified": 397,
+     "drifted_records_certified": 233,
+     "certificates_surviving_drift": 233,
+     "certificates_withdrawn": 164,
+     "yield_on_quiet_record": 0.9925,
+     "detected_among_baseline": 0.41309823677581864,
+     "miss_rate_given_baseline_certificate": 0.5869017632241813,
+     "certificate_survives_drift_rate": 0.5825
+    },
+    "scan_width_matched": {
+     "quiet_records_certified": 193,
+     "drifted_records_certified": 98,
+     "certificates_surviving_drift": 87,
+     "certificates_withdrawn": 106,
+     "yield_on_quiet_record": 0.4825,
+     "detected_among_baseline": 0.5492227979274611,
+     "miss_rate_given_baseline_certificate": 0.45077720207253885,
+     "certificate_survives_drift_rate": 0.2175
+    },
+    "registered": {
+     "quiet_records_certified": 103,
+     "drifted_records_certified": 48,
+     "certificates_surviving_drift": 32,
+     "certificates_withdrawn": 71,
+     "yield_on_quiet_record": 0.2575,
+     "detected_among_baseline": 0.6893203883495146,
+     "miss_rate_given_baseline_certificate": 0.3106796116504854,
+     "certificate_survives_drift_rate": 0.08
+    }
+   },
+   "search_cost_at_matched_width": {
+    "match_scan_miss_rate": 0.45077720207253885,
+    "registered_miss_rate": 0.3106796116504854,
+    "miss_rate_difference": 0.14009759042205344
+   }
+  },
+  {
+   "design": "whole_record",
+   "amplitude_percent": 0.2,
+   "pairs": 400,
+   "arms": {
+    "scan_full": {
+     "quiet_records_certified": 397,
+     "drifted_records_certified": 60,
+     "certificates_surviving_drift": 60,
+     "certificates_withdrawn": 337,
+     "yield_on_quiet_record": 0.9925,
+     "detected_among_baseline": 0.8488664987405542,
+     "miss_rate_given_baseline_certificate": 0.15113350125944586,
+     "certificate_survives_drift_rate": 0.15
+    },
+    "scan_width_matched": {
+     "quiet_records_certified": 193,
+     "drifted_records_certified": 48,
+     "certificates_surviving_drift": 40,
+     "certificates_withdrawn": 153,
+     "yield_on_quiet_record": 0.4825,
+     "detected_among_baseline": 0.7927461139896373,
+     "miss_rate_given_baseline_certificate": 0.20725388601036268,
+     "certificate_survives_drift_rate": 0.1
+    },
+    "registered": {
+     "quiet_records_certified": 103,
+     "drifted_records_certified": 17,
+     "certificates_surviving_drift": 10,
+     "certificates_withdrawn": 93,
+     "yield_on_quiet_record": 0.2575,
+     "detected_among_baseline": 0.9029126213592233,
+     "miss_rate_given_baseline_certificate": 0.0970873786407767,
+     "certificate_survives_drift_rate": 0.025
+    }
+   },
+   "search_cost_at_matched_width": {
+    "match_scan_miss_rate": 0.20725388601036268,
+    "registered_miss_rate": 0.0970873786407767,
+    "miss_rate_difference": 0.11016650736958598
+   }
+  },
+  {
+   "design": "confined",
+   "amplitude_percent": 0.01,
+   "pairs": 400,
+   "arms": {
+    "scan_full": {
+     "quiet_records_certified": 397,
+     "drifted_records_certified": 397,
+     "certificates_surviving_drift": 396,
+     "certificates_withdrawn": 1,
+     "yield_on_quiet_record": 0.9925,
+     "detected_among_baseline": 0.0025188916876574307,
+     "miss_rate_given_baseline_certificate": 0.9974811083123426,
+     "certificate_survives_drift_rate": 0.99
+    },
+    "scan_width_matched": {
+     "quiet_records_certified": 193,
+     "drifted_records_certified": 145,
+     "certificates_surviving_drift": 133,
+     "certificates_withdrawn": 60,
+     "yield_on_quiet_record": 0.4825,
+     "detected_among_baseline": 0.31088082901554404,
+     "miss_rate_given_baseline_certificate": 0.689119170984456,
+     "certificate_survives_drift_rate": 0.3325
+    },
+    "registered": {
+     "quiet_records_certified": 103,
+     "drifted_records_certified": 73,
+     "certificates_surviving_drift": 58,
+     "certificates_withdrawn": 45,
+     "yield_on_quiet_record": 0.2575,
+     "detected_among_baseline": 0.4368932038834951,
+     "miss_rate_given_baseline_certificate": 0.5631067961165048,
+     "certificate_survives_drift_rate": 0.145
+    }
+   },
+   "search_cost_at_matched_width": {
+    "match_scan_miss_rate": 0.689119170984456,
+    "registered_miss_rate": 0.5631067961165048,
+    "miss_rate_difference": 0.12601237486795114
+   }
+  },
+  {
+   "design": "confined",
+   "amplitude_percent": 0.02,
+   "pairs": 400,
+   "arms": {
+    "scan_full": {
+     "quiet_records_certified": 397,
+     "drifted_records_certified": 391,
+     "certificates_surviving_drift": 389,
+     "certificates_withdrawn": 8,
+     "yield_on_quiet_record": 0.9925,
+     "detected_among_baseline": 0.020151133501259445,
+     "miss_rate_given_baseline_certificate": 0.9798488664987406,
+     "certificate_survives_drift_rate": 0.9725
+    },
+    "scan_width_matched": {
+     "quiet_records_certified": 193,
+     "drifted_records_certified": 99,
+     "certificates_surviving_drift": 89,
+     "certificates_withdrawn": 104,
+     "yield_on_quiet_record": 0.4825,
+     "detected_among_baseline": 0.538860103626943,
+     "miss_rate_given_baseline_certificate": 0.46113989637305697,
+     "certificate_survives_drift_rate": 0.2225
+    },
+    "registered": {
+     "quiet_records_certified": 103,
+     "drifted_records_certified": 49,
+     "certificates_surviving_drift": 34,
+     "certificates_withdrawn": 69,
+     "yield_on_quiet_record": 0.2575,
+     "detected_among_baseline": 0.6699029126213593,
+     "miss_rate_given_baseline_certificate": 0.3300970873786408,
+     "certificate_survives_drift_rate": 0.085
+    }
+   },
+   "search_cost_at_matched_width": {
+    "match_scan_miss_rate": 0.46113989637305697,
+    "registered_miss_rate": 0.3300970873786408,
+    "miss_rate_difference": 0.13104280899441617
+   }
+  },
+  {
+   "design": "confined",
+   "amplitude_percent": 0.05,
+   "pairs": 400,
+   "arms": {
+    "scan_full": {
+     "quiet_records_certified": 397,
+     "drifted_records_certified": 203,
+     "certificates_surviving_drift": 202,
+     "certificates_withdrawn": 195,
+     "yield_on_quiet_record": 0.9925,
+     "detected_among_baseline": 0.491183879093199,
+     "miss_rate_given_baseline_certificate": 0.5088161209068011,
+     "certificate_survives_drift_rate": 0.505
+    },
+    "scan_width_matched": {
+     "quiet_records_certified": 193,
+     "drifted_records_certified": 30,
+     "certificates_surviving_drift": 25,
+     "certificates_withdrawn": 168,
+     "yield_on_quiet_record": 0.4825,
+     "detected_among_baseline": 0.8704663212435233,
+     "miss_rate_given_baseline_certificate": 0.12953367875647667,
+     "certificate_survives_drift_rate": 0.0625
+    },
+    "registered": {
+     "quiet_records_certified": 103,
+     "drifted_records_certified": 12,
+     "certificates_surviving_drift": 7,
+     "certificates_withdrawn": 96,
+     "yield_on_quiet_record": 0.2575,
+     "detected_among_baseline": 0.9320388349514563,
+     "miss_rate_given_baseline_certificate": 0.06796116504854369,
+     "certificate_survives_drift_rate": 0.0175
+    }
+   },
+   "search_cost_at_matched_width": {
+    "match_scan_miss_rate": 0.12953367875647667,
+    "registered_miss_rate": 0.06796116504854369,
+    "miss_rate_difference": 0.061572513707932985
+   }
+  },
+  {
+   "design": "confined",
+   "amplitude_percent": 0.1,
+   "pairs": 400,
+   "arms": {
+    "scan_full": {
+     "quiet_records_certified": 397,
+     "drifted_records_certified": 21,
+     "certificates_surviving_drift": 21,
+     "certificates_withdrawn": 376,
+     "yield_on_quiet_record": 0.9925,
+     "detected_among_baseline": 0.947103274559194,
+     "miss_rate_given_baseline_certificate": 0.05289672544080604,
+     "certificate_survives_drift_rate": 0.0525
+    },
+    "scan_width_matched": {
+     "quiet_records_certified": 193,
+     "drifted_records_certified": 0,
+     "certificates_surviving_drift": 0,
+     "certificates_withdrawn": 193,
+     "yield_on_quiet_record": 0.4825,
+     "detected_among_baseline": 1.0,
+     "miss_rate_given_baseline_certificate": 0.0,
+     "certificate_survives_drift_rate": 0.0
+    },
+    "registered": {
+     "quiet_records_certified": 103,
+     "drifted_records_certified": 0,
+     "certificates_surviving_drift": 0,
+     "certificates_withdrawn": 103,
+     "yield_on_quiet_record": 0.2575,
+     "detected_among_baseline": 1.0,
+     "miss_rate_given_baseline_certificate": 0.0,
+     "certificate_survives_drift_rate": 0.0
+    }
+   },
+   "search_cost_at_matched_width": {
+    "match_scan_miss_rate": 0.0,
+    "registered_miss_rate": 0.0,
+    "miss_rate_difference": 0.0
+   }
+  },
+  {
+   "design": "confined",
+   "amplitude_percent": 0.2,
+   "pairs": 400,
+   "arms": {
+    "scan_full": {
+     "quiet_records_certified": 397,
+     "drifted_records_certified": 0,
+     "certificates_surviving_drift": 0,
+     "certificates_withdrawn": 397,
+     "yield_on_quiet_record": 0.9925,
+     "detected_among_baseline": 1.0,
+     "miss_rate_given_baseline_certificate": 0.0,
+     "certificate_survives_drift_rate": 0.0
+    },
+    "scan_width_matched": {
+     "quiet_records_certified": 193,
+     "drifted_records_certified": 0,
+     "certificates_surviving_drift": 0,
+     "certificates_withdrawn": 193,
+     "yield_on_quiet_record": 0.4825,
+     "detected_among_baseline": 1.0,
+     "miss_rate_given_baseline_certificate": 0.0,
+     "certificate_survives_drift_rate": 0.0
+    },
+    "registered": {
+     "quiet_records_certified": 103,
+     "drifted_records_certified": 0,
+     "certificates_surviving_drift": 0,
+     "certificates_withdrawn": 103,
+     "yield_on_quiet_record": 0.2575,
+     "detected_among_baseline": 1.0,
+     "miss_rate_given_baseline_certificate": 0.0,
+     "certificate_survives_drift_rate": 0.0
+    }
+   },
+   "search_cost_at_matched_width": {
+    "match_scan_miss_rate": 0.0,
+    "registered_miss_rate": 0.0,
+    "miss_rate_difference": 0.0
+   }
+  }
+ ]
+}

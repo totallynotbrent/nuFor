@@ -1,0 +1,118 @@
+{
+ "campaign": "record",
+ "seed": 20261102,
+ "trials": 400,
+ "null_construction": "detrended_rotation",
+ "observed_qualified": true,
+ "observed_window_length": 14,
+ "observed_slope_tolerance": 3.5273520248040313,
+ "family_alpha": 0.05,
+ "flat_null_certified_count": 94,
+ "flat_null_certified_frequency": 0.235,
+ "flat_null_false_alarm_rate": 0.765,
+ "flat_null_false_alarm_interval": [
+  0.721049458451181,
+  0.8039090254728648
+ ],
+ "flat_null_distinct_lengths": [
+  14
+ ],
+ "null_tolerance_range": [
+  3.5273520248040313,
+  3.5273520248040313
+ ],
+ "detection": [
+  {
+   "amplitude_percent": 0.005,
+   "trials": 100,
+   "certified_without_ramp": 30,
+   "certified_without_ramp_rate": 0.3,
+   "certified_with_ramp": 28,
+   "certified_with_ramp_rate": 0.28,
+   "certificate_withdrawn": 2,
+   "certificate_appeared": 0,
+   "discordant_pairs": 2,
+   "conditional_detection_rate": 0.06666666666666667,
+   "chosen_lengths": [
+    14
+   ]
+  },
+  {
+   "amplitude_percent": 0.01,
+   "trials": 100,
+   "certified_without_ramp": 30,
+   "certified_without_ramp_rate": 0.3,
+   "certified_with_ramp": 30,
+   "certified_with_ramp_rate": 0.3,
+   "certificate_withdrawn": 2,
+   "certificate_appeared": 2,
+   "discordant_pairs": 4,
+   "conditional_detection_rate": 0.06666666666666667,
+   "chosen_lengths": [
+    14
+   ]
+  },
+  {
+   "amplitude_percent": 0.02,
+   "trials": 100,
+   "certified_without_ramp": 31,
+   "certified_without_ramp_rate": 0.31,
+   "certified_with_ramp": 21,
+   "certified_with_ramp_rate": 0.21,
+   "certificate_withdrawn": 11,
+   "certificate_appeared": 1,
+   "discordant_pairs": 12,
+   "conditional_detection_rate": 0.3548387096774194,
+   "chosen_lengths": [
+    14
+   ]
+  },
+  {
+   "amplitude_percent": 0.05,
+   "trials": 100,
+   "certified_without_ramp": 26,
+   "certified_without_ramp_rate": 0.26,
+   "certified_with_ramp": 20,
+   "certified_with_ramp_rate": 0.2,
+   "certificate_withdrawn": 10,
+   "certificate_appeared": 4,
+   "discordant_pairs": 14,
+   "conditional_detection_rate": 0.38461538461538464,
+   "chosen_lengths": [
+    14
+   ]
+  },
+  {
+   "amplitude_percent": 0.1,
+   "trials": 100,
+   "certified_without_ramp": 24,
+   "certified_without_ramp_rate": 0.24,
+   "certified_with_ramp": 10,
+   "certified_with_ramp_rate": 0.1,
+   "certificate_withdrawn": 17,
+   "certificate_appeared": 3,
+   "discordant_pairs": 20,
+   "conditional_detection_rate": 0.7083333333333334,
+   "chosen_lengths": [
+    14
+   ]
+  },
+  {
+   "amplitude_percent": 0.2,
+   "trials": 100,
+   "certified_without_ramp": 26,
+   "certified_without_ramp_rate": 0.26,
+   "certified_with_ramp": 4,
+   "certified_with_ramp_rate": 0.04,
+   "certificate_withdrawn": 23,
+   "certificate_appeared": 1,
+   "discordant_pairs": 24,
+   "conditional_detection_rate": 0.8846153846153846,
+   "chosen_lengths": [
+    14
+   ]
+  }
+ ],
+ "detection_target": 0.8,
+ "minimum_detectable_percent": 0.2
+}

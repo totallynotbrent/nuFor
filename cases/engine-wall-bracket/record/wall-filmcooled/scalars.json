@@ -1,0 +1,12 @@
+{
+  "conduction_mw": 0.1364,
+  "duty_mw": 0.8359,
+  "duty_source_sha256": "d4badca9f98e642e7af4320e8d80154645916b810e8d0bb729696b6f6fa2ed3a",
+  "fields_saved": 63,
+  "film_mw": 0.4021,
+  "logged_wall_k": 400.0,
+  "radiation_mw": 0.5171,
+  "surface_k": 400.0,
+  "surface_perimeter_m": 22.886502481401646,
+  "wall_k": 400.0
+}

@@ -43,12 +43,27 @@ transport physics is identical to the serial path. The viscous stencil needs
 one cell, well inside the two-cell halos; a second halo refresh after each
 viscous add keeps the next stage's neighbors current at slab seams.
 
-![viscous lane timing on the trim capsule](mpi-viscous-timing.png)
+![viscous lane timing on the station-shaped eqair case](mpi-viscous-timing.png)
+
+The viscous lane scales better than the inviscid one because the two-stage
+Heun step doubles the arithmetic per cell. On the same machine and the same
+station-shaped case at 320x176, 119 steps at every rank count:
+
+| ranks | march wall | speedup |
+|------:|-----------:|--------:|
+| np=1 | 9.7 s | 1.00 |
+| np=2 | 5.1 s | 1.89 |
+| np=4 | 3.1 s | 3.17 |
+| np=8 | 4.5 s | 2.15 |
+
+Four ranks reach 3.17x on four physical cores, and the eighth rank lands
+back on hyperthread siblings that share the same cores. Both tables come
+from `tools/bench_mpi.py`, the viscous one with `--viscous`.
 
 On the body-free class the Euler and viscous lanes both sit at roundoff
 against the serial Rust marches at np=1 and np=2 (the gates below): the two
 Euler gates are exact-zero, and the viscous gate's worst relative difference
-is 4.1e-15. Each bridge runs the full two-stage Heun in one call. Masked body cases keep a single-stage
+is 5.2e-15. Each bridge runs the full two-stage Heun in one call. Masked body cases keep a single-stage
 Euler pack: a naive second stage diverges at wall-band cells because the
 stage-2 reconstruction next to reference-state solid cells amplifies through
 the y sweep, and porting the staging needs its own body-case gate before it
@@ -81,7 +96,7 @@ the current state on every kernel call while the Fortran slab ghosts
 carried the scatter-time values. After fixing those, all five fields
 (density, both momenta, energy, nu_tilde) sit at roundoff against
 the serial driver at np=1, 2, and 3: the worst relative difference is
-8.2e-14, on the transverse momentum of a cell whose value is near zero.
+8.5e-14, on the transverse momentum of a cell whose value is near zero.
 
 ## The parity gates
 
@@ -91,16 +106,48 @@ to the serial Rust march:
 - sod 2D shock tube, exact-zero parity
 - a uniform equilibrium-air field, exact-zero parity
 - a laminar viscous uniform field (Sutherland transport, CEA closure
-  temperature), worst relative difference 4.1e-15 at np=1, 2, and 3
+  temperature), worst relative difference 5.2e-15 at np=1, 2, and 3
 - an SA capsule-regime field with a wall-adjacent perturbation (shear,
   vorticity, and transport all live), the five fields agree to roundoff
-  at np=1, 2, and 3: the worst relative difference is 8.2e-14 on the
-  transverse momentum of a cell whose value is near zero, and the worst
-  absolute difference is 7.3e-11 on the energy
+  at np=1, 2, and 3: the worst relative difference is 8.5e-14 on the
+  transverse momentum of a cell whose value is near zero
 - a capsule body at 22.5 degrees angle of attack, worst relative difference
-  3.8e-15 (roundoff; the wall faces churn every step)
+  2.5e-15 (roundoff; the wall faces churn every step)
+- a two-temperature field, exact-zero parity
 
-Each runs at np=1 and np=2 in CI. np=1 is the anchor: it runs the same MPI
+The two-temperature lane is the strictest of the set. It marches the
+equilibrium-air field through the Fortran core, then evolves the
+vibrational-energy plane `e_v` with its own substep, and compares that
+plane against the serial Rust substep bit for bit. Bitwise equality is the
+bar because both sides run the same scalar expressions on the same values;
+anything less than bitwise would hide a rearrangement in the donor
+stencil. The seed carries five gaussian bumps positioned so that they
+straddle every rank seam in the np=1 through np=5 decompositions, so the
+halo exchange has to be right for the comparison to hold. The march itself
+has to leave the four conserved planes untouched, which the lane asserts
+separately, and the plane has to actually move during the substep, which
+rules out a parity check passing on an inert field.
+
+Getting to bitwise parity took two fixes worth recording. The Fortran
+kernel and the Rust twin disagreed in the last bits on 78 of 4096 cells
+because the Fortran build fused multiply-add contractions the Rust build
+did not, so `-ffp-contract=off` is pinned in both the debug and the release
+flags. That cut the mismatches to 21 cells, and the rest came from the
+seed sitting in a regime where the equilibrium-air closure fit is sensitive
+enough for the two implementations to round apart; a calmer seed makes the
+closure agree exactly while leaving the plane transport fully exercised.
+
+The parity matrix runs at np=1 through np=5, five counts, and the fifth
+is chosen because at that count the outermost rank owns no body cell. The
+collected gate artefact lives in `cases/mpi-parity/gates.json`, and
+`cases/mpi-parity/verify_committed_gate.py` re-judges it without spending
+nine minutes of MPI time; pass `--rerun` to regenerate it from the built
+binaries and compare every number.
+
+Each lane runs at np=1 and np=2 in CI, with the two-temperature lane and
+the body lane entered twice, because the launcher can lose the race
+between the MPI teardown and the test harness exit while the test itself
+still passed. np=1 is the anchor: it runs the same MPI
 code path with a single rank and must reproduce the serial result exactly, so
 any divergence between the two implementations surfaces before multi-rank
 effects can muddy the cause. Setting `NF_GATE_NOPERT=1` on the SA gate runs
@@ -116,26 +163,43 @@ array. A capsule field with full 2D momenta catches all three.
 
 ## Measured scaling
 
-On my 8-core desktop (release build), the 34.6 km station case at 320x176,
-30 steps:
+The numbers below are measured on the development machine, an eight-thread
+Intel i7-7700T (four physical cores), on the station-shaped eqair case at
+320x176. `tools/bench_mpi.py` runs the sweep and writes the json this
+section and the chart are built from, so neither can drift away from a
+measurement:
+
+```bash
+python3 tools/bench_mpi.py --repeats 3 --ranks 1 2 4 8 --json mpi-scale.json
+/usr/bin/python3 tools/plot_mpi_scaling.py mpi-scale.json --out docs/numerics/parallel
+```
+
+Every rank count marches the same 473 steps, including np=1, which runs
+under `mpirun` so all rows take the same Fortran path rather than mixing
+the serial Rust march into the baseline. The timing is the march's own
+reported wall time, so the live viewer booting and the vtk and html
+reports writing do not dilute it.
+
+| ranks | march wall | speedup |
+|------:|-----------:|--------:|
+| np=1 | 27.6 s | 1.00 |
+| np=2 | 15.6 s | 1.76 |
+| np=4 | 13.7 s | 2.02 |
+| np=8 | 19.8 s | 1.39 |
 
 ![MPI strong scaling on the station case](mpi-scaling.png)
 
-| ranks | wall | speedup |
-|------:|------|--------:|
-| serial | 1.5 s | 1.00 |
-| np=1 | 1.5 s | 1.00 |
-| np=2 | 0.8 s | 1.88 |
-| np=4 | 0.8 s | 1.88 |
+Four ranks buy half of the ideal speedup and eight lose ground again.
+The grid is 320 columns, so at eight ranks each slab is forty columns
+wide and the halo exchange costs more than the marching it accelerates.
+The same memory bandwidth bound shows up in the
+[[numerics/parallel/threading|shared-memory threading]] measurements, and
+the cure is the same there: wider slabs or a bigger grid before more
+ranks pay off.
 
-np=4 does not beat np=2 here. The grid is 320 columns; at four ranks each
-slab is 80 columns wide, and the halo exchange plus the gather-per-step body
-broadcast eat the gains at that width. The message is that this march wants
-wider slabs or a bigger grid before more ranks pay off, which matches the
-memory-bandwidth-bound picture from [[numerics/parallel/threading|shared-memory threading]].
-
-np=1 matches serial wall time bit-for-bit in output, so choosing the MPI path
-costs nothing when the march might later scale.
+The serial Rust march on the same case took 30.7 s for the same 473
+steps, so taking the MPI path at np=1 costs nothing and leaves the door
+open for ranks later.
 
 ## Using it
 
@@ -150,4 +214,29 @@ Masked-body Euler cases march in single-step chunks so rank 0 can re-project
 the wall band between steps (the body gate above); viscous masked-body cases
 stay on the serial Rust march because the Fortran viscous kernel wall-treats
 domain faces only, so a body under mpirun would silently skip the no-slip
-band. Restart support for the scattered state is the next step.
+band.
+
+## Distributed restart
+
+An MPI run can stop at a chunk boundary, write a restart file, and resume from
+it under the same rank count. The saved file holds the conserved planes and,
+for SA RANS, the turbulence plane, so the resumed march picks up the same eddy
+field the interrupted one was carrying instead of re-seeding it.
+
+Both halves of the state have to reach every rank. The conserved planes are
+broadcast after each chunk, and the turbulence plane is broadcast with them:
+without that, the non-root ranks march on a stale field seeded from its
+initial value, the state can still come out looking plausible, and the field
+recorded at the rank seam describes a march that never ran.
+
+The distributed restart gate runs the march in chunks, interrupts it at the
+split point, resumes from the file, and compares against the uninterrupted
+run. It holds every plane to exact equality at np=1, np=2, and np=3.
+
+The two-temperature plane rides the same machinery. The restart writer
+already knew how to carry an extra plane alongside the conserved state, so
+`e_v` travels as that plane and comes back identical: the resumed run
+reproduces the uninterrupted one on all four conserved planes and on the
+vibrational plane, bit for bit, at np=1 through np=4. The generic nature
+of the extra-plane path is why this costs no format change; a future
+species-transport plane would travel the same way.

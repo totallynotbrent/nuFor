@@ -57,41 +57,89 @@ pub struct RestartData2d {
     pub time: f64,
     /// the number of steps taken.
     pub step: u64,
+    /// an optional trailing aux plane (e.g. the SA nu_tilde field), present
+    /// when the writer appended one; absent in the plain conserved-only file.
+    pub aux: Option<Vec<f64>>,
+}
+
+/// the header fields carried by a 2d restart file.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Restart2dMeta {
+    /// grid columns.
+    pub nx: usize,
+    /// grid rows.
+    pub ny: usize,
+    /// ratio of specific heats.
+    pub gamma: f64,
+    /// the simulated time the run reached.
+    pub time: f64,
+    /// the number of steps taken.
+    pub step: u64,
 }
 
 /// writes a full 2d state to a restart file in the NUF2 layout.
 pub fn write_restart2d(
     path: &Path,
     state: &crate::state2d::ConservedState2d,
-    nx: usize,
-    ny: usize,
-    gamma: f64,
-    time: f64,
-    step: u64,
+    meta: Restart2dMeta,
+) -> Result<(), Error> {
+    write_restart2d_impl(path, state, meta, None)
+}
+
+/// writes a full 2d state plus one trailing aux plane (the SA lane's
+/// nu_tilde) to a restart file; readers accept the file with or without it.
+pub fn write_restart2d_aux(
+    path: &Path,
+    state: &crate::state2d::ConservedState2d,
+    meta: Restart2dMeta,
+    aux: &[f64],
+) -> Result<(), Error> {
+    write_restart2d_impl(path, state, meta, Some(aux))
+}
+
+/// serializes the conserved planes and the optional aux plane into the NUF2
+/// layout.
+fn write_restart2d_impl(
+    path: &Path,
+    state: &crate::state2d::ConservedState2d,
+    meta: Restart2dMeta,
+    aux: Option<&[f64]>,
 ) -> Result<(), Error> {
     let n = state.rho.len();
+    let mut planes = 4;
+    if let Some(a) = aux {
+        if a.len() != n {
+            return Err(Error::InvalidArgs);
+        }
+        planes += 1;
+    }
     if n < 2
         || n != state.mx.len()
         || n != state.my.len()
         || n != state.e.len()
-        || n != nx * ny
-        || nx < 2
-        || ny < 2
+        || n != meta.nx * meta.ny
+        || meta.nx < 2
+        || meta.ny < 2
     {
         return Err(Error::InvalidArgs);
     }
     if (n as u64) > MAX_CELLS {
         return Err(Error::InvalidArgs);
     }
-    let mut out = Vec::with_capacity(MAGIC2D.len() + HDR2D + 4 * n * 8);
+    let mut out = Vec::with_capacity(MAGIC2D.len() + HDR2D + planes * n * 8);
     out.extend_from_slice(MAGIC2D);
     out.extend_from_slice(&(n as u64).to_le_bytes());
-    out.extend_from_slice(&(nx as u64).to_le_bytes());
-    out.extend_from_slice(&(ny as u64).to_le_bytes());
-    out.extend_from_slice(&gamma.to_le_bytes());
-    out.extend_from_slice(&time.to_le_bytes());
-    out.extend_from_slice(&step.to_le_bytes());
+    out.extend_from_slice(&(meta.nx as u64).to_le_bytes());
+    out.extend_from_slice(&(meta.ny as u64).to_le_bytes());
+    out.extend_from_slice(&meta.gamma.to_le_bytes());
+    out.extend_from_slice(&meta.time.to_le_bytes());
+    out.extend_from_slice(&meta.step.to_le_bytes());
     for a in [&state.rho, &state.mx, &state.my, &state.e] {
+        for v in a {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+    }
+    if let Some(a) = aux {
         for v in a {
             out.extend_from_slice(&v.to_le_bytes());
         }
@@ -111,6 +159,7 @@ pub fn read_restart2d(path: &Path) -> Result<RestartData2d, Error> {
     let ny = u64::from_le_bytes(rd[16..24].try_into().unwrap()) as usize;
     let gamma = f64::from_le_bytes(rd[24..32].try_into().unwrap());
     let time = f64::from_le_bytes(rd[32..40].try_into().unwrap());
+    let step = u64::from_le_bytes(rd[40..48].try_into().unwrap());
     if !(2..=MAX_CELLS as usize).contains(&n)
         || nx < 2
         || ny < 2
@@ -121,7 +170,9 @@ pub fn read_restart2d(path: &Path) -> Result<RestartData2d, Error> {
     {
         return Err(Error::InvalidArgs);
     }
-    if bytes.len() != MAGIC2D.len() + HDR2D + 4 * n * 8 {
+    if bytes.len() != MAGIC2D.len() + HDR2D + 4 * n * 8
+        && bytes.len() != MAGIC2D.len() + HDR2D + 5 * n * 8
+    {
         return Err(Error::InvalidArgs);
     }
     let mut cur = MAGIC2D.len() + HDR2D;
@@ -138,13 +189,16 @@ pub fn read_restart2d(path: &Path) -> Result<RestartData2d, Error> {
     let mx = take(n);
     let my = take(n);
     let e = take(n);
+    let want_aux = bytes.len() - (MAGIC2D.len() + HDR2D + 4 * n * 8) == n * 8;
+    let aux = if want_aux { Some(take(n)) } else { None };
     Ok(RestartData2d {
         state: crate::state2d::ConservedState2d { rho, mx, my, e },
         nx,
         ny,
         gamma,
         time,
-        step: 0,
+        step,
+        aux,
     })
 }
 

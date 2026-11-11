@@ -11,8 +11,9 @@ title: nuFor
 > 1280x640 anchor run, and live two-temperature nonequilibrium
 > (Park 2T) on the research path, plus the wall-resolved stagnation
 > heating gate (Fay-Riddell). Species continuity has landed;
-> unstructured meshes are next on the
-> [[roadmap|roadmap]]. Cases run from the CLI today; the web UI
+> unstructured triangular meshes are in and gated, with the arbitrary-
+> geometry payoff still the largest single lift. Cases run from the CLI
+> today; the web UI
 > covers the fixed case set with field visualization, probes, and
 > CSV / VTK / HDF5 export.
 
@@ -32,15 +33,15 @@ every numerical claim backed by a verification case.
 
 ## Solver trajectory
 
-**1D Euler** → **2D (Euler + viscous)** → **3D Euler**, then the unstructured
-prototype and turbulence research. Follow the progression:
+**1D Euler** → **2D (Euler + viscous)** → **3D Euler**, then the
+unstructured triangular lane and turbulence research. Follow the progression:
 
 - [[numerics/1d/euler|1D Euler]] - the finite-volume core: HLL flux, CFL, boundaries
 - [[numerics/2d/euler|2D Euler]] - HLLC, MUSCL reconstruction, the van Leer limiter
 - [[numerics/2d/viscous|Viscous terms]] - the Navier-Stokes diffusive flux
 - [[numerics/3d/solver|3D solver]] - the structured 3D HLLC step
 - [[numerics/3d/viscous|3D Navier-Stokes]] - the viscous operator and no-slip walls in 3D
-- [[numerics/unstructured/unstructured-fv|Unstructured FV]] - the research prototype
+- [[numerics/unstructured/unstructured-fv|Unstructured FV]] - the gated triangular lane
 
 The full ladder, with what is explicitly out of scope, lives in the
 [[roadmap|roadmap]].
@@ -69,6 +70,7 @@ Every milestone closes against an analytical or benchmark case, tracked on the
 - [[numerics/2d/spatial-selection|Per-cell reaction-set selection]] - activity-ranked masks shrink the evolved set to ~8 species while majors track the dense run to 7e-8
 - [[numerics/2d/film-injection|Blown-in film injection]] - the coolant that crosses the wall into the gas, accounted against the report
 - [[numerics/2d/chamber-throat|Chamber to throat]] - the choked nozzle in the axisymmetric combustion lane
+- [[numerics/2d/tank-feed|Propellant tank blowdown]] - the finite reservoir that empties under the injector, gated against an independent replay of the discharge law
 - [[numerics/2d/engine-wall-bracket|Engine wall bracket]] - the cold wall against the cooled wall
 - [[numerics/2d/axisymmetric|Axisymmetric Euler]] - bodies of revolution: the annular update and its geometric source
 - [[verification/axisymmetric-sphere|Axisymmetric sphere validation]] - the bow shock standoff vs Ambrosio-Wortman
@@ -93,6 +95,6 @@ Spalart-Allmaras RANS, masked bodies, an axisymmetric solver, the
 equilibrium-air closure, live two-temperature nonequilibrium (Park 2T),
 five-species finite-rate chemistry (Park 5), catalytic wall
 conditions with an accommodation coefficient on the species viscous
-lane, and an MPI-parallel Fortran march. Open work: unstructured meshes and
-broad experimental validation. The
+lane, and an MPI-parallel Fortran march. Open work: the species and
+combustion physics under MPI, and broad experimental validation. The
 [[roadmap|roadmap]] tracks it capability by capability.

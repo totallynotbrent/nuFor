@@ -38,6 +38,7 @@ impl CaseConfig {
             check_positive(mu, "physics.mu", &mut problems);
         }
         check_positive(self.physics.pr, "physics.pr", &mut problems);
+        problems.extend(self.physics.mechanism_problems());
         if self.physics.equations == super::schema::Equations::Rans2dSa {
             match &self.physics.turbulence {
                 None => problems.push(
@@ -529,6 +530,41 @@ fields = ["rho", "u", "p"]
             problems.iter().any(|p| p.contains("physics.mu")),
             "got {problems:?}"
         );
+    }
+
+    #[test]
+    fn mechanism_selects_the_run_width_and_needs_the_combustion_eos() {
+        let bogus = valid_case().replace(
+            "gas_constant = 287.0",
+            "gas_constant = 287.0\nmechanism = \"bogus\"",
+        );
+        let problems = problems_for(&bogus);
+        assert!(
+            problems.iter().any(|p| p.contains("physics.mechanism")),
+            "an unknown mechanism should fail, got {problems:?}"
+        );
+
+        let gri_without_combustion = valid_case().replace(
+            "gas_constant = 287.0",
+            "gas_constant = 287.0\nmechanism = \"gri30\"",
+        );
+        let problems = problems_for(&gri_without_combustion);
+        assert!(
+            problems.iter().any(|p| p.contains("physics.mechanism")),
+            "gri30 without the combustion eos should fail, got {problems:?}"
+        );
+
+        let gri = gri_without_combustion.replace(
+            "gas_constant = 287.0",
+            "gas_constant = 287.0\neos = \"combustion\"",
+        );
+        let config = parse_case_toml(&gri).expect("gri30 with the combustion eos should parse");
+        assert_eq!(config.physics.mechanism.as_deref(), Some("gri30"));
+
+        let config =
+            parse_case_toml(valid_case()).expect("a case without a mechanism should parse");
+        assert_eq!(config.physics.mechanism, None);
+        assert_eq!(config.physics.mechanism_name(), "li2004-h2");
     }
 
     #[test]

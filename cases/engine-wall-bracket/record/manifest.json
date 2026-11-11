@@ -1,0 +1,51 @@
+{
+  "campaign": "the five legs of the engine wall bracket",
+  "legs": {
+    "wall-adiabatic": {
+      "case_sha256": "c10bd5adffed7cb6c1ef7445cc774e9c41c9219cd293611422b6589b5e1bce0b",
+      "duty_rows": 318,
+      "duty_source_sha256": "cb93a52f023be1393e7c702f3bd094cfb9ab3840deef0c2831aea0d19c28932d",
+      "fields_saved": 63,
+      "stations": 12,
+      "steadiness_samples": 319,
+      "steadiness_source_sha256": "ee4a0ffd872630dee21874264560ff8d4e4a5ce61a0ab4f76ea3682dae390f06"
+    },
+    "wall-conjugate": {
+      "case_sha256": "fc49f851306efa1d2830674d3f38939f02f9d1e525f76af15aa01213d549f0c4",
+      "duty_rows": 320,
+      "duty_source_sha256": "2949c6bf2c81e022412b5bdbd80e073da5e079f55546b6b6dea762c65279b4c4",
+      "fields_saved": 63,
+      "stations": 12,
+      "steadiness_samples": 319,
+      "steadiness_source_sha256": "f8b663d0d36f2bcfac8c435e1470363f8b5f72c50a7d5379b46adde3033693a0"
+    },
+    "wall-filmcooled": {
+      "case_sha256": "c18d97e7d63431510efd727d55b0eff70dac3891f94a14d17a05cc66c69c6f5e",
+      "duty_rows": 318,
+      "duty_source_sha256": "d4badca9f98e642e7af4320e8d80154645916b810e8d0bb729696b6f6fa2ed3a",
+      "fields_saved": 63,
+      "stations": 12,
+      "steadiness_samples": 319,
+      "steadiness_source_sha256": "fa6f04cae7f0099d754793d4ea4ff6d254a3320620f7fd6c839259f9be9ffa2f"
+    },
+    "wall-radiating": {
+      "case_sha256": "9ef651ecf161f002216843d0c225799d806b6de41d879059efcbc8f025ca9b4c",
+      "duty_rows": 318,
+      "duty_source_sha256": "6d6fd5d300afa67c20b6534062a7530f9b25015b1b454bff975d6d4081458097",
+      "fields_saved": 63,
+      "stations": 12,
+      "steadiness_samples": 319,
+      "steadiness_source_sha256": "9aeb46f066034f66238815d20b7a170f8af80a5517bf9a56efa30092d3a197fb"
+    },
+    "wall-regenerative": {
+      "case_sha256": "a561142c82c62b5d4f25edcd3fac59c54e7589b14ab0e9d759bbf5104dabc143",
+      "duty_rows": 318,
+      "duty_source_sha256": "c93ddf2c2055a21e7d25290d6ea5d41832651a9d2e252d2a655ffd53fca230e6",
+      "fields_saved": 63,
+      "stations": 12,
+      "steadiness_samples": 319,
+      "steadiness_source_sha256": "519f8aee993f520f3ed6144010c949b3c01e76b1dbb6a155c566388d99b27e3d"
+    }
+  },
+  "measurements": "raw readings, judged by gates.py against this record"
+}

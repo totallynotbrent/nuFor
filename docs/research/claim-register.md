@@ -41,7 +41,7 @@ Published in `research/results.md`.
 | peak surface pressure | 0.959 MPa at (1.549, 1.281) | run log | measured |
 | maximum field temperature | 25670 K | run log | measured |
 | peak wall heat flux | 0.575 MW/m2 | run log, shared estimator | measured |
-| C_D and L/D | 0.501 and 0.335 | run log | measured |
+| C_D and L/D | 0.3894 and 0.3201 | run log | measured |
 
 ## Catalytic wall accommodation
 
@@ -155,9 +155,10 @@ Published in `numerics/2d/spatial-chemistry.md`.
 | li-2004 <-> gri30 conversion by species symbol | lifts all 9 fractions losslessly and rejects restriction when gri-only mass is present; the index table is asserted against the generated gri names | `chem_convert` core tests | gated |
 
 The gate measures the public composition and transport path with a real
-GRI-Mech 3.0 composition. Finite-rate GRI-Mech chemistry is not yet coupled
-to the spatial composition, so this establishes the transport and closure
-seam rather than a burning 53-species flow.
+GRI-Mech 3.0 composition. Finite-rate GRI-Mech chemistry couples to that
+spatial composition in the section below (worst relative error 7.153e-12
+against the zero-dimensional reactor), so transport, closure, and
+reacting chemistry now share one scheme-width seam.
 
 ## Spatial reactions
 
@@ -198,6 +199,8 @@ historic constant reservoir runs unchanged.
 | polytropic invariant p/rho^n | preserved to 1e-9 relative over 100 steps | same | gated |
 | drawn-mass accounting | sum of dm equals the tank level drop to 1e-9 | same | gated |
 | coupled smoke march | 23 steps, tank drew 2.489e-5 kg of a 1.857e-2 kg fill, p_t fell 1.200e7 to 1.198e7 pa | chamber-tank run log | measured |
+| the tank law replays to the marched record | every recorded pressure and density row matches an independent replay to 0.0 relative, the achieved flux matches the governing regime to 1.8e-13, the polytropic invariant holds to 2.3e-15 | `cases/tank-feed` gate | gated |
+| the reservoir drains against the chamber | 7.716061e-3 kg drawn of a 3.0e-2 kg fill over 1530 steps, the tank falling from 1.86588e7 to 1.32552e7 pa, choked on 428 steps and unchoked on 1102 | `cases/tank-feed` gate | gated |
 
 ## Threaded slab-parallel chemistry
 
@@ -207,6 +210,8 @@ historic constant reservoir runs unchanged.
 | worst composition-sum drift after threaded pass | 1.11e-16 | same | gated |
 | slabs | 4 on 4 threads, contiguous partition | same | gated |
 | mpi slab layout carve/assemble | round trips a row-major field identically across uneven rank splits, and the 4-field interleaved pack used by the broadcast unpacks losslessly | `partition` core tests | gated |
+| mpi 2t plane parity vs serial rust substep | 0 differing bits of 4096 at np=1 through np=5, conserved planes also zero | `cases/mpi-parity/gates.json` | gated |
+| mpi 2t split restart reproduces uninterrupted march | all five planes bit-identical at np=1 through np=4 | same | gated |
 
 Valid because per-cell chemistry depends only on the cell's own state;
 each thread advances a disjoint slab and the union equals the serial run.
@@ -237,6 +242,62 @@ The gate drives the solver's own wall application and the report through
 the same film enumeration, so the published mass flow is the mass the
 chamber took. The film crosses the wall independently of the wall's
 thermal treatment.
+
+## Engine wall condition bracket
+
+Published in `numerics/2d/engine-wall-bracket.md` and `numerics/2d/conjugate-engine-walls.md`.
+
+| claim | value | source | state |
+|---|---|---|---|
+| legs marched on the nozzle contour | five: adiabatic, radiating, film-cooled, regenerative, conjugate | `cases/engine-wall-bracket/wall-*.toml` | measured |
+| fields saved per leg | 63, from step 250 to 15750 | `cases/engine-wall-bracket/record/*/fields.csv` | measured |
+| net wall duty, radiating leg | 0.5707 MW over the whole march, 0.5550 MW over its settled window | `cases/engine-wall-bracket/gates.json` | gated |
+| net wall duty, film-cooled leg | 0.8647 MW over the whole march, 0.8353 MW over its settled window | same | gated |
+| net wall duty, regenerative leg | 0.8119 MW over the whole march, 0.7870 MW over its settled window | same | gated |
+| net wall duty, conjugate leg | 0.6249 MW over the whole march, 0.6128 MW over its settled window | same | gated |
+| conduction, radiation and film channel magnitudes, radiating leg | 0.1430, 0.5624 and 0 MW | same | gated |
+| conduction, radiation and film channel magnitudes, film-cooled leg | 0.1400, 0.5448 and 0.4081 MW | same | gated |
+| conduction, radiation and film channel magnitudes, regenerative leg | 0.1235, 0.5472 and 0.3583 MW | same | gated |
+| conduction, radiation and film channel magnitudes, conjugate leg | 0.0738, 0.5124 and 0.2124 MW | same | gated |
+| adiabatic reference wall duty | exactly zero in every channel | same | gated |
+| choked mass flow, all legs | 3.832 to 3.840 kg per second, quoted to between 0.030 and 0.057 percent | same | gated |
+| paired mass-flow departure from the adiabat | at most 0.206 percent, in the film-cooled leg | same | gated |
+| chamber ring amplitude on the throat | 0.417 percent, largest in the adiabatic leg | same | measured |
+| chamber mode | period 7085 steps, phase coherence 0.998, explaining 7.2 percent of the throat variation | same | measured |
+| tolerance of that period | every period from 6709 to 7531 steps fits within one percent of the best objective | same | measured |
+| weakest cross-leg prediction of that mode | 0.273 | same | measured |
+| settlement screen | 12 core screens over the last 14 of 63 fields, slope tolerance 3.53 standard errors | same | gated |
+| unsettled secondary screens | near-wall temperature on the film-cooled and regenerative legs | same | gated |
+| gas inventory drift over the march | 1.69 to 1.86 percent, every leg alike | same | measured |
+| surrogate null decline rate | 0.765 over 400 detrended rotations | `cases/engine-wall-bracket/studies/calibration.json` | measured |
+| smallest drift the screen detects | 0.2 percent against a target of 0.8 | same | measured |
+| power study | 800 paired surrogates per amplitude and design | `cases/engine-wall-bracket/studies/power.json` | measured |
+| detection at a drift of 0.2 percent across the whole record | 90.95 percent of baseline-certified pairs | same | measured |
+| detection at a drift of 0.1 percent inside the horizon | every baseline-certified pair, 0 of 800 escaping | same | measured |
+| search study | 400 paired surrogates per cell | `cases/engine-wall-bracket/studies/search.json` | measured |
+| cost of letting the screen choose its window | between 8.80 and 14.01 percentage points of extra misses at weak whole-record drifts | same | measured |
+
+The gate re-adjudicates the committed record and republishes the artefact it
+derives, so a number on the page cannot drift away from the evidence beneath
+it. The three channel magnitudes and the net duty are separate quantities and
+are registered separately: the channels are the magnitudes of each path, while
+the net duty is the energy the gas actually gave up.
+
+Three cautions stand on the record. The near-wall temperature on the
+film-cooled and regenerative legs still carries a drift larger than the noise
+around it, while the twelve core screens pass. The absolute mass-flow level
+inherits the chamber ring's uncertainty, which is why the claim rests on the
+paired contrast against the adiabat rather than on the absolute number. The
+horizon length was chosen while examining this campaign, so it is registered
+for later runs rather than justified independently of the data it judges.
+
+The chamber mode's period is also weakly determined. The objective is
+shallow near its minimum, and every period from 6709 to 7531 steps fits
+within one percent of the best one, so the period is quoted as the centre
+of a plateau rather than as a precise figure. The comparison the campaign
+depends on survives that slack: across the whole plateau the largest
+leg's ring stays between 0.388 and 0.418 percent, while the paired
+departure from the adiabat never exceeds 0.206 percent.
 
 ## Scale and momentum
 

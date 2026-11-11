@@ -160,7 +160,7 @@ pub fn write_vtk2d_model(
         }
         // park5 was rejected above (needs the species-aware writer).
         crate::thermo::ThermoModel::Park5 { .. }
-        | crate::thermo::ThermoModel::Combustion9 { .. } => unreachable!(),
+        | crate::thermo::ThermoModel::Combustion { .. } => unreachable!(),
     };
     let a = crate::thermo::sound_speed(model, &st.rho, &et, &u, &v)?;
     let mach: Vec<f64> = (0..n)
@@ -241,7 +241,7 @@ pub fn write_vtk2d_park5(
 }
 
 /// the 2d combustion snapshot: the closure-consistent pressure and
-/// temperature fields plus the 9 mass fractions.
+/// temperature fields plus one mass fraction per mechanism species.
 pub fn write_vtk2d_combustion(
     path: &Path,
     g: &Grid2d,
@@ -256,15 +256,13 @@ pub fn write_vtk2d_combustion(
     let mut p = vec![0.0f64; n];
     let mut temp = vec![0.0f64; n];
     let mut a = vec![0.0f64; n];
+    let lane = species.lane;
+    let mut y_cell: Vec<f64> = Vec::with_capacity(lane.n_species());
     for k in 0..n {
-        let mut y_cell = [0.0f64; crate::combustion_thermo::NS];
-        #[allow(clippy::needless_range_loop)]
-        for s in 0..crate::combustion_thermo::NS {
-            y_cell[s] = species.y[s][k];
-        }
-        p[k] = crate::combustion_closure::pressure_at(st.rho[k], e_int[k], &y_cell);
-        temp[k] = crate::combustion_closure::temperature_at(e_int[k], &y_cell);
-        a[k] = crate::combustion_closure::sound_speed_at(st.rho[k], e_int[k], &y_cell);
+        species.cell_into(k, &mut y_cell);
+        p[k] = lane.pressure_at(st.rho[k], e_int[k], &y_cell);
+        temp[k] = lane.temperature_at(e_int[k], &y_cell);
+        a[k] = lane.sound_speed_at(st.rho[k], e_int[k], &y_cell);
     }
     let mach: Vec<f64> = (0..n)
         .map(|k| (u[k] * u[k] + v[k] * v[k]).sqrt() / a[k].max(1e-6))
@@ -285,11 +283,8 @@ pub fn write_vtk2d_combustion(
     append_scalar(&mut s, "temperature", &temp);
     append_scalar(&mut s, "velocity_x", &u);
     append_scalar(&mut s, "velocity_y", &v);
-    const NAMES: [&str; crate::combustion_thermo::NS] = [
-        "y_H2", "y_O2", "y_H2O", "y_OH", "y_H", "y_O", "y_HO2", "y_H2O2", "y_N2",
-    ];
-    for (i, name) in NAMES.iter().enumerate() {
-        append_scalar(&mut s, name, &species.y[i]);
+    for (i, name) in lane.species_names().iter().enumerate() {
+        append_scalar(&mut s, &format!("y_{name}"), &species.y[i]);
     }
     write_all(path, &s)
 }

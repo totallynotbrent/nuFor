@@ -38,11 +38,12 @@ explicitly when the physics path they cover changes:
 
     cargo test --release -- --ignored
 
-There are 18 such ignored gates spread across 12 test files: the combustor
-ignition gate, the injector chamber gate, the chamber throat gate, the
-equilibrium-air capsule artifact, the SA transport comparison, the viscous
-validation lanes, and the convergence marches. Five of them are the MPI
-parity gates, which the regression script runs one per process so their
+There are 22 such ignored gates spread across 13 source files: the two
+combustor ignition gates, the injector chamber gate, the chamber throat
+gate, the equilibrium-air capsule artifact, the marched GRI-Mech ignition
+gate, the two body-wall gates, the three aeroshell peak-q gates, the SA
+correlation and threaded-speedup gates, and the nine MPI parity and restart
+gates. The regression script runs the MPI ones one per process so their
 collective state cannot bleed into each other.
 
 ## Counts
@@ -51,10 +52,11 @@ The suite is the workspace's own instrumentation, and the numbers move as
 tests are added. From the latest full `cargo test --workspace` run on this
 tree (exit 0):
 
-- 73 test executables report success on a green run,
-- 501 individual tests pass,
-- 18 tests are ignored in the default run, and those are the 18 heavy gates
-  above (the workspace carries 519 `#[test]` attributes; 501 + 18 ignored
+- 78 test executables report success on a green run (76 test binaries
+  plus 2 doctest runners),
+- 541 individual tests pass,
+- 22 tests are ignored in the default run, and those are the 22 heavy gates
+  above (the workspace carries 563 `#[test]` attributes; 541 + 22 ignored
   reconciles exactly).
 
 Reading those numbers off a run rather than quoting them keeps the page

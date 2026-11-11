@@ -35,6 +35,56 @@ Lift-to-drag across the sweep runs 0.372, 0.391, 0.381, 0.386 from the
 freestream thins, and the wall heat flux climbs from 15 to 77 kW/m2 as the
 boundary layer heats up.
 
+Fields for each station, all 320x176 marched to t = 15 ms:
+
+#### Station 30.0 km
+
+![Station 30.0 km, schlieren: bow shock and wake](img/aeroshell-h30-schlieren.png)
+
+![Station 30.0 km, Mach field](img/aeroshell-h30-mach.png)
+
+![Station 30.0 km, density field](img/aeroshell-h30-rho.png)
+
+![Station 30.0 km, pressure field](img/aeroshell-h30-p.png)
+
+![Station 30.0 km, temperature field](img/aeroshell-h30-t.png)
+
+#### Station 34.6 km
+
+![Station 34.6 km, schlieren view](img/aeroshell-h34.6-schlieren.png)
+
+![Station 34.6 km, Mach field: post-shock pocket and shoulder acceleration](img/aeroshell-h34.6-mach.png)
+
+![Station 34.6 km, density field](img/aeroshell-h34.6-rho.png)
+
+![Station 34.6 km, pressure field](img/aeroshell-h34.6-p.png)
+
+![Station 34.6 km, temperature field](img/aeroshell-h34.6-t.png)
+
+#### Station 40.0 km
+
+![Station 40.0 km, schlieren view](img/aeroshell-h40-schlieren.png)
+
+![Station 40.0 km, Mach field](img/aeroshell-h40-mach.png)
+
+![Station 40.0 km, density field: thinner, closer shock layer at altitude](img/aeroshell-h40-rho.png)
+
+![Station 40.0 km, pressure field](img/aeroshell-h40-p.png)
+
+![Station 40.0 km, temperature field](img/aeroshell-h40-t.png)
+
+#### Station 42.5 km
+
+![Station 42.5 km, schlieren view](img/aeroshell-h42.5-schlieren.png)
+
+![Station 42.5 km, Mach field](img/aeroshell-h42.5-mach.png)
+
+![Station 42.5 km, density field](img/aeroshell-h42.5-rho.png)
+
+![Station 42.5 km, pressure field](img/aeroshell-h42.5-p.png)
+
+![Station 42.5 km, temperature field](img/aeroshell-h42.5-t.png)
+
 The wall heat flux is the march's own number. The viscous pass evaluates the
 isothermal wall conduction on the same one-sided quadratic it applies to the
 field, and the run log and the progress heartbeat both read it from that one
@@ -174,7 +224,7 @@ conditions, and the figures:
 The trimmed capsule: 384x192, viscous, a 1600 K radiation-equilibrium wall,
 1804 steps to t = 2 ms in 271.6 s. Peak surface pressure 0.959 MPa at
 (x=1.549, y=1.281), maximum field temperature 25670 K, peak wall heat flux
-0.575 MW/m2, C_D 0.501 with L/D 0.335. The peak pressure stays inside the
+0.575 MW/m2, C_D 0.3894 with L/D 0.3201. The peak pressure stays inside the
 retired table's 1 MPa ceiling, so the march never needed the rebuilt
 equilibrium-air grid to finish. This is the case the wake visualizations come
 from, including the header render on the repository
