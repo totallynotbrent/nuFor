@@ -197,6 +197,11 @@ almost nothing. Doubling the radial spacing instead buys two to four
 points of deficit. That is the fingerprint of a radial representation
 problem, so it settled what the fix had to be.
 
+![the resolution sweep: the deficit follows radial spacing, not axial refinement](chamber-throat-resolution.png)
+
+Each point is a marched grid rather than an interpolation between them,
+and the series splits by which spacing was refined.
+
 | grid | radial spacing | sonic pressure | the gas's isentrope | deficit |
 | --- | --- | --- | --- | --- |
 | 110 by 40 | 2.50 mm | 3.7483 MPa | 4.0422 MPa | -7.27 percent |

@@ -53,10 +53,9 @@ which carries 3D axisymmetric reality at 2D cost).
   trajectory sweep (30/34.6/40/42.5 km, alpha 22.5) is validated at
   320x176 and anchored at 1280x640.
 
-  ![Station h30.0 km, schlieren: bow shock and wake](img/aeroshell-h30-schlieren.png)
-  ![Station h34.6 km, Mach field: post-shock pocket and shoulder acceleration](img/aeroshell-h34.6-mach.png)
-  ![Station h40.0 km, density field: thinner, closer shock layer at altitude](img/aeroshell-h40-rho.png)
-  ![Station h42.5 km, temperature field](img/aeroshell-h42.5-t.png)
+  The station fields and the sweep table are on the
+  [[research/results|station sweep figures and numbers]].
+
 - Performance: the static body classification is cached and the closure
   passes are threaded; the hi-res anchor runs 8x faster than the serial
   march (3.96 h for 11,549 steps at 1280x640 on my desktop).

@@ -94,10 +94,37 @@ identical between t = 160 and t = 400, so the steady state is
 reached).
 
 ![Mach field, p_e/p_t = 0.89: subsonic throughout, never chokes](img/nozzle-p89-mach.png)
+The same run in its other fields:
+
+![Schlieren view, same pressure ratio](img/nozzle-p89-schlieren.png)
+
+![Density field, same pressure ratio](img/nozzle-p89-rho.png)
+
+![Pressure field, same pressure ratio](img/nozzle-p89-p.png)
+
+![Temperature field, same pressure ratio](img/nozzle-p89-t.png)
 
 ![Mach field, p_e/p_t = 0.75: choked throat, normal shock in the divergent section](img/nozzle-p75-mach.png)
+The same run in its other fields:
+
+![Schlieren view, same pressure ratio](img/nozzle-p75-schlieren.png)
+
+![Density field, same pressure ratio](img/nozzle-p75-rho.png)
+
+![Pressure field, same pressure ratio](img/nozzle-p75-p.png)
+
+![Temperature field, same pressure ratio](img/nozzle-p75-t.png)
 
 ![Mach field, p_e/p_t = 0.16: fully supersonic expansion to the exit](img/nozzle-p16-mach.png)
+The same run in its other fields:
+
+![Schlieren view, same pressure ratio](img/nozzle-p16-schlieren.png)
+
+![Density field, same pressure ratio](img/nozzle-p16-rho.png)
+
+![Pressure field, same pressure ratio](img/nozzle-p16-p.png)
+
+![Temperature field, same pressure ratio](img/nozzle-p16-t.png)
 
 **p_e/p_t = 0.89 (subsonic).** The flow never chokes and the
 far-field pressure holds: exit centerline p/pt = 0.874 against the

@@ -131,6 +131,13 @@ hot region wrapping the nose:
 ![Temperature field, Mach 20 nitrogen over the cylinder (400x200): the hot stagnation region wrapping the nose](img/cyl-park5-t.png)
 
 ![Same run, schlieren: the detached bow shock standing off ahead of the stagnation point](img/cyl-park5-schlieren.png)
+The same run in its other fields:
+
+![Mach field, same run](img/cyl-park5-mach.png)
+
+![Density field, same run](img/cyl-park5-rho.png)
+
+![Pressure field, same run](img/cyl-park5-p.png)
 
 The standoff sits at the non-reacting value rather than the
 published reacting one: the published reduction is a shock-layer
