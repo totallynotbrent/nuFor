@@ -63,11 +63,7 @@ pub fn world_size() -> i64 {
     std::env::var("OMPI_COMM_WORLD_SIZE")
         .ok()
         .and_then(|s| s.parse().ok())
-        .or_else(|| {
-            std::env::var("PMI_SIZE")
-                .ok()
-                .and_then(|s| s.parse().ok())
-        })
+        .or_else(|| std::env::var("PMI_SIZE").ok().and_then(|s| s.parse().ok()))
         .unwrap_or(1)
 }
 
@@ -93,11 +89,7 @@ pub fn flush() {
     let rank: i64 = std::env::var("OMPI_COMM_WORLD_RANK")
         .ok()
         .and_then(|s| s.parse().ok())
-        .or_else(|| {
-            std::env::var("PMI_RANK")
-                .ok()
-                .and_then(|s| s.parse().ok())
-        })
+        .or_else(|| std::env::var("PMI_RANK").ok().and_then(|s| s.parse().ok()))
         .unwrap_or(0);
     if rank != 0 {
         return;

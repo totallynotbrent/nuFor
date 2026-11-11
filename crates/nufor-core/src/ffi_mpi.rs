@@ -1034,6 +1034,7 @@ pub fn march_rans2d_mpi(
 /// gathered plane is broadcast back to every rank so the next chunk's
 /// slab carves from the same numbers, the way the rans lane carries
 /// nu_tilde.
+#[allow(clippy::too_many_arguments)]
 pub fn march_2t2d_mpi(
     state0: &ConservedState2d,
     ev0: &[f64],

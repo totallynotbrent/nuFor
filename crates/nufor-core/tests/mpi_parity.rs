@@ -616,7 +616,14 @@ fn mpi_np1_matches_rust_capsule_inner() {
     if let (Some(first), Some(last)) = (hot_cols.first(), hot_cols.last()) {
         mpi_report::integer("body_first_hot_column", *first as i64);
         mpi_report::integer("body_last_hot_column", *last as i64);
-        mpi_report::text("body_hot_columns", &hot_cols.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(","));
+        mpi_report::text(
+            "body_hot_columns",
+            &hot_cols
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(","),
+        );
     }
     if let Ok(path) = std::env::var("NF_CAPSULE_COLUMNS") {
         let mut csv = String::from("column,max_rel_diff\n");
@@ -840,7 +847,7 @@ fn mpi_np1_sa_matches_rust_inner() {
         worst_k / g.nx
     );
     mpi_report::number("sa_worst_rel_diff", worst);
-    mpi_report::text("sa_worst_field", &worst_field);
+    mpi_report::text("sa_worst_field", worst_field);
     mpi_report::integer("sa_worst_cell_i", (worst_k % g.nx) as i64);
     mpi_report::integer("sa_worst_cell_j", (worst_k / g.nx) as i64);
     mpi_report::flush();
@@ -1025,7 +1032,7 @@ fn twot_seed(g: &nufor_core::Grid2d) -> (ConservedState2d, Vec<f64>) {
     let centres = [13.0f64, 21.0, 32.0, 43.0, 51.0];
     let sig = 4.0f64;
     let mut ev = vec![0.0f64; n];
-    for k in 0..n {
+    for (k, evk) in ev.iter_mut().enumerate() {
         let i = (k % g.nx) as f64;
         let j = (k / g.nx) as f64;
         let mut amp = 0.0;
@@ -1033,7 +1040,7 @@ fn twot_seed(g: &nufor_core::Grid2d) -> (ConservedState2d, Vec<f64>) {
             let d = (i - c) / sig;
             amp += (-0.5 * d * d).exp();
         }
-        ev[k] = e_base * amp * (0.6 + 0.4 * ((j / g.ny as f64) * std::f64::consts::TAU).cos());
+        *evk = e_base * amp * (0.6 + 0.4 * ((j / g.ny as f64) * std::f64::consts::TAU).cos());
     }
     (st, ev)
 }
@@ -1137,9 +1144,8 @@ fn mpi_np1_2t_matches_rust_inner() {
     let mut worst_abs: f64 = 0.0;
     let mut worst_k = 0usize;
     let mut differing = 0i64;
-    for k in 0..n {
-        let a = ev_mpi[k];
-        let b = park.e_v[k];
+    for (k, (a, b)) in ev_mpi.iter().zip(park.e_v.iter()).enumerate() {
+        let (a, b) = (*a, *b);
         let ad = (a - b).abs();
         let rd = ad / b.abs().max(1e-30);
         if a.to_bits() != b.to_bits() {

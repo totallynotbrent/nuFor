@@ -271,7 +271,7 @@ fn twot_restart_seed(g: &nufor_core::Grid2d) -> (ConservedState2d, Vec<f64>) {
     let centres = [13.0f64, 21.0, 32.0, 43.0];
     let sig = 4.0f64;
     let mut ev = vec![0.0f64; n];
-    for k in 0..n {
+    for (k, evk) in ev.iter_mut().enumerate() {
         let i = (k % g.nx) as f64;
         let j = (k / g.nx) as f64;
         let mut amp = 0.0;
@@ -279,7 +279,7 @@ fn twot_restart_seed(g: &nufor_core::Grid2d) -> (ConservedState2d, Vec<f64>) {
             let d = (i - c) / sig;
             amp += (-0.5 * d * d).exp();
         }
-        ev[k] = e_base * amp * (0.6 + 0.4 * ((j / g.ny as f64) * std::f64::consts::TAU).cos());
+        *evk = e_base * amp * (0.6 + 0.4 * ((j / g.ny as f64) * std::f64::consts::TAU).cos());
     }
     (st, ev)
 }
