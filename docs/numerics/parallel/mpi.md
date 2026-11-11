@@ -43,12 +43,27 @@ transport physics is identical to the serial path. The viscous stencil needs
 one cell, well inside the two-cell halos; a second halo refresh after each
 viscous add keeps the next stage's neighbors current at slab seams.
 
-![viscous lane timing on the trim capsule](mpi-viscous-timing.png)
+![viscous lane timing on the station-shaped eqair case](mpi-viscous-timing.png)
+
+The viscous lane scales better than the inviscid one because the two-stage
+Heun step doubles the arithmetic per cell. On the same machine and the same
+station-shaped case at 320x176, 119 steps at every rank count:
+
+| ranks | march wall | speedup |
+|------:|-----------:|--------:|
+| np=1 | 9.7 s | 1.00 |
+| np=2 | 5.1 s | 1.89 |
+| np=4 | 3.1 s | 3.17 |
+| np=8 | 4.5 s | 2.15 |
+
+Four ranks reach 3.17x on four physical cores, and the eighth rank lands
+back on hyperthread siblings that share the same cores. Both tables come
+from `tools/bench_mpi.py`, the viscous one with `--viscous`.
 
 On the body-free class the Euler and viscous lanes both sit at roundoff
 against the serial Rust marches at np=1 and np=2 (the gates below): the two
 Euler gates are exact-zero, and the viscous gate's worst relative difference
-is 4.1e-15. Each bridge runs the full two-stage Heun in one call. Masked body cases keep a single-stage
+is 5.2e-15. Each bridge runs the full two-stage Heun in one call. Masked body cases keep a single-stage
 Euler pack: a naive second stage diverges at wall-band cells because the
 stage-2 reconstruction next to reference-state solid cells amplifies through
 the y sweep, and porting the staging needs its own body-case gate before it
@@ -81,7 +96,7 @@ the current state on every kernel call while the Fortran slab ghosts
 carried the scatter-time values. After fixing those, all five fields
 (density, both momenta, energy, nu_tilde) sit at roundoff against
 the serial driver at np=1, 2, and 3: the worst relative difference is
-8.2e-14, on the transverse momentum of a cell whose value is near zero.
+8.5e-14, on the transverse momentum of a cell whose value is near zero.
 
 ## The parity gates
 
@@ -91,14 +106,13 @@ to the serial Rust march:
 - sod 2D shock tube, exact-zero parity
 - a uniform equilibrium-air field, exact-zero parity
 - a laminar viscous uniform field (Sutherland transport, CEA closure
-  temperature), worst relative difference 4.1e-15 at np=1, 2, and 3
+  temperature), worst relative difference 5.2e-15 at np=1, 2, and 3
 - an SA capsule-regime field with a wall-adjacent perturbation (shear,
   vorticity, and transport all live), the five fields agree to roundoff
-  at np=1, 2, and 3: the worst relative difference is 8.2e-14 on the
-  transverse momentum of a cell whose value is near zero, and the worst
-  absolute difference is 7.3e-11 on the energy
+  at np=1, 2, and 3: the worst relative difference is 8.5e-14 on the
+  transverse momentum of a cell whose value is near zero
 - a capsule body at 22.5 degrees angle of attack, worst relative difference
-  3.8e-15 (roundoff; the wall faces churn every step)
+  2.5e-15 (roundoff; the wall faces churn every step)
 - a two-temperature field, exact-zero parity
 
 The two-temperature lane is the strictest of the set. It marches the
@@ -149,26 +163,43 @@ array. A capsule field with full 2D momenta catches all three.
 
 ## Measured scaling
 
-On my 8-core desktop (release build), the 34.6 km station case at 320x176,
-30 steps:
+The numbers below are measured on the development machine, an eight-thread
+Intel i7-7700T (four physical cores), on the station-shaped eqair case at
+320x176. `tools/bench_mpi.py` runs the sweep and writes the json this
+section and the chart are built from, so neither can drift away from a
+measurement:
+
+```bash
+python3 tools/bench_mpi.py --repeats 3 --ranks 1 2 4 8 --json mpi-scale.json
+/usr/bin/python3 tools/plot_mpi_scaling.py mpi-scale.json --out docs/numerics/parallel
+```
+
+Every rank count marches the same 473 steps, including np=1, which runs
+under `mpirun` so all rows take the same Fortran path rather than mixing
+the serial Rust march into the baseline. The timing is the march's own
+reported wall time, so the live viewer booting and the vtk and html
+reports writing do not dilute it.
+
+| ranks | march wall | speedup |
+|------:|-----------:|--------:|
+| np=1 | 27.6 s | 1.00 |
+| np=2 | 15.6 s | 1.76 |
+| np=4 | 13.7 s | 2.02 |
+| np=8 | 19.8 s | 1.39 |
 
 ![MPI strong scaling on the station case](mpi-scaling.png)
 
-| ranks | wall | speedup |
-|------:|------|--------:|
-| serial | 1.5 s | 1.00 |
-| np=1 | 1.5 s | 1.00 |
-| np=2 | 0.8 s | 1.88 |
-| np=4 | 0.8 s | 1.88 |
+Four ranks buy half of the ideal speedup and eight lose ground again.
+The grid is 320 columns, so at eight ranks each slab is forty columns
+wide and the halo exchange costs more than the marching it accelerates.
+The same memory bandwidth bound shows up in the
+[[numerics/parallel/threading|shared-memory threading]] measurements, and
+the cure is the same there: wider slabs or a bigger grid before more
+ranks pay off.
 
-np=4 does not beat np=2 here. The grid is 320 columns; at four ranks each
-slab is 80 columns wide, and the halo exchange plus the gather-per-step body
-broadcast eat the gains at that width. The message is that this march wants
-wider slabs or a bigger grid before more ranks pay off, which matches the
-memory-bandwidth-bound picture from [[numerics/parallel/threading|shared-memory threading]].
-
-np=1 matches serial wall time bit-for-bit in output, so choosing the MPI path
-costs nothing when the march might later scale.
+The serial Rust march on the same case took 30.7 s for the same 473
+steps, so taking the MPI path at np=1 costs nothing and leaves the door
+open for ranks later.
 
 ## Using it
 

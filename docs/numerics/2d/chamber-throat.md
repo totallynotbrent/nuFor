@@ -300,11 +300,11 @@ cd cases/chamber-throat && python3 gates.py
 | contract | tolerance | measured |
 | --- | --- | --- |
 | the throat chokes | the flux mach crosses 1 | it does |
-| the sonic temperature | within 5 percent of CEA | -0.5 percent |
-| the sonic pressure | within 12 percent of CEA | -7.3 percent |
-| the mass flow is conserved | within 8 percent | -0.3 percent |
-| the chamber runs subsonic | mach below 0.1 | 0.005 |
-| the exit runs supersonic | flux mach above 1 | 1.6769 |
+| the sonic temperature | within 5 percent of CEA | -0.39 percent |
+| the sonic pressure | within 12 percent of CEA | -7.53 percent |
+| the mass flow is conserved | within 8 percent | -0.28 percent |
+| the chamber runs subsonic | mach below 0.1 | 0.0022 |
+| the exit runs supersonic | flux mach above 1 | 1.677 |
 | the gas agrees with CEA | within 1 percent | 0.28 percent |
 | the march agrees with its gas | within 10 percent | -7.27 percent |
 | the deficit shrinks radially | a finer radial spacing improves it | it does |

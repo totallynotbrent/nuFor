@@ -118,6 +118,12 @@ The shock-layer scalars survived both faults because the enthalpy did,
 so the family agreed with its references while flying a stream the case
 never asked for.
 
+Three views of the same run carry the lane's behaviour. The shock-layer
+panels put the temperature rise next to the atomic nitrogen mass fraction
+alongside it, the stagnation line is drawn as a curve of temperature and
+composition against the wall-normal coordinate, and the field map shows the
+hot region wrapping the nose:
+
 ![Shock-layer temperature and atomic nitrogen mass fraction](cyl-park5-fields.png)
 
 ![Stagnation-line temperature and composition](cyl-park5-stagline.png)

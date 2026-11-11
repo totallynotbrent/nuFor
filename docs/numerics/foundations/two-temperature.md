@@ -64,6 +64,10 @@ quantitative standoff comparison against the published hy2Foam and
 dsmcFoam profiles needs the wall-resolved viscous lane, which is the
 Fay-Riddell gate's work (see the roadmap ladder).
 
+The gate curves put the reference temperature and the marched one on the
+same axis, and the stagnation line plots the same disagreement along the
+wall-normal coordinate, where the vibrational lag sits closest to the wall:
+
 ![park 2T gate curves](park2t-gates.png)
 
 ![casseau stagnation line](casseau-stagnation.png)

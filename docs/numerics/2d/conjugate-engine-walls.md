@@ -169,6 +169,9 @@ evidence behind it.
 
 ![the bracket's duty](../img/engine-wall-bracket-duty.png)
 
+The figure splits each wall's heat leaving the gas into the three channels
+it can travel by, and the table underneath carries the same numbers:
+
 ```
 <!-- BEGIN TABLE duties -->
 radiating:       duty 0.5707 MW, conduction 0.1430 MW, radiation 0.5624 MW, film 0.0000 MW

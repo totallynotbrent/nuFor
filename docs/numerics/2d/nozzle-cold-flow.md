@@ -145,6 +145,11 @@ centerline and exit-plane gates are clean because the axis
 region is far from the steps; the wall distribution is reported
 as-is with that caveat attached.
 
+Against the 1D solution the centreline Mach trace shows the 2D shortfall
+as a curve offset rather than a scalar, and the wall-pressure trace shows
+the step-induced ripple sitting exactly where the staircase meets the
+standing shock:
+
 ![centerline Mach vs 1d](nozzle-cdv-mach.png)
 
 ![wall pressure vs 1d](nozzle-cdv-wallp.png)
