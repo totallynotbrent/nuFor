@@ -70,6 +70,7 @@ Every milestone closes against an analytical or benchmark case, tracked on the
 - [[numerics/2d/spatial-selection|Per-cell reaction-set selection]] - activity-ranked masks shrink the evolved set to ~8 species while majors track the dense run to 7e-8
 - [[numerics/2d/film-injection|Blown-in film injection]] - the coolant that crosses the wall into the gas, accounted against the report
 - [[numerics/2d/chamber-throat|Chamber to throat]] - the choked nozzle in the axisymmetric combustion lane
+- [[numerics/2d/tank-feed|Propellant tank blowdown]] - the finite reservoir that empties under the injector, gated against an independent replay of the discharge law
 - [[numerics/2d/engine-wall-bracket|Engine wall bracket]] - the cold wall against the cooled wall
 - [[numerics/2d/axisymmetric|Axisymmetric Euler]] - bodies of revolution: the annular update and its geometric source
 - [[verification/axisymmetric-sphere|Axisymmetric sphere validation]] - the bow shock standoff vs Ambrosio-Wortman

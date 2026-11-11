@@ -199,6 +199,8 @@ historic constant reservoir runs unchanged.
 | polytropic invariant p/rho^n | preserved to 1e-9 relative over 100 steps | same | gated |
 | drawn-mass accounting | sum of dm equals the tank level drop to 1e-9 | same | gated |
 | coupled smoke march | 23 steps, tank drew 2.489e-5 kg of a 1.857e-2 kg fill, p_t fell 1.200e7 to 1.198e7 pa | chamber-tank run log | measured |
+| the tank law replays to the marched record | every recorded pressure and density row matches an independent replay to 0.0 relative, the achieved flux matches the governing regime to 1.8e-13, the polytropic invariant holds to 2.3e-15 | `cases/tank-feed` gate | gated |
+| the reservoir drains against the chamber | 7.716061e-3 kg drawn of a 3.0e-2 kg fill over 1530 steps, the tank falling from 1.86588e7 to 1.32552e7 pa, choked on 428 steps and unchoked on 1102 | `cases/tank-feed` gate | gated |
 
 ## Threaded slab-parallel chemistry
 

@@ -53,6 +53,11 @@ cases/**/__pycache__/
 !cases/cylinder-stagnation-fay/run-log.txt
 !cases/cylinder-stagnation-fay/run-log.csv
 !cases/cylinder-stagnation-fay/run-log-refined.csv
+# the feed-tank gate audits the committed blowdown record the same way.
+# the per-step tank trajectory is a run product, except the committed copy.
+cases/**/feed-tank.csv
+!cases/tank-feed/record/
+!cases/tank-feed/record/**
 # generated mesh files (rebuild with each case's mesh_gen.py)
 cases/**/mesh_faces.txt
 cases/**/mesh_faces_refined.txt

@@ -1452,6 +1452,20 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
     let mut ok = true;
     let mut feed_prev_t = restart_time;
     let mut feed_draw_total = 0.0f64;
+    // the tank trajectory, sampled once per march step, so the coupling can
+    // be gated on the record rather than on a single printed endpoint.
+    // each row carries the time, the tank pressure, the tank density and
+    // the chamber pressure the tank discharged against.
+    let mut feed_trajectory: Vec<FeedTankSample> = Vec::new();
+    if let Some(tank) = tank_slot.as_ref() {
+        feed_trajectory.push(FeedTankSample {
+            time: restart_time,
+            p_tank: tank.pressure(),
+            rho_tank: tank.rho,
+            p_down: f64::NAN,
+            drawn: 0.0,
+        });
+    }
     let mut prog = progress::Progress::new(path, "2d-axi");
     while t < t_end && steps < max_steps {
         // the viscosity scale is computed BEFORE the mutable borrows: it
@@ -1579,16 +1593,32 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
         // next step. off when the case declares no tank_feed.
         if let Some(tank) = tank_slot.as_mut() {
             let p_face = inlet_column_mean_pressure(&st, &g, combustion_state.as_ref());
-            if let Ok(step) = tank.step(p_face, t - feed_prev_t) {
-                feed_prev_t = t;
-                if let Bc2d::ReservoirInflowRealGas { pt, rho_t, tt, .. } = &mut bc.west {
-                    // mirror the tank state into the reservoir ghost:
-                    // pt = rho_t * R_mix * tt holds by construction.
-                    *pt = tank.pressure();
-                    *tt = tank.t;
-                    *rho_t = tank.rho;
+            match tank.step(p_face, t - feed_prev_t) {
+                Ok(step) => {
+                    feed_prev_t = t;
+                    if let Bc2d::ReservoirInflowRealGas { pt, rho_t, tt, .. } = &mut bc.west {
+                        // mirror the tank state into the reservoir ghost:
+                        // pt = rho_t * R_mix * tt holds by construction.
+                        *pt = tank.pressure();
+                        *tt = tank.t;
+                        *rho_t = tank.rho;
+                    }
+                    feed_draw_total += step.dm;
+                    feed_trajectory.push(FeedTankSample {
+                        time: t,
+                        p_tank: tank.pressure(),
+                        rho_tank: tank.rho,
+                        p_down: p_face,
+                        drawn: feed_draw_total,
+                    });
                 }
-                feed_draw_total += step.dm;
+                Err(err) => {
+                    // a failed tank step is a failed run: swallowing it here
+                    // left the reservoir pumping mass no reservoir could supply.
+                    eprintln!("tank feed step failed at t {:e}: {}", t, err);
+                    ok = false;
+                    break;
+                }
             }
         }
         // the cut-cell lane resolves the wall itself through real
@@ -1756,6 +1786,9 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
                 t,
                 t0.elapsed().as_secs_f64(),
             );
+            if !feed_trajectory.is_empty() {
+                write_feed_tank_csv(path, &feed_trajectory);
+            }
         }
         if let Some(rpath) = &cfg.time.restart_out {
             if let Err(e) = write_restart2d(
@@ -3202,7 +3235,36 @@ fn write_wall_duty_row(dir: &std::path::Path, steps: usize, t: f64, s: &WallDuty
     }
 }
 
-/// a human-and-script-readable results log next to the case:
+/// one row of the feed-tank record: the reservoir state after a march step,
+/// the chamber pressure it discharged against and the mass drawn so far.
+struct FeedTankSample {
+    time: f64,
+    p_tank: f64,
+    rho_tank: f64,
+    p_down: f64,
+    drawn: f64,
+}
+
+/// `feed-tank.csv` with the reservoir trajectory: one row per march step,
+/// carrying the time, the tank pressure, the tank density and the chamber
+/// pressure the tank discharged against, so the blowdown can be gated
+/// against an independent replay of the law.
+fn write_feed_tank_csv(path: &str, trajectory: &[FeedTankSample]) {
+    let dir = std::path::Path::new(path)
+        .parent()
+        .map(|d| d.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let csv_path = dir.join("feed-tank.csv");
+    let mut txt = String::from("time_s,p_tank_pa,rho_tank_kg_m3,p_down_pa,drawn_total_kg\n");
+    for row in trajectory {
+        txt.push_str(&format!(
+            "{:.17e},{:.17e},{:.17e},{:.17e},{:.17e}\n",
+            row.time, row.p_tank, row.rho_tank, row.p_down, row.drawn
+        ));
+    }
+    let _ = std::fs::write(csv_path, txt);
+}
+
 /// `run-log.txt` with the freestream and field extrema, and
 /// `run-log.csv` with one row per run for the report tables.
 #[allow(clippy::too_many_arguments)]

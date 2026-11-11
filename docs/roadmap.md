@@ -453,7 +453,9 @@ Open research items, worked when they block a milestone rather than on
 a schedule: the near-wall u+ odd-even checkerboard from the
 grid-convergence study (quantified by the `uplus_metric` second-difference
 score: 0 monotone, 1 pure alternating). The feed-system tanks are no
-longer open: `physics.tank_feed` couples them to the chamber march.
+longer open: `physics.tank_feed` couples them to the chamber march, and
+`cases/tank-feed` marches one end to end and gates the blowdown against
+an independent replay of the discharge law.
 
 ## The case workflow
 
@@ -564,8 +566,7 @@ checks that the page publishes the numbers. The closure's own gates
 run there as well: the flame temperature at 70 bar against CEA, the
 adiabatic round trip at the flame point, and the chamber sound speed.
 
-What the lane does not have yet: no engine cycle, no turbomachinery, no
-propellant tank model. Parallelism arrived ahead of that wish list: the
+What the lane does not have yet: no engine cycle and no turbomachinery. Parallelism arrived ahead of that wish list: the
 lane and every other march route onto the MPI Fortran core at bit parity
 with the serial drivers (rung 14). The wall treatments an engine report
 wants (conjugate cooling, film cooling, the cold wall against the cooled

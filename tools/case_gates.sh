@@ -26,6 +26,7 @@ case_gates=(
   "cases/nozzle-cdv field"
   "cases/aeroshell-station field"
   "cases/engine-wall-bracket committed"
+  "cases/tank-feed committed"
 )
 
 fails=0
