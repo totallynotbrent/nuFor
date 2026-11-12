@@ -31,8 +31,8 @@ endif()
 # the fortran lane must not either. the contracted form rounds once more
 # than the unfused pair, which showed up as a handful of last-bit
 # disagreements in the two-temperature plane parity gate.
-set(CMAKE_Fortran_FLAGS_DEBUG "-O0 -g -Wall -Wextra -fcheck=all -fbacktrace -ffp-contract=off")
-set(CMAKE_Fortran_FLAGS_RELEASE "-O2 -funroll-loops -ffp-contract=off")
+set(CMAKE_Fortran_FLAGS_DEBUG "-O0 -g -Wall -Wextra -fcheck=all -fbacktrace -ffp-contract=off -fautomatic")
+set(CMAKE_Fortran_FLAGS_RELEASE "-O2 -funroll-loops -ffp-contract=off -fautomatic")
 
 if(MPI_Fortran_FOUND)
   add_library(nuforkernels STATIC
@@ -41,6 +41,8 @@ if(MPI_Fortran_FOUND)
     api/nuforsolver2d.f90
     api/nufor2t.f90
     api/nuforbridge.f90
+    api/nuforpark5.f90
+    api/nuforcartpark5.f90
   )
   target_link_libraries(nuforkernels PUBLIC MPI::MPI_Fortran)
 else()
@@ -54,6 +56,8 @@ else()
     api/nuforsolver2d.f90
     api/nufor2t.f90
     api/nuforbridge.f90
+    api/nuforpark5.f90
+    api/nuforcartpark5.f90
   )
   find_path(MPI_MOD_INCLUDE_DIR mpi.mod
     HINTS /usr/lib64/openmpi/lib /usr/lib/x86_64-linux-gnu/openmpi/lib
