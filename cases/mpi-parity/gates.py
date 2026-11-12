@@ -57,6 +57,7 @@ RANK_COUNTS = (1, 2, 3, 4, 5)
 
 # the tolerances the gates assert internally.
 EXACT_ZERO_LANES = ("euler", "uniform")
+SPECIES_LANE = "mpipark5"
 ROUNDOFF_LANES = ("viscous", "sa", "body")
 TWOT_LANE = "twot"
 
@@ -204,6 +205,7 @@ def main():
         "sa": "mpi_np1_sa_matches_rust",
         "body": "mpi_np1_matches_rust_capsule",
         "gather": "mpi_gather_nf_fields_reassembles_exactly",
+        SPECIES_LANE: "mpi_mpipark5_carrier_seam_and_gather",
     }
     results = {}
     try:
@@ -275,6 +277,11 @@ def main():
                 f"{lane}_lane_stays_inside_roundoff_at_np{np_value}",
                 entry["passed"] and float(entry["measured"].get(key, 1.0)) < 1.0e-6,
             )
+        species = results[f"{SPECIES_LANE}_np{np_value}"]
+        check(
+            f"species_carrier_seam_agrees_at_np{np_value}",
+            species["passed"],
+        )
         twot = results[f"{TWOT_LANE}_np{np_value}"]
         check(
             f"twot_plane_matches_the_serial_substep_at_np{np_value}",

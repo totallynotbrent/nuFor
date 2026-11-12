@@ -154,6 +154,11 @@ jobs:
           # plane and on the conserved march (it asserts both in the test)
           check 1 mpi_np1_2t_matches_rust
           check 2 mpi_np1_2t_matches_rust
+          # the five-species carrier gate: the seam disagreement must be
+          # bitwise zero and the gather must reproduce the seed (asserted
+          # inside the test)
+          check 1 mpi_mpipark5_carrier_seam_and_gather
+          check 2 mpi_mpipark5_carrier_seam_and_gather
           # the capsule body gate asserts its own 1e-6 tolerance inside
           # the test (roundoff at the wall faces is not exact zero)
           capok=0

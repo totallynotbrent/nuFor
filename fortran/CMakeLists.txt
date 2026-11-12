@@ -43,6 +43,7 @@ if(MPI_Fortran_FOUND)
     api/nuforbridge.f90
     api/nuforpark5.f90
     api/nuforcartpark5.f90
+    api/nuformpipark5.f90
   )
   target_link_libraries(nuforkernels PUBLIC MPI::MPI_Fortran)
 else()
@@ -58,6 +59,7 @@ else()
     api/nuforbridge.f90
     api/nuforpark5.f90
     api/nuforcartpark5.f90
+    api/nuformpipark5.f90
   )
   find_path(MPI_MOD_INCLUDE_DIR mpi.mod
     HINTS /usr/lib64/openmpi/lib /usr/lib/x86_64-linux-gnu/openmpi/lib

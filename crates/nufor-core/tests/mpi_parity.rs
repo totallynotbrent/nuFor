@@ -1213,7 +1213,77 @@ fn mpi_np1_2t_matches_rust_inner() {
     mpi_shutdown();
 }
 
-/// world size from the launcher's environment (openmpi/prte stamp every
+/// five-species carrier gate: every rank pushes a distinguishable park5
+/// composition slab through the fortran carrier, the seam-face
+/// disagreement between neighboring ranks must be bitwise zero at any
+/// np, and the gathered global composition must reproduce the seed
+/// exactly (mpi doubles carry no arithmetic).
+#[test]
+#[ignore] // run under mpirun -np N, see the ci parity-smoke step
+fn mpi_mpipark5_carrier_seam_and_gather() {
+    use nufor_core::ffi_mpi::{
+        mpi_shutdown, mpipark5_carrier, mpipark5_gather, mpipark5_init, MpiSession,
+    };
+    use nufor_core::partition::carve_slab;
+    let (nx, ny, ns) = (32usize, 6usize, 5usize);
+    let n = nx * ny;
+    MpiSession::new().unwrap();
+    let (_rank, _i0, nx_local) = MpiSession::case_init(nx, ny).unwrap();
+    let (prank, pi0, pnl) = mpipark5_init(nx as i32, ny as i32).unwrap();
+    assert_eq!(pnl as usize, nx_local.try_into().unwrap());
+    let nx_l = pnl as usize;
+    let nn = nx_l * ny;
+    // full-domain five planes with distinguishable values per cell.
+    let full: Vec<Vec<f64>> = (0..ns)
+        .map(|s| {
+            (0..n)
+                .map(|k| (s + 1) as f64 * 1000.0 + k as f64 * 0.125)
+                .collect()
+        })
+        .collect();
+    // the fortran decomposition reports a one-based column origin; rust slices are zero-based.
+    let i0_off = pi0 as usize - 1;
+    let slab_y: Vec<f64> = full
+        .iter()
+        .flat_map(|p| carve_slab(p, nx, ny, i0_off, nx_l))
+        .collect();
+    // the carrier divides by density, so seed a real one; zero momentum
+    // keeps the primitive conversion exact.
+    let rho_l = vec![1.0f64; nn];
+    let zeros = vec![0.0f64; nn];
+    let energy = vec![360.0f64; nn];
+    let bc_vals = [0.0f64; 20];
+    let y_fill = [0.0f64; 5];
+    let (rg, _ug, _vg, _eg, yg, seam) = mpipark5_carrier(
+        nx_l, ny, &rho_l, &zeros, &zeros, &energy, &slab_y, 0, 0, &bc_vals, &y_fill,
+    )
+    .unwrap();
+    assert_eq!(seam, 0.0, "seam faces disagree at rank {prank}: {seam:e}");
+    // the carrier preserves the density it was handed on every interior cell.
+    for j in 0..ny {
+        for i in 0..nx_l {
+            assert_eq!(
+                rg[j * (nx_l + 4) + i + 2],
+                1.0,
+                "carrier altered density at rank {prank}"
+            );
+        }
+    }
+    // gather: the padded interior strip reassembles the seeded planes.
+    let gathered_opt = mpipark5_gather(nx, ny, &yg).unwrap();
+    if prank == 0 {
+        let gathered = gathered_opt.expect("rank 0 receives the assembly");
+        for s in 0..ns {
+            let plane = &gathered[s * n..(s + 1) * n];
+            assert_eq!(plane, &full[s], "gathered plane {s} diverged from seed");
+        }
+        mpi_report::integer("mpipark5_seam_zero", if seam == 0.0 { 1 } else { 0 });
+        mpi_report::integer("mpipark5_world_size", num_ranks() as i64);
+        mpi_report::flush();
+        mpi_report::fence();
+    }
+    mpi_shutdown();
+}
 /// rank's OMPI_COMM_WORLD_SIZE; fall back to 1 outside mpirun).
 fn num_ranks() -> usize {
     std::env::var("OMPI_COMM_WORLD_SIZE")

@@ -190,6 +190,36 @@ extern "C" {
         out: *mut f64,
         ierr: *mut i32,
     );
+    fn nfor_mpipark5_init(
+        nx: i32,
+        ny: i32,
+        out_rank: *mut i32,
+        out_i0: *mut i32,
+        out_nx_local: *mut i32,
+        ierr: *mut i32,
+    );
+    fn nfor_mpipark5_carrier(
+        nx_local: i32,
+        ny_local: i32,
+        rho: *const f64,
+        mx: *const f64,
+        my: *const f64,
+        e: *const f64,
+        y: *const f64,
+        bc_w: i32,
+        bc_e: i32,
+        bc_vals: *const f64,
+        y_fill: *const f64,
+        rho_g: *mut f64,
+        u_g: *mut f64,
+        v_g: *mut f64,
+        ei_g: *mut f64,
+        yg: *mut f64,
+        max_diff: *mut f64,
+        ierr: *mut i32,
+    );
+    fn nfor_mpipark5_rank(out_rank: *mut i32, ierr: *mut i32);
+    fn nfor_mpipark5_gather(nx: i32, ny: i32, y: *const f64, out_y: *mut f64, ierr: *mut i32);
 }
 
 /// one mpi session per process: init once on first use, finalized at exit
@@ -1308,4 +1338,115 @@ pub fn mpi_bcast_state(st: &mut ConservedState2d) -> Result<(), Error> {
         st.e[k] = buf[4 * k + 3];
     }
     Ok(())
+}
+
+/// five-species carrier session on this rank: populates the mpipark5 slab
+/// decomposition. mpi itself must already be up (via [`MpiSession::new`]).
+#[allow(clippy::too_many_arguments)]
+pub fn mpipark5_init(nx: i32, ny: i32) -> Result<(i32, i32, i32), Error> {
+    let mut rank = 0i32;
+    let mut i0 = 0i32;
+    let mut nx_local = 0i32;
+    let mut ierr = 0i32;
+    unsafe { nfor_mpipark5_init(nx, ny, &mut rank, &mut i0, &mut nx_local, &mut ierr) };
+    if ierr != 0 {
+        return Err(Error::InvalidArgs);
+    }
+    Ok((rank, i0, nx_local))
+}
+
+/// run this rank's slab through the five-species carrier and return the
+/// ghost-complete primitive state plus the measured seam-face disagreement
+/// (bitwise zero when the halo places the same global columns on both
+/// sides of every seam).
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+pub fn mpipark5_carrier(
+    nx_l: usize,
+    ny: usize,
+    rho: &[f64],
+    mx: &[f64],
+    my: &[f64],
+    e: &[f64],
+    y: &[f64],
+    bc_w: i32,
+    bc_e: i32,
+    bc_vals: &[f64],
+    y_fill: &[f64],
+) -> Result<(Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, f64), Error> {
+    let nn = nx_l * ny;
+    if rho.len() != nn || mx.len() != nn || my.len() != nn || e.len() != nn || y.len() != 5 * nn {
+        return Err(Error::InvalidArgs);
+    }
+    let nw = nx_l + 4;
+    let mut rg = vec![0.0f64; nw * ny];
+    let mut ug = vec![0.0f64; nw * ny];
+    let mut vg = vec![0.0f64; nw * ny];
+    let mut eg = vec![0.0f64; nw * ny];
+    let mut yg = vec![0.0f64; 5 * nw * ny];
+    let mut max_diff = 0.0f64;
+    let mut ierr = 0i32;
+    unsafe {
+        nfor_mpipark5_carrier(
+            nx_l as i32,
+            ny as i32,
+            rho.as_ptr(),
+            mx.as_ptr(),
+            my.as_ptr(),
+            e.as_ptr(),
+            y.as_ptr(),
+            bc_w,
+            bc_e,
+            bc_vals.as_ptr(),
+            y_fill.as_ptr(),
+            rg.as_mut_ptr(),
+            ug.as_mut_ptr(),
+            vg.as_mut_ptr(),
+            eg.as_mut_ptr(),
+            yg.as_mut_ptr(),
+            &mut max_diff,
+            &mut ierr,
+        );
+    }
+    if ierr != 0 {
+        return Err(Error::InvalidArgs);
+    }
+    Ok((rg, ug, vg, eg, yg, max_diff))
+}
+
+/// gather the padded local composition strip to rank 0. returns the
+/// assembled global planes only on rank 0.
+pub fn mpipark5_gather(nx: usize, ny: usize, yg: &[f64]) -> Result<Option<Vec<f64>>, Error> {
+    // the decomposition is already up from the carrier call; re-initialising
+    // it here would reset one rank's slab state out from under its peers.
+    let rank = mpipark5_rank()?;
+    let mut out = vec![0.0f64; 5 * nx * ny];
+    let mut ierr = 0i32;
+    unsafe {
+        nfor_mpipark5_gather(
+            nx as i32,
+            ny as i32,
+            yg.as_ptr(),
+            out.as_mut_ptr(),
+            &mut ierr,
+        )
+    };
+    if ierr != 0 {
+        return Err(Error::InvalidArgs);
+    }
+    if rank == 0 {
+        Ok(Some(out))
+    } else {
+        Ok(None)
+    }
+}
+
+/// this rank's zero-based slot in the mpipark5 decomposition.
+pub fn mpipark5_rank() -> Result<i32, Error> {
+    let mut rank = 0i32;
+    let mut ierr = 0i32;
+    unsafe { nfor_mpipark5_rank(&mut rank, &mut ierr) };
+    if ierr != 0 {
+        return Err(Error::InvalidArgs);
+    }
+    Ok(rank)
 }

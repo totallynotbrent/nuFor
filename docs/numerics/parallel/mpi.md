@@ -240,3 +240,23 @@ reproduces the uninterrupted one on all four conserved planes and on the
 vibrational plane, bit for bit, at np=1 through np=4. The generic nature
 of the extra-plane path is why this costs no format change; a future
 species-transport plane would travel the same way.
+
+## Five-species composition carrier
+
+The species lane brings its own planes rather than borrowing space in the
+conserved state. A Park 5 composition is five mass fractions, and the
+Fortran core carries them as five extra fields through the same x-slab
+decomposition: each rank owns a contiguous strip of columns, exchanges two
+ghost depths with its neighbours, and assembles the planes on rank 0 with
+the generic multi-plane gather.
+
+The exchange does not get to assume it worked. Every rank publishes the
+columns that close its two slab ends to the neighbour on that side, and the
+neighbour compares them against the ghost columns the halo delivered. The
+gate reports the largest disagreement across all ranks rather than a yes/no
+answer, so a broken seam shows up as a number. That number is bitwise zero
+at np=1 through np=5.
+
+The ghost depth is two, not one, because the centred slope at a seam cell
+reads the neighbour's second ghost column. One ghost depth would put the
+slope stencil across a boundary it cannot see.
