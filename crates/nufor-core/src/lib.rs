@@ -90,6 +90,7 @@ mod solver_u;
 pub mod species;
 pub mod species_chem;
 pub mod species_closure;
+pub mod species_fortran;
 pub mod species_march;
 pub mod species_props;
 pub mod species_transport;
