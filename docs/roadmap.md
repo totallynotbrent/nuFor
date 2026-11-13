@@ -429,7 +429,7 @@ flowchart LR
     build and seeding the closure in a calm regime, both noted on the
     [[numerics/parallel/mpi|MPI page]], and the committed gate artefact
     is `cases/mpi-parity/gates.json` with `verify_committed_gate.py`
-    beside it.    The third lands all
+    beside it. The third lands all
     new physics (live 2T, species, combustion) MPI-native from day one,
     which pulls the nonequilibrium and species work inside this one. Its
     first species slice is in: a five-plane Park 5 composition carrier

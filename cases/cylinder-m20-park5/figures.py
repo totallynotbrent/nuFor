@@ -1,6 +1,8 @@
 # park5 cylinder gate figures on the shared house template: the
-# shock-layer fields (temperature + atomic nitrogen) and the
 # stagnation-line profiles. regenerates from the run's vtk.
+#
+# the shock-layer fields themselves live in docs/img, plotted one panel
+# per png by cases/fieldplots.py.
 import sys
 import os
 import re
@@ -27,37 +29,6 @@ def main():
     nx, ny = 400, 200
     x0, x1, y0, y1 = -1.8, 5.0, 0.0, 3.4
     dx, dy = (x1 - x0) / nx, (y1 - y0) / ny
-
-    def grid(name):
-        v = f[name]
-        return np.array([v[i + j * nx] for j in range(ny) for i in range(nx)]).reshape(ny, nx)
-
-    tg, yg = grid("temperature"), grid("y_N")
-    body = tg <= 100.0
-    tg_m = np.ma.masked_where(body, tg)
-    yg_m = np.ma.masked_where(body, yg)
-    xg = x0 + (np.arange(nx) + 0.5) * dx
-    ycg = y0 + (np.arange(ny) + 0.5) * dy
-    th = np.linspace(0, math.pi, 240)
-
-    fig, axes = figure(ncols=2, figsize=(11, 2.8))
-    im0 = axes[0].pcolormesh(xg, ycg, tg_m, cmap="inferno", vmax=17000)
-    axes[0].plot(np.cos(th), np.sin(th), color="white", lw=1.2)
-    axes[0].set_xlim(-1.8, 2.2)
-    axes[0].set_ylim(0, 1.8)
-    axes[0].set_aspect("equal")
-    axes[0].set_title("temperature (K)")
-    fig.colorbar(im0, ax=axes[0], shrink=0.85)
-    im1 = axes[1].pcolormesh(xg, ycg, yg_m, cmap="viridis", vmax=0.5)
-    axes[1].plot(np.cos(th), np.sin(th), color="white", lw=1.2)
-    axes[1].set_xlim(-1.8, 2.2)
-    axes[1].set_ylim(0, 1.8)
-    axes[1].set_aspect("equal")
-    axes[1].set_title(r"$Y_\mathrm{N}$ (mass fraction)")
-    fig.colorbar(im1, ax=axes[1], shrink=0.85)
-    fig.suptitle("Mach 20 nitrogen cylinder, park5 chemistry")
-    fig.tight_layout()
-    save(fig, "cyl-park5-fields", out_dir=here)
 
     # stagnation line (first row above the symmetry axis)
     j = 0

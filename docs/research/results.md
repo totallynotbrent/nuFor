@@ -224,7 +224,7 @@ conditions, and the figures:
 The trimmed capsule: 384x192, viscous, a 1600 K radiation-equilibrium wall,
 1804 steps to t = 2 ms in 271.6 s. Peak surface pressure 0.959 MPa at
 (x=1.549, y=1.281), maximum field temperature 25670 K, peak wall heat flux
-0.575 MW/m2, C_D 0.501 with L/D 0.335. The peak pressure stays inside the
+0.575 MW/m2, C_D 0.3894 with L/D 0.3201. The peak pressure stays inside the
 retired table's 1 MPa ceiling, so the march never needed the rebuilt
 equilibrium-air grid to finish. This is the case the wake visualizations come
 from, including the header render on the repository

@@ -1284,6 +1284,8 @@ fn mpi_mpipark5_carrier_seam_and_gather() {
     }
     mpi_shutdown();
 }
+
+/// world size from the launcher's environment (openmpi/prte stamp every
 /// rank's OMPI_COMM_WORLD_SIZE; fall back to 1 outside mpirun).
 fn num_ranks() -> usize {
     std::env::var("OMPI_COMM_WORLD_SIZE")

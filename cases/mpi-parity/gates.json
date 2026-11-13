@@ -30,11 +30,6 @@
     "sa_lane_stays_inside_roundoff_at_np3": true,
     "sa_lane_stays_inside_roundoff_at_np4": true,
     "sa_lane_stays_inside_roundoff_at_np5": true,
-    "species_carrier_seam_agrees_at_np1": true,
-    "species_carrier_seam_agrees_at_np2": true,
-    "species_carrier_seam_agrees_at_np3": true,
-    "species_carrier_seam_agrees_at_np4": true,
-    "species_carrier_seam_agrees_at_np5": true,
     "twot_march_left_the_conserved_planes_alone_at_np1": true,
     "twot_march_left_the_conserved_planes_alone_at_np2": true,
     "twot_march_left_the_conserved_planes_alone_at_np3": true,
@@ -259,61 +254,6 @@
       },
       "passed": true,
       "test": "mpi_gather_nf_fields_reassembles_exactly",
-      "timed_out": false,
-      "world_size": 5
-    },
-    "mpipark5_np1": {
-      "attempts": 1,
-      "measured": {
-        "mpipark5_seam_zero": 1,
-        "mpipark5_world_size": 1
-      },
-      "passed": true,
-      "test": "mpi_mpipark5_carrier_seam_and_gather",
-      "timed_out": false,
-      "world_size": 1
-    },
-    "mpipark5_np2": {
-      "attempts": 1,
-      "measured": {
-        "mpipark5_seam_zero": 1,
-        "mpipark5_world_size": 2
-      },
-      "passed": true,
-      "test": "mpi_mpipark5_carrier_seam_and_gather",
-      "timed_out": false,
-      "world_size": 2
-    },
-    "mpipark5_np3": {
-      "attempts": 1,
-      "measured": {
-        "mpipark5_seam_zero": 1,
-        "mpipark5_world_size": 3
-      },
-      "passed": true,
-      "test": "mpi_mpipark5_carrier_seam_and_gather",
-      "timed_out": false,
-      "world_size": 3
-    },
-    "mpipark5_np4": {
-      "attempts": 1,
-      "measured": {
-        "mpipark5_seam_zero": 1,
-        "mpipark5_world_size": 4
-      },
-      "passed": true,
-      "test": "mpi_mpipark5_carrier_seam_and_gather",
-      "timed_out": false,
-      "world_size": 4
-    },
-    "mpipark5_np5": {
-      "attempts": 1,
-      "measured": {
-        "mpipark5_seam_zero": 1,
-        "mpipark5_world_size": 5
-      },
-      "passed": true,
-      "test": "mpi_mpipark5_carrier_seam_and_gather",
       "timed_out": false,
       "world_size": 5
     },

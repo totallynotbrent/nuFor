@@ -240,7 +240,6 @@ reproduces the uninterrupted one on all four conserved planes and on the
 vibrational plane, bit for bit, at np=1 through np=4. The generic nature
 of the extra-plane path is why this costs no format change; a future
 species-transport plane would travel the same way.
-
 ## Five-species composition carrier
 
 The species lane brings its own planes rather than borrowing space in the

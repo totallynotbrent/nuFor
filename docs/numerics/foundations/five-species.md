@@ -124,7 +124,7 @@ alongside it, the stagnation line is drawn as a curve of temperature and
 composition against the wall-normal coordinate, and the field map shows the
 hot region wrapping the nose:
 
-![Shock-layer temperature and atomic nitrogen mass fraction](cyl-park5-fields.png)
+![Shock-layer atomic nitrogen mass fraction](img/cyl-park5-yn.png)
 
 ![Stagnation-line temperature and composition](cyl-park5-stagline.png)
 

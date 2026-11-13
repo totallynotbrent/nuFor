@@ -41,7 +41,7 @@ Published in `research/results.md`.
 | peak surface pressure | 0.959 MPa at (1.549, 1.281) | run log | measured |
 | maximum field temperature | 25670 K | run log | measured |
 | peak wall heat flux | 0.575 MW/m2 | run log, shared estimator | measured |
-| C_D and L/D | 0.501 and 0.335 | run log | measured |
+| C_D and L/D | 0.3894 and 0.3201 | run log | measured |
 
 ## Catalytic wall accommodation
 

@@ -57,9 +57,12 @@ RANK_COUNTS = (1, 2, 3, 4, 5)
 
 # the tolerances the gates assert internally.
 EXACT_ZERO_LANES = ("euler", "uniform")
-SPECIES_LANE = "mpipark5"
 ROUNDOFF_LANES = ("viscous", "sa", "body")
 TWOT_LANE = "twot"
+
+# the five-species composition lane. the seam reconstruction is bitwise
+# zero by construction, so the species gates classify as exact-zero.
+SPECIES_LANE = "mpipark5"
 
 # a run that overruns this is a seam deadlock, not a slow machine.
 RUN_TIMEOUT_S = 180
@@ -277,11 +280,6 @@ def main():
                 f"{lane}_lane_stays_inside_roundoff_at_np{np_value}",
                 entry["passed"] and float(entry["measured"].get(key, 1.0)) < 1.0e-6,
             )
-        species = results[f"{SPECIES_LANE}_np{np_value}"]
-        check(
-            f"species_carrier_seam_agrees_at_np{np_value}",
-            species["passed"],
-        )
         twot = results[f"{TWOT_LANE}_np{np_value}"]
         check(
             f"twot_plane_matches_the_serial_substep_at_np{np_value}",
@@ -303,6 +301,12 @@ def main():
             twot["passed"]
             and float(twot["measured"].get("twot_plane_liveness", 0.0))
             > 1.0e-9 * float(twot["measured"].get("twot_seed_peak", 1.0)),
+        )
+        species = results[f"{SPECIES_LANE}_np{np_value}"]
+        check(
+            f"species_seam_reconstruction_is_bitwise_zero_at_np{np_value}",
+            species["passed"]
+            and species["measured"].get("mpipark5_seam_zero") == 1,
         )
         gather = results[f"gather_np{np_value}"]
         check(
