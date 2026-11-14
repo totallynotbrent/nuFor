@@ -38,6 +38,15 @@ if(MPI_Fortran_FOUND)
   add_library(nuforkernels STATIC
     api/nuforkernels.f90
     api/nufor_mpi.f90
+    api/nuforfaces.f90
+    api/nuforhalos.f90
+    api/nuforcollect.f90
+    api/nufoeqair.f90
+    api/nuforriemann.f90
+    api/nuforboundary.f90
+    api/nuforfluxes.f90
+    api/nufoorturb.f90
+    api/nuforvisc.f90
     api/nuforsolver2d.f90
     api/nufor2t.f90
     api/nuforbridge.f90
@@ -55,6 +64,15 @@ else()
   add_library(nuforkernels STATIC
     api/nuforkernels.f90
     api/nufor_mpi.f90
+    api/nuforfaces.f90
+    api/nuforhalos.f90
+    api/nuforcollect.f90
+    api/nufoeqair.f90
+    api/nuforriemann.f90
+    api/nuforboundary.f90
+    api/nuforfluxes.f90
+    api/nufoorturb.f90
+    api/nuforvisc.f90
     api/nuforsolver2d.f90
     api/nufor2t.f90
     api/nuforbridge.f90

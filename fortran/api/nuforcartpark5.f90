@@ -15,7 +15,7 @@
 module nuforcartpark5
   use iso_fortran_env, only: real64
   use nuforpark5, only: closure_triple, transport_planar, chem_substep_grid
-  use nuforsolver2d, only: hllc_face_x_pub => hllc_face_x
+  use nuforriemann, only: hllc_face_x_pub => hllc_face_x
   implicit none
 
   integer, parameter :: DP = real64

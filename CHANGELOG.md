@@ -16,6 +16,15 @@
   same per rank including a non-vacuity check that the transport really
   carried the composition. Body-bearing, viscous and axisymmetric park5
   cases still take the serial rust lane.
+- the fortran core is split by concern, with no module over roughly 700
+  lines: `nuforsolver2d.f90` keeps only the euler march driver while the
+  eqair closure, the hllc riemann solver, the boundary ghosts, the muscl
+  flux sweep, the spalart-allmaras turbulence terms, the molecular
+  viscosity and the shared face work bank each move to their own module,
+  and `nuforbridge.f90` sheds the mpi plumbing into `nuforhalos.f90`
+  (decomposition and halo exchanges) and `nuforcollect.f90` (rank probe
+  and gathers). Pure file surgery: the mpi parity lanes pass 75/75 checks
+  and the park5 mpi case reproduces a bitwise identical vtk.
 - unstructured meshes: gmsh physical groups tag boundary faces (wall,
   inflow, outflow); slip walls take the exact pressure flux, uniform-IC
   cases run on imported meshes, and the heartbeat's peak-pressure read

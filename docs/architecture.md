@@ -44,6 +44,33 @@ calls them as batch operations over the whole field, one call per kernel per
 step. Calling the kernel per cell instead would pay the ABI crossing roughly
 three times over for every cell.
 
+## Fortran module map
+
+The Fortran layer is split by concern, and no module grows past roughly 700
+lines. The MPI case splits into three pieces:
+
+- `nuforhalos.f90` owns the x-slab decomposition the ranks agree on at case
+  init and the halo exchangers for the conserved slab, the turbulence plane,
+  the two-temperature plane and the solid mask.
+- `nuforcollect.f90` owns the rank probe, the chunk broadcast and the
+  gathers that reassemble the global row-major fields from the per-rank
+  slabs.
+- `nuforbridge.f90` owns the C-ABI march drivers: the Euler,
+  two-temperature, viscous and SA steps, plus the one-time case setup that
+  ships the thermodynamic tables.
+
+The Euler step is split along the same lines inside `nuforsolver2d.f90`:
+
+- `nufoeqair.f90` holds the equilibrium-air closure and the CEA and TGas1
+  tables.
+- `nuforfaces.f90` holds the reusable per-strip face work bank.
+- `nuforriemann.f90` holds the HLLC face solver and the star state.
+- `nuforfluxes.f90` holds the row-wise MUSCL reconstruction and the flux
+  sweep.
+- `nuforboundary.f90` holds the boundary ghost construction.
+- `nufoorturb.f90` holds the SA turbulence closure and transport.
+- `nuforvisc.f90` holds the molecular viscosity add-on.
+
 ## Build
 
 Cargo owns the Rust workspace; a `build.rs` drives CMake to compile the
