@@ -11,8 +11,8 @@ use nufor_config::{
     Mesh, OutputFormat, Reconstruction,
 };
 use nufor_core::ffi_mpi::{
-    march_euler2d_mpi, march_rans2d_mpi, march_viscous2d_mpi, mpi_bcast_state, mpi_launched,
-    mpi_rank, mpi_shutdown,
+    march_euler2d_mpi, march_park5_2d_mpi, march_rans2d_mpi, march_viscous2d_mpi, mpi_bcast_state,
+    mpi_launched, mpi_rank, mpi_shutdown,
 };
 use nufor_core::{
     advance2d_axi_lts, advance2d_axi_rk2, advance2d_model_rk2, advance2d_model_visc_lts,
@@ -2524,6 +2524,77 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     let visc_lam = cfg.physics.mu.is_some_and(|m| m > 0.0) && turb.is_none();
     let rans_sa = turb.is_some() && cfg.physics.mu.is_some_and(|m| m > 0.0);
     let visc_body = (visc_lam || rans_sa) && body.is_some();
+    // the five-species park5 lane under mpirun: the fortran core advances the
+    // conserved four and the composition planes on an x-slab decomposition
+    // and gathers the final full-domain state to rank 0 for output. planar,
+    // inviscid and body-free only: the body-band projection, viscosity and
+    // the axisymmetric update stay on the serial rust lane.
+    if mpi_launched()
+        && matches!(model, ThermoModel::Park5 { .. })
+        && cfg.physics.mu.map_or(true, |m| m == 0.0)
+        && body.is_none()
+    {
+        let sp = match park5_species.as_ref() {
+            Some(sp) => sp,
+            None => {
+                eprintln!("park5 mpi lane missing the species state");
+                mpi_shutdown();
+                return 2;
+            }
+        };
+        let y_fill = park5_start_composition(cfg);
+        let t0p = Instant::now();
+        let aim = (t_end - restart_time).max(0.0);
+        match march_park5_2d_mpi(&st, &sp.y, &g, &bc, cfl, aim, max_steps, &y_fill) {
+            Ok(r) => {
+                if let (Some(gst), Some(gp)) = (r.state, r.planes) {
+                    st = gst;
+                    park5_species = Some(nufor_core::species::SpeciesState { y: gp });
+                }
+                let wall = t0p.elapsed().as_secs_f64();
+                let steps = r.steps;
+                let t = restart_time + r.time;
+                if mpi_rank().unwrap_or(0) != 0 {
+                    mpi_shutdown();
+                    return 0;
+                }
+                println!(
+                    "case {} ({}) [mpi park5]\nthin: 2d, {}x{}\nsteps: {}\ntime: {:.4}\nwall: {:.3}s",
+                    cfg.metadata.name, path, g.nx, g.ny, steps, t, wall
+                );
+                let rc = write_case_vtk2d_model(
+                    path,
+                    &cfg.metadata.name,
+                    &g,
+                    &st,
+                    model,
+                    park5_species.as_ref(),
+                    None,
+                );
+                if rc == 0 {
+                    write_run_log_2d(
+                        cfg,
+                        path,
+                        &g,
+                        &st,
+                        model,
+                        park5_species.as_ref(),
+                        combustion_state.as_ref(),
+                        steps,
+                        t,
+                        wall,
+                    );
+                }
+                mpi_shutdown();
+                return rc;
+            }
+            Err(e) => {
+                eprintln!("park5 mpi solver error: {e}");
+                mpi_shutdown();
+                return 1;
+            }
+        }
+    }
     if mpi_launched()
         && matches!(model, ThermoModel::EqAir { .. })
         && !visc_body

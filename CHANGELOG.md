@@ -4,6 +4,18 @@
 
 ### Added
 
+- the mpi five-species park5 march: `physics.eos = "park5"` cases under
+  `mpirun` now run the conserved fields and the five composition planes in
+  the fortran core on an x-slab decomposition
+  (`fortran/api/nuforpark5mpi.f90`, driven from the cli through
+  `march_park5_2d_mpi`), with the full domain gathered to rank 0 for vtk
+  and log output. Bitwise zero against the serial cartesian oracle at
+  np=1..4 on a graded composition (worst field difference 0.0, worst
+  composition movement 3.1e-3, matching the cfl displacement estimate to
+  1.2 percent), and the `cases/mpi-parity/gates.json` lane enforces the
+  same per rank including a non-vacuity check that the transport really
+  carried the composition. Body-bearing, viscous and axisymmetric park5
+  cases still take the serial rust lane.
 - unstructured meshes: gmsh physical groups tag boundary faces (wall,
   inflow, outflow); slip walls take the exact pressure flux, uniform-IC
   cases run on imported meshes, and the heartbeat's peak-pressure read

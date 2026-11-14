@@ -30,6 +30,26 @@
     "sa_lane_stays_inside_roundoff_at_np3": true,
     "sa_lane_stays_inside_roundoff_at_np4": true,
     "sa_lane_stays_inside_roundoff_at_np5": true,
+    "species_march_actually_carries_the_composition_at_np1": true,
+    "species_march_actually_carries_the_composition_at_np2": true,
+    "species_march_actually_carries_the_composition_at_np3": true,
+    "species_march_actually_carries_the_composition_at_np4": true,
+    "species_march_actually_carries_the_composition_at_np5": true,
+    "species_march_keeps_the_composition_normalised_at_np1": true,
+    "species_march_keeps_the_composition_normalised_at_np2": true,
+    "species_march_keeps_the_composition_normalised_at_np3": true,
+    "species_march_keeps_the_composition_normalised_at_np4": true,
+    "species_march_keeps_the_composition_normalised_at_np5": true,
+    "species_march_matches_the_serial_oracle_at_np1": true,
+    "species_march_matches_the_serial_oracle_at_np2": true,
+    "species_march_matches_the_serial_oracle_at_np3": true,
+    "species_march_matches_the_serial_oracle_at_np4": true,
+    "species_march_matches_the_serial_oracle_at_np5": true,
+    "species_seam_reconstruction_is_bitwise_zero_at_np1": true,
+    "species_seam_reconstruction_is_bitwise_zero_at_np2": true,
+    "species_seam_reconstruction_is_bitwise_zero_at_np3": true,
+    "species_seam_reconstruction_is_bitwise_zero_at_np4": true,
+    "species_seam_reconstruction_is_bitwise_zero_at_np5": true,
     "twot_march_left_the_conserved_planes_alone_at_np1": true,
     "twot_march_left_the_conserved_planes_alone_at_np2": true,
     "twot_march_left_the_conserved_planes_alone_at_np3": true,
@@ -254,6 +274,126 @@
       },
       "passed": true,
       "test": "mpi_gather_nf_fields_reassembles_exactly",
+      "timed_out": false,
+      "world_size": 5
+    },
+    "mpipark5_np1": {
+      "attempts": 1,
+      "measured": {
+        "mpipark5_seam_zero": 1,
+        "mpipark5_world_size": 1
+      },
+      "passed": true,
+      "test": "mpi_mpipark5_carrier_seam_and_gather",
+      "timed_out": false,
+      "world_size": 1
+    },
+    "mpipark5_np2": {
+      "attempts": 1,
+      "measured": {
+        "mpipark5_seam_zero": 1,
+        "mpipark5_world_size": 2
+      },
+      "passed": true,
+      "test": "mpi_mpipark5_carrier_seam_and_gather",
+      "timed_out": false,
+      "world_size": 2
+    },
+    "mpipark5_np3": {
+      "attempts": 1,
+      "measured": {
+        "mpipark5_seam_zero": 1,
+        "mpipark5_world_size": 3
+      },
+      "passed": true,
+      "test": "mpi_mpipark5_carrier_seam_and_gather",
+      "timed_out": false,
+      "world_size": 3
+    },
+    "mpipark5_np4": {
+      "attempts": 1,
+      "measured": {
+        "mpipark5_seam_zero": 1,
+        "mpipark5_world_size": 4
+      },
+      "passed": true,
+      "test": "mpi_mpipark5_carrier_seam_and_gather",
+      "timed_out": false,
+      "world_size": 4
+    },
+    "mpipark5_np5": {
+      "attempts": 1,
+      "measured": {
+        "mpipark5_seam_zero": 1,
+        "mpipark5_world_size": 5
+      },
+      "passed": true,
+      "test": "mpi_mpipark5_carrier_seam_and_gather",
+      "timed_out": false,
+      "world_size": 5
+    },
+    "mpipark5adv_np1": {
+      "attempts": 1,
+      "measured": {
+        "mpipark5_march_world_size": 1,
+        "mpipark5_march_worst_abs_vs_serial_one_step": 0.0,
+        "mpipark5_march_worst_composition_change": 0.003114576158625315,
+        "mpipark5_march_worst_composition_sum_error": 0.0
+      },
+      "passed": true,
+      "test": "mpi_mpipark5_march_matches_serial",
+      "timed_out": false,
+      "world_size": 1
+    },
+    "mpipark5adv_np2": {
+      "attempts": 1,
+      "measured": {
+        "mpipark5_march_world_size": 2,
+        "mpipark5_march_worst_abs_vs_serial_one_step": 0.0,
+        "mpipark5_march_worst_composition_change": 0.003114576158625315,
+        "mpipark5_march_worst_composition_sum_error": 0.0
+      },
+      "passed": true,
+      "test": "mpi_mpipark5_march_matches_serial",
+      "timed_out": false,
+      "world_size": 2
+    },
+    "mpipark5adv_np3": {
+      "attempts": 1,
+      "measured": {
+        "mpipark5_march_world_size": 3,
+        "mpipark5_march_worst_abs_vs_serial_one_step": 0.0,
+        "mpipark5_march_worst_composition_change": 0.003114576158625315,
+        "mpipark5_march_worst_composition_sum_error": 0.0
+      },
+      "passed": true,
+      "test": "mpi_mpipark5_march_matches_serial",
+      "timed_out": false,
+      "world_size": 3
+    },
+    "mpipark5adv_np4": {
+      "attempts": 1,
+      "measured": {
+        "mpipark5_march_world_size": 4,
+        "mpipark5_march_worst_abs_vs_serial_one_step": 0.0,
+        "mpipark5_march_worst_composition_change": 0.003114576158625315,
+        "mpipark5_march_worst_composition_sum_error": 0.0
+      },
+      "passed": true,
+      "test": "mpi_mpipark5_march_matches_serial",
+      "timed_out": false,
+      "world_size": 4
+    },
+    "mpipark5adv_np5": {
+      "attempts": 1,
+      "measured": {
+        "mpipark5_march_world_size": 5,
+        "mpipark5_march_worst_abs_vs_serial_one_step": 0.0,
+        "mpipark5_march_worst_composition_change": 0.003114576158625315,
+        "mpipark5_march_worst_composition_sum_error": 0.0
+      },
+      "passed": true,
+      "test": "mpi_mpipark5_march_matches_serial",
       "timed_out": false,
       "world_size": 5
     },

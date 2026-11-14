@@ -1,0 +1,58 @@
+# Body-free planar five-species Park-5 lane, shaped for the production
+# mpi path: the fortran core advances the conserved four and the five
+# composition planes on an x-slab decomposition. A uniform supersonic
+# nitrogen-free stream keeps the lane free of body masking, so the
+# distributed march and the single-rank march are comparable bit for bit.
+
+schema_version = 1
+
+[metadata]
+name = "park5-mpi-flat"
+description = "Body-free planar five-species Park-5 lane for the mpi path"
+case_revision = 1
+
+[physics]
+equations = "euler_2d"
+gamma = 1.4
+gas_constant = 287.05
+eos = "park5"
+
+[mesh]
+nx = 24
+ny = 8
+x0 = 0.0
+x1 = 1.0
+y0 = 0.0
+y1 = 1.0
+source = "uniform"
+
+[initial_condition]
+type = "uniform"
+rho = 1.225
+u = 400.0
+p = 105519.9375
+
+[boundaries]
+left = "supersonic_inflow"
+right = "supersonic_outflow"
+bottom = "supersonic_outflow"
+top = "supersonic_outflow"
+
+[boundaries.inflow_state]
+rho = 1.225
+u = 400.0
+p = 105519.9375
+
+[numerics]
+flux = "hllc"
+reconstruction = "muscl"
+cfl = 0.45
+
+[time]
+final_time = 0.01
+max_steps = 50
+
+[output]
+interval_steps = 100
+formats = ["vtk"]
+fields = ["rho", "u", "p"]

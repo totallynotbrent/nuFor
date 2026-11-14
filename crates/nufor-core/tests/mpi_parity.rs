@@ -1213,6 +1213,78 @@ fn mpi_np1_2t_matches_rust_inner() {
     mpi_shutdown();
 }
 
+/// five-species carrier gate: every rank pushes a distinguishable park5
+/// composition slab through the fortran carrier, the seam-face
+/// disagreement between neighboring ranks must be bitwise zero at any
+/// np, and the gathered global composition must reproduce the seed
+/// exactly (mpi doubles carry no arithmetic).
+#[test]
+#[ignore] // run under mpirun -np N, see the ci parity-smoke step
+fn mpi_mpipark5_carrier_seam_and_gather() {
+    use nufor_core::ffi_mpi::{
+        mpi_shutdown, mpipark5_carrier, mpipark5_gather, mpipark5_init, MpiSession,
+    };
+    use nufor_core::partition::carve_slab;
+    let (nx, ny, ns) = (32usize, 6usize, 5usize);
+    let n = nx * ny;
+    MpiSession::new().unwrap();
+    let (_rank, _i0, nx_local) = MpiSession::case_init(nx, ny).unwrap();
+    let (prank, pi0, pnl) = mpipark5_init(nx as i32, ny as i32).unwrap();
+    assert_eq!(pnl as usize, nx_local.try_into().unwrap());
+    let nx_l = pnl as usize;
+    let nn = nx_l * ny;
+    // full-domain five planes with distinguishable values per cell.
+    let full: Vec<Vec<f64>> = (0..ns)
+        .map(|s| {
+            (0..n)
+                .map(|k| (s + 1) as f64 * 1000.0 + k as f64 * 0.125)
+                .collect()
+        })
+        .collect();
+    // the fortran decomposition reports a one-based column origin; rust slices are zero-based.
+    let i0_off = pi0 as usize - 1;
+    let slab_y: Vec<f64> = full
+        .iter()
+        .flat_map(|p| carve_slab(p, nx, ny, i0_off, nx_l))
+        .collect();
+    // the carrier divides by density, so seed a real one; zero momentum
+    // keeps the primitive conversion exact.
+    let rho_l = vec![1.0f64; nn];
+    let zeros = vec![0.0f64; nn];
+    let energy = vec![360.0f64; nn];
+    let bc_vals = [0.0f64; 20];
+    let y_fill = [0.0f64; 5];
+    let (rg, _ug, _vg, _eg, yg, seam) = mpipark5_carrier(
+        nx_l, ny, &rho_l, &zeros, &zeros, &energy, &slab_y, 0, 0, &bc_vals, &y_fill,
+    )
+    .unwrap();
+    assert_eq!(seam, 0.0, "seam faces disagree at rank {prank}: {seam:e}");
+    // the carrier preserves the density it was handed on every interior cell.
+    for j in 0..ny {
+        for i in 0..nx_l {
+            assert_eq!(
+                rg[j * (nx_l + 4) + i + 2],
+                1.0,
+                "carrier altered density at rank {prank}"
+            );
+        }
+    }
+    // gather: the padded interior strip reassembles the seeded planes.
+    let gathered_opt = mpipark5_gather(nx, ny, &yg).unwrap();
+    if prank == 0 {
+        let gathered = gathered_opt.expect("rank 0 receives the assembly");
+        for s in 0..ns {
+            let plane = &gathered[s * n..(s + 1) * n];
+            assert_eq!(plane, &full[s], "gathered plane {s} diverged from seed");
+        }
+        mpi_report::integer("mpipark5_seam_zero", if seam == 0.0 { 1 } else { 0 });
+        mpi_report::integer("mpipark5_world_size", num_ranks() as i64);
+        mpi_report::flush();
+        mpi_report::fence();
+    }
+    mpi_shutdown();
+}
+
 /// world size from the launcher's environment (openmpi/prte stamp every
 /// rank's OMPI_COMM_WORLD_SIZE; fall back to 1 outside mpirun).
 fn num_ranks() -> usize {
@@ -1221,4 +1293,141 @@ fn num_ranks() -> usize {
         .and_then(|v| v.parse().ok())
         .filter(|&n: &usize| n >= 1)
         .unwrap_or(1)
+}
+
+/// mpi-native five-species march gate: every rank pushes the same seed
+/// through the fortran x-slab park5 march, and rank 0's gathered state and
+/// planes must reproduce the serial cartesian oracle bit for bit at any
+/// world size.
+#[test]
+#[ignore] // run under mpirun -np N, see the ci parity-smoke step
+fn mpi_mpipark5_march_matches_serial() {
+    use nufor_core::ffi_mpi::{march_park5_2d_mpi, mpi_shutdown, park5_boundary_codes, MpiSession};
+    use nufor_core::park::NS;
+    use nufor_core::park5_fortran::{cart_step, CartBc};
+
+    const AIR: [f64; NS] = [0.767, 0.233, 0.0, 0.0, 0.0];
+
+    let (nx, ny) = (24usize, 8usize);
+    let n = nx * ny;
+    let g = nufor_core::grid2d::grid2d(nx, ny, 0.0, 1.0, 0.0, 1.0).unwrap();
+
+    // a uniform supersonic stream: the transport has to move the
+    // composition for the gate to mean anything.
+    let rho0 = 1.225f64;
+    let u0 = 400.0f64;
+    let v0 = 0.0f64;
+    let e_int = nufor_core::species_closure::internal_energy_at(300.0, &AIR);
+    let st = ConservedState2d {
+        rho: vec![rho0; n],
+        mx: vec![rho0 * u0; n],
+        my: vec![rho0 * v0; n],
+        e: vec![rho0 * (e_int + 0.5 * (u0 * u0 + v0 * v0)); n],
+    };
+    // a graded composition: a uniform fill would leave the transport
+    // operator dormant and the gate would pass on a parked field. the
+    // nitrogen and oxygen fractions trade along x, so the advective
+    // sweep has a real gradient to carry and the reconstructed face
+    // states at the seam have to agree on it.
+    let planes: Vec<Vec<f64>> = (0..NS)
+        .map(|s| {
+            (0..n)
+                .map(|k| {
+                    let i = k % nx;
+                    let j = k / nx;
+                    let dx = 0.05 * (std::f64::consts::TAU * i as f64 / nx as f64).cos();
+                    let dy = 0.02 * (std::f64::consts::TAU * j as f64 / ny as f64).sin();
+                    let d = dx + dy;
+                    match s {
+                        0 => AIR[0] + d,
+                        1 => AIR[1] - d,
+                        _ => AIR[s],
+                    }
+                })
+                .collect()
+        })
+        .collect();
+
+    let bc = nufor_core::Boundaries2d {
+        west: nufor_core::Bc2d::SupersonicInflow {
+            rho: rho0,
+            u: u0,
+            v: v0,
+            p: rho0 * 287.05 * 300.0,
+            t: Some(300.0),
+        },
+        east: nufor_core::Bc2d::Transmissive,
+        south: nufor_core::Bc2d::Transmissive,
+        north: nufor_core::Bc2d::Transmissive,
+    };
+
+    MpiSession::new().unwrap();
+    let (drank, _di0, _dnl) = MpiSession::case_init(nx, ny).unwrap();
+    let r = march_park5_2d_mpi(&st, &planes, &g, &bc, 0.45, 1.0e30, 1, &AIR).unwrap();
+
+    // the serial cartesian oracle: the same recipe in one shot.
+    let (_, sides) = park5_boundary_codes(&bc, &AIR);
+    let ser = cart_step(
+        nx,
+        ny,
+        &g.dxs,
+        &g.dys,
+        0.45,
+        CartBc::Inflow,
+        CartBc::Transmissive,
+        CartBc::Transmissive,
+        CartBc::Transmissive,
+        &sides,
+        &st.rho,
+        &st.mx,
+        &st.my,
+        &st.e,
+        &planes,
+        &AIR,
+    )
+    .unwrap();
+
+    match (&r.state, &r.planes) {
+        (Some(got), Some(got_y)) => {
+            let mut worst = 0.0f64;
+            let mut composed = 0.0f64;
+            // the largest change the march made to the seed composition.
+            // a parked field drives this to zero, so a positive value is
+            // the proof that the transport operator was awake.
+            let mut moved = 0.0f64;
+            for k in 0..n {
+                worst = worst.max((got.rho[k] - ser.rho[k]).abs());
+                worst = worst.max((got.mx[k] - ser.mx[k]).abs());
+                worst = worst.max((got.my[k] - ser.my[k]).abs());
+                worst = worst.max((got.e[k] - ser.e[k]).abs());
+                let mut sum = 0.0f64;
+                for s in 0..NS {
+                    worst = worst.max((got_y[s][k] - ser.planes[s][k]).abs());
+                    sum += got_y[s][k];
+                    moved = moved.max((got_y[s][k] - planes[s][k]).abs());
+                }
+                composed = composed.max((sum - 1.0).abs());
+            }
+            mpi_report::number("mpipark5_march_worst_abs_vs_serial_one_step", worst);
+            mpi_report::number("mpipark5_march_worst_composition_sum_error", composed);
+            mpi_report::number("mpipark5_march_worst_composition_change", moved);
+            mpi_report::integer("mpipark5_march_world_size", num_ranks() as i64);
+            mpi_report::flush();
+            mpi_report::fence();
+            assert_eq!(
+                worst, 0.0,
+                "the mpi march diverged from the serial oracle ({worst:e})"
+            );
+            assert!(
+                composed <= 1.0e-12,
+                "the composition lost its normalisation ({composed:e})"
+            );
+            assert!(
+                moved > 1.0e-6,
+                "the march left the composition parked; the gate proved nothing ({moved:e})"
+            );
+        }
+        _ => assert_ne!(drank, 0, "rank 0 must assemble the global state"),
+    }
+    mpi_shutdown();
 }

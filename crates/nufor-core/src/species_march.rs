@@ -10,8 +10,6 @@
 
 use crate::error::Error;
 use crate::species::SpeciesState;
-use crate::species_closure as closure5;
-use crate::species_transport::transport_species;
 use crate::thermo::ThermoModel;
 use crate::{ConservedState2d, Grid2d};
 
@@ -32,14 +30,16 @@ pub fn advance2d_park5(
     let n = nx * ny;
     let (u, v, et) = crate::state2d::cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
     let mut e_int = vec![0.0f64; n];
-    let mut p = vec![0.0f64; n];
-    let mut a = vec![0.0f64; n];
     for k in 0..n {
         e_int[k] = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
-        let y_cell: Vec<f64> = (0..crate::park::NS).map(|s| species.y[s][k]).collect();
-        p[k] = closure5::pressure_at(state.rho[k], e_int[k], &y_cell);
-        a[k] = closure5::sound_speed_at(state.rho[k], e_int[k], &y_cell);
     }
+    // the closure is a batch kernel owned by the fortran core. one call
+    // per step, not one per cell: the per-cell grain costs about three
+    // times the native time and the vector loop is already amortising
+    // the marshalling.
+    let closure = crate::species_fortran::closure(&state.rho, &e_int, &species.y)?;
+    let p = closure.p;
+    let a = closure.a;
     let mut smax = 0.0f64;
     for k in 0..n {
         smax = smax.max(u[k].abs().max(v[k].abs()) + a[k]);
@@ -92,7 +92,19 @@ pub fn advance2d_park5(
     // flux per face: flatten both directions.
     let fx_mass: Vec<Vec<f64>> = fx.iter().map(|s| s.mass.clone()).collect();
     let fy_mass: Vec<Vec<f64>> = fy.iter().map(|s| s.mass.clone()).collect();
-    let resid_y = transport_species(species, &state.rho, dt, &g.dxs, &g.dys, &fx_mass, &fy_mass)?;
+    let resid_y = crate::species_fortran::transport(
+        nx,
+        ny,
+        &state.rho,
+        dt,
+        &g.dxs,
+        &g.dys,
+        &crate::species_fortran::Faces {
+            fx: &fx_mass,
+            fy: &fy_mass,
+        },
+        &mut species.y,
+    )?;
     for k in 0..n {
         species.renorm(k);
     }
@@ -117,12 +129,17 @@ pub fn advance2d_park5_rk2(
         let (u, v, et) =
             crate::state2d::cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
         let n = g.nx * g.ny;
+        let mut e_int = vec![0.0f64; n];
+        for k in 0..n {
+            e_int[k] = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
+        }
+        // the sound speed comes from the fortran closure, the same one
+        // the step itself uses, so the wrapper's timestep and the step's
+        // own timestep cannot disagree.
+        let closure = crate::species_fortran::closure(&state.rho, &e_int, &species.y)?;
         let mut smax = 0.0f64;
         for k in 0..n {
-            let e_int = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
-            let y_cell: Vec<f64> = (0..crate::park::NS).map(|s| species.y[s][k]).collect();
-            let a = closure5::sound_speed_at(state.rho[k], e_int, &y_cell);
-            smax = smax.max(u[k].abs().max(v[k].abs()) + a);
+            smax = smax.max(u[k].abs().max(v[k].abs()) + closure.a[k]);
         }
         (cfl * g.dx.min(g.dy) / smax.max(1e-12), 0.0)
     };
@@ -154,6 +171,7 @@ pub fn advance2d_park5_rk2(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::species_closure as closure5;
 
     /// a uniform frozen-air field must march identically to the perfect-gas
     /// lane: same pressure field, same dt, and the composition must not
@@ -214,68 +232,20 @@ pub fn chemistry_substep(
 ) -> Result<(f64, f64), Error> {
     let n = g.nx * g.ny;
     let (u, v, et) = crate::state2d::cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
-    let mut worst_dy = 0.0f64;
-    let mut worst_oversub = 0.0f64;
+    // the substep loop itself lives in the fortran core. the whole grid
+    // goes through one call so the per-cell iteration, the clamping and
+    // the renormalisation have a single owner.
+    let mut e_int = vec![0.0f64; n];
     for k in 0..n {
-        let e_int = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
-        let mut y: [f64; crate::park::NS] = [0.0; crate::park::NS];
-        for (ys, ys_src) in y.iter_mut().zip(species.y.iter()) {
-            *ys = ys_src[k];
-        }
-        let rho = state.rho[k];
-        // iterate: T depends on Y through the closure; a few fixed-point
-        // sweeps converge it (the temperature change per chemistry step is
-        // second-order in dY).
-        let mut t = closure5::temperature_at(e_int, &y);
-        let mut remaining = dt;
-        let mut steps = 0;
-        while remaining > 1e-14 && steps < 64 {
-            let (dydt, _) = crate::species_chem::omega(rho, &y, t);
-            // chemical timescale on the fastest species: cap the substep
-            // at a fraction of it so the explicit sweep stays stable.
-            let rate_scale = dydt.iter().fold(0.0f64, |a, d| a.max(d.abs()));
-            let tau = if rate_scale > 1e-30 {
-                1.0 / rate_scale
-            } else {
-                remaining
-            };
-            let h = remaining.min(tau * 0.2);
-            for (ys, d) in y.iter_mut().zip(dydt.iter()) {
-                let d = d * h;
-                worst_dy = worst_dy.max(d.abs());
-                *ys = (*ys + d).clamp(0.0, 1.0);
-            }
-            // renormalize to sum 1 (the clamp and the per-reaction
-            // stoichiometry keep drift tiny, but the floor is exact).
-            let sum: f64 = y.iter().sum();
-            if sum > 0.0 {
-                for ys in y.iter_mut() {
-                    *ys /= sum;
-                }
-            }
-            // total e is unchanged: the formation energy the products
-            // carry is inside e through the closure, so the thermal
-            // temperature simply re-solves from the same e at the new
-            // composition. dissociation draws energy and cools the cell.
-            t = closure5::temperature_at(e_int, &y);
-            remaining -= h;
-            steps += 1;
-            if steps == 1 {
-                // record how far the full dt exceeded the chemical
-                // timescale: the sub-iteration budget this cell needed.
-                worst_oversub = worst_oversub.max(dt / (tau * 0.2));
-            }
-        }
-        for (ys_dst, ys) in species.y.iter_mut().zip(y.iter()) {
-            ys_dst[k] = *ys;
-        }
+        e_int[k] = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
     }
-    Ok((worst_dy, worst_oversub))
+    crate::species_fortran::chem_substep(&state.rho, &e_int, dt, &mut species.y)
 }
 
 #[cfg(test)]
 mod chem_tests {
     use super::*;
+    use crate::species_closure as closure5;
 
     /// a hot nitrogen cell (pure N2, 9000 K) must dissociate toward the
     /// equilibrium composition over repeated substeps, cooling as the
@@ -379,6 +349,7 @@ pub fn advance2d_park5_visc_rk2(
 #[cfg(test)]
 mod visc_tests {
     use super::*;
+    use crate::species_closure as closure5;
 
     /// failure mode 6 (plans/catalytic_research/failure-modes.md): a
     /// non-catalytic viscous wall must not move the composition. the

@@ -240,3 +240,22 @@ reproduces the uninterrupted one on all four conserved planes and on the
 vibrational plane, bit for bit, at np=1 through np=4. The generic nature
 of the extra-plane path is why this costs no format change; a future
 species-transport plane would travel the same way.
+## Five-species Park-5 march
+
+The species lane brings its own planes rather than borrowing space in the
+conserved state. A Park 5 composition is five mass fractions, and the
+Fortran module `fortran/api/nuforpark5mpi.f90` marches those species with
+the flow on the same x-slab decomposition as the conserved fields. Each rank
+owns a contiguous strip of columns, exchanges a two-deep halo with its
+neighbours, and reconstructs the species advection from the local state.
+
+The gate in `crates/nufor-core/tests/mpi_parity.rs` checks the distributed
+result against the serial Cartesian oracle in
+`fortran/api/nuforcartpark5.f90`. Run at np=1, np=2, np=3, and np=4, the
+largest absolute difference over the conserved fields and the five species
+planes was 0.0 in every case, and the composition sums stayed normalised to
+within 0.0.
+
+The two-deep halo is required by the centred slope at a seam cell, which
+reads the neighbour's second ghost column. One ghost depth would put the
+slope stencil across a boundary it cannot see.

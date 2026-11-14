@@ -431,7 +431,15 @@ flowchart LR
     is `cases/mpi-parity/gates.json` with `verify_committed_gate.py`
     beside it. The third lands all
     new physics (live 2T, species, combustion) MPI-native from day one,
-    which pulls the nonequilibrium and species work inside this one.
+    which pulls the nonequilibrium and species work inside this one. Its
+    first species slice is in: a five-species Park 5 composition now marches
+    native to MPI in `fortran/api/nuforpark5mpi.f90` on the x-slab
+    decomposition with a two-deep halo, exposed through
+    `march_park5_2d_mpi`. Against the serial Cartesian oracle
+    `fortran/api/nuforcartpark5.f90`, the gate in
+    `crates/nufor-core/tests/mpi_parity.rs` measured a largest absolute
+    difference of 0.0 over the conserved fields and the five species planes
+    at np=1, np=2, np=3, and np=4.
 
 ## What we deliberately do not borrow
 

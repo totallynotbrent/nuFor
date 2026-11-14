@@ -190,6 +190,61 @@ extern "C" {
         out: *mut f64,
         ierr: *mut i32,
     );
+    fn nfor_mpipark5_march(
+        nx: i32,
+        ny: i32,
+        rho: *const f64,
+        mx: *const f64,
+        my: *const f64,
+        e_tot: *const f64,
+        ys: *const f64,
+        dxs: *const f64,
+        dys: *const f64,
+        cfl: f64,
+        bc_w: i32,
+        bc_e: i32,
+        bc_s: i32,
+        bc_n: i32,
+        bc_vals: *const f64,
+        y_fill: *const f64,
+        rho_o: *mut f64,
+        mx_o: *mut f64,
+        my_o: *mut f64,
+        e_o: *mut f64,
+        ys_o: *mut f64,
+        dt_out: *mut f64,
+        err: *mut i32,
+    );
+    fn nfor_mpipark5_init(
+        nx: i32,
+        ny: i32,
+        out_rank: *mut i32,
+        out_i0: *mut i32,
+        out_nx_local: *mut i32,
+        ierr: *mut i32,
+    );
+    fn nfor_mpipark5_carrier(
+        nx_local: i32,
+        ny_local: i32,
+        rho: *const f64,
+        mx: *const f64,
+        my: *const f64,
+        e: *const f64,
+        y: *const f64,
+        bc_w: i32,
+        bc_e: i32,
+        bc_vals: *const f64,
+        y_fill: *const f64,
+        rho_g: *mut f64,
+        u_g: *mut f64,
+        v_g: *mut f64,
+        ei_g: *mut f64,
+        yg: *mut f64,
+        max_diff: *mut f64,
+        ierr: *mut i32,
+    );
+    fn nfor_mpipark5_rank(out_rank: *mut i32, ierr: *mut i32);
+    fn nfor_mpipark5_gather(nx: i32, ny: i32, y: *const f64, out_y: *mut f64, ierr: *mut i32);
 }
 
 /// one mpi session per process: init once on first use, finalized at exit
@@ -1222,6 +1277,241 @@ pub fn march_2t2d_mpi(
     ))
 }
 
+/// the boundary codes and imposed states for the park5 march, in the
+/// side order the fortran surface reads: west, east, south, north.
+pub fn park5_boundary_codes(bc: &Boundaries2d, y_fill: &[f64]) -> ([i32; 4], [[f64; 5]; 4]) {
+    let (bw, bvw) = park5_bc(&bc.west, y_fill);
+    let (be, bve) = park5_bc(&bc.east, y_fill);
+    let (bs, bvs) = park5_bc(&bc.south, y_fill);
+    let (bn, bvn) = park5_bc(&bc.north, y_fill);
+    ([bw, be, bs, bn], [bvw, bve, bvs, bvn])
+}
+
+/// the mpi-native five-species park5 march result.
+///
+/// rank 0 holds the gathered full-domain state and the gathered species
+/// planes; the other ranks hold `None` for both.
+pub struct MpiPark5Result {
+    /// rank 0 only: the gathered conserved state, full domain, row-major.
+    pub state: Option<ConservedState2d>,
+    /// rank 0 only: the five species planes, full domain, row-major.
+    pub planes: Option<Vec<Vec<f64>>>,
+    pub steps: usize,
+    pub time: f64,
+    pub wall: f64,
+    pub dt_last: f64,
+}
+
+/// invert the park5 closure for the internal energy per mass that carries
+/// the requested pressure at the given density and composition.
+///
+/// the closure's pressure rises with the internal energy, so a bracketing
+/// bisection converges on the unique physical root.
+fn park5_internal_energy_for_pressure(rho: f64, p: f64, y: &[f64]) -> f64 {
+    let mut lo = 0.0f64;
+    let mut hi = 1.0e6f64;
+    for _ in 0..200 {
+        let mid = 0.5 * (lo + hi);
+        if crate::species_closure::pressure_at(rho, mid, y) < p {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    0.5 * (lo + hi)
+}
+
+/// the boundary prescription for the park5 march: the code and the
+/// imposed state per side.
+///
+/// the imposed state is `[density, u, v, pressure, internal energy]`; the
+/// fortran side reads the internal energy when the side is an inflow.
+/// the internal energy comes from inverting the park5 closure at the
+/// requested pressure, so an inflow's thermodynamics stay consistent
+/// with the species it carries.
+#[allow(clippy::too_many_arguments)]
+pub fn park5_bc(b: &crate::solver2d::Bc2d, y_fill: &[f64]) -> (i32, [f64; 5]) {
+    use crate::solver2d::Bc2d::*;
+    match b {
+        SupersonicInflow { rho, u, v, p, .. } => {
+            let e_int = park5_internal_energy_for_pressure(*rho, *p, y_fill);
+            (1, [*rho, *u, *v, *p, e_int])
+        }
+        SlipWall => (3, [0.0; 5]),
+        NoSlipWall => (4, [0.0; 5]),
+        // the transmissive, outflow and reservoir prescriptions all leave
+        // the ghost copying its neighbour, which is the code 0 path.
+        Transmissive
+        | SupersonicOutflow
+        | ProfileInflow { .. }
+        | ReservoirInflow { .. }
+        | ReservoirInflowRealGas { .. }
+        | SubsonicOutflow { .. } => (0, [0.0; 5]),
+    }
+}
+
+/// the mpi-native five-species park5 march: the fortran core advances the
+/// conserved four and the five composition planes on an x-slab
+/// decomposition, exchanging the two-deep halo at the seams.
+///
+/// the caller owns the orchestration: the slab carve, the boundary
+/// translation and the gather all happen here, the physics happens in the
+/// fortran module.
+#[allow(clippy::too_many_arguments)]
+pub fn march_park5_2d_mpi(
+    state0: &ConservedState2d,
+    planes0: &[Vec<f64>],
+    g: &Grid2d,
+    bc: &Boundaries2d,
+    cfl: f64,
+    final_time: f64,
+    max_steps: usize,
+    y_fill: &[f64],
+) -> Result<MpiPark5Result, Error> {
+    let ns = crate::park::NS;
+    let n = g.nx * g.ny;
+    if planes0.len() < ns
+        || planes0.iter().any(|pl| pl.len() != n)
+        || y_fill.len() < ns
+        || state0.rho.len() != n
+    {
+        return Err(Error::InvalidArgs);
+    }
+    MpiSession::new()?;
+    let (rank, i0, nx_local_i) = MpiSession::case_init(g.nx, g.ny)?;
+    let nx_local = nx_local_i as usize;
+    let nl = nx_local * g.ny;
+
+    // the slab's conserved state and its species planes.
+    let mut rho_l = vec![0.0f64; nl];
+    let mut mx_l = vec![0.0f64; nl];
+    let mut my_l = vec![0.0f64; nl];
+    let mut e_l = vec![0.0f64; nl];
+    let mut ys_l = vec![0.0f64; ns * nl];
+    for j in 0..g.ny {
+        for i in 0..nx_local {
+            let src = j * g.nx + i0 as usize + i;
+            let dst = j * nx_local + i;
+            rho_l[dst] = state0.rho[src];
+            mx_l[dst] = state0.mx[src];
+            my_l[dst] = state0.my[src];
+            e_l[dst] = state0.e[src];
+            for s in 0..ns {
+                ys_l[s * nl + dst] = planes0[s][src];
+            }
+        }
+    }
+    // the slab's own cell widths, taken from the global axis.
+    let dxs_l: Vec<f64> = g.dxs[i0 as usize..i0 as usize + nx_local].to_vec();
+
+    let (codes, sides) = park5_boundary_codes(bc, y_fill);
+    let (bw, be, bs, bn) = (codes[0], codes[1], codes[2], codes[3]);
+    let bc_vals = sides.concat();
+    let y_fill_arr: Vec<f64> = y_fill[..ns].to_vec();
+
+    let mut rho2 = vec![0.0f64; nl];
+    let mut mx2 = vec![0.0f64; nl];
+    let mut my2 = vec![0.0f64; nl];
+    let mut e2 = vec![0.0f64; nl];
+    let mut ys2 = vec![0.0f64; ns * nl];
+
+    let mut t = 0.0f64;
+    let mut steps = 0usize;
+    let mut dt_last = 0.0f64;
+    let wall_start = std::time::Instant::now();
+    while t < final_time && steps < max_steps {
+        let mut dt: f64 = 0.0;
+        let mut ierr: i32 = 0;
+        unsafe {
+            nfor_mpipark5_march(
+                g.nx as i32,
+                g.ny as i32,
+                rho_l.as_ptr(),
+                mx_l.as_ptr(),
+                my_l.as_ptr(),
+                e_l.as_ptr(),
+                ys_l.as_ptr(),
+                dxs_l.as_ptr(),
+                g.dys.as_ptr(),
+                cfl,
+                bw,
+                be,
+                bs,
+                bn,
+                bc_vals.as_ptr(),
+                y_fill_arr.as_ptr(),
+                rho2.as_mut_ptr(),
+                mx2.as_mut_ptr(),
+                my2.as_mut_ptr(),
+                e2.as_mut_ptr(),
+                ys2.as_mut_ptr(),
+                &mut dt,
+                &mut ierr,
+            );
+        }
+        if ierr != 0 {
+            return Err(Error::InvalidArgs);
+        }
+        std::mem::swap(&mut rho_l, &mut rho2);
+        std::mem::swap(&mut mx_l, &mut mx2);
+        std::mem::swap(&mut my_l, &mut my2);
+        std::mem::swap(&mut e_l, &mut e2);
+        std::mem::swap(&mut ys_l, &mut ys2);
+        t += dt;
+        dt_last = dt;
+        steps += 1;
+    }
+    let wall = wall_start.elapsed().as_secs_f64();
+
+    // gather the conserved four and the species planes to rank 0.
+    let mut g4 = vec![0.0f64; 4 * n];
+    let mut ierr: i32 = 0;
+    unsafe {
+        nfor_mpi_gather(
+            rho_l.as_ptr(),
+            mx_l.as_ptr(),
+            my_l.as_ptr(),
+            e_l.as_ptr(),
+            nl as i32,
+            g.nx as i32,
+            g.ny as i32,
+            g4.as_mut_ptr(),
+            &mut ierr,
+        );
+    }
+    if ierr != 0 {
+        return Err(Error::InvalidArgs);
+    }
+    let gy = gather_fields_mpi(&ys_l, ns, nl, g.nx, g.ny)?;
+
+    let (state, planes) = if rank == 0 {
+        let mut st = ConservedState2d {
+            rho: vec![0.0; n],
+            mx: vec![0.0; n],
+            my: vec![0.0; n],
+            e: vec![0.0; n],
+        };
+        for k in 0..n {
+            st.rho[k] = g4[k * 4];
+            st.mx[k] = g4[k * 4 + 1];
+            st.my[k] = g4[k * 4 + 2];
+            st.e[k] = g4[k * 4 + 3];
+        }
+        let pls: Vec<Vec<f64>> = (0..ns).map(|s| gy[s * n..(s + 1) * n].to_vec()).collect();
+        (Some(st), Some(pls))
+    } else {
+        (None, None)
+    };
+    Ok(MpiPark5Result {
+        state,
+        planes,
+        steps,
+        time: t,
+        wall,
+        dt_last,
+    })
+}
+
 /// whether this process was launched under mpirun with more than one rank
 /// (env-only probe; never initializes mpi).
 pub fn mpi_launched() -> bool {
@@ -1308,4 +1598,115 @@ pub fn mpi_bcast_state(st: &mut ConservedState2d) -> Result<(), Error> {
         st.e[k] = buf[4 * k + 3];
     }
     Ok(())
+}
+
+/// five-species carrier session on this rank: populates the mpipark5 slab
+/// decomposition. mpi itself must already be up (via [`MpiSession::new`]).
+#[allow(clippy::too_many_arguments)]
+pub fn mpipark5_init(nx: i32, ny: i32) -> Result<(i32, i32, i32), Error> {
+    let mut rank = 0i32;
+    let mut i0 = 0i32;
+    let mut nx_local = 0i32;
+    let mut ierr = 0i32;
+    unsafe { nfor_mpipark5_init(nx, ny, &mut rank, &mut i0, &mut nx_local, &mut ierr) };
+    if ierr != 0 {
+        return Err(Error::InvalidArgs);
+    }
+    Ok((rank, i0, nx_local))
+}
+
+/// run this rank's slab through the five-species carrier and return the
+/// ghost-complete primitive state plus the measured seam-face disagreement
+/// (bitwise zero when the halo places the same global columns on both
+/// sides of every seam).
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+pub fn mpipark5_carrier(
+    nx_l: usize,
+    ny: usize,
+    rho: &[f64],
+    mx: &[f64],
+    my: &[f64],
+    e: &[f64],
+    y: &[f64],
+    bc_w: i32,
+    bc_e: i32,
+    bc_vals: &[f64],
+    y_fill: &[f64],
+) -> Result<(Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, f64), Error> {
+    let nn = nx_l * ny;
+    if rho.len() != nn || mx.len() != nn || my.len() != nn || e.len() != nn || y.len() != 5 * nn {
+        return Err(Error::InvalidArgs);
+    }
+    let nw = nx_l + 4;
+    let mut rg = vec![0.0f64; nw * ny];
+    let mut ug = vec![0.0f64; nw * ny];
+    let mut vg = vec![0.0f64; nw * ny];
+    let mut eg = vec![0.0f64; nw * ny];
+    let mut yg = vec![0.0f64; 5 * nw * ny];
+    let mut max_diff = 0.0f64;
+    let mut ierr = 0i32;
+    unsafe {
+        nfor_mpipark5_carrier(
+            nx_l as i32,
+            ny as i32,
+            rho.as_ptr(),
+            mx.as_ptr(),
+            my.as_ptr(),
+            e.as_ptr(),
+            y.as_ptr(),
+            bc_w,
+            bc_e,
+            bc_vals.as_ptr(),
+            y_fill.as_ptr(),
+            rg.as_mut_ptr(),
+            ug.as_mut_ptr(),
+            vg.as_mut_ptr(),
+            eg.as_mut_ptr(),
+            yg.as_mut_ptr(),
+            &mut max_diff,
+            &mut ierr,
+        );
+    }
+    if ierr != 0 {
+        return Err(Error::InvalidArgs);
+    }
+    Ok((rg, ug, vg, eg, yg, max_diff))
+}
+
+/// gather the padded local composition strip to rank 0. returns the
+/// assembled global planes only on rank 0.
+pub fn mpipark5_gather(nx: usize, ny: usize, yg: &[f64]) -> Result<Option<Vec<f64>>, Error> {
+    // the decomposition is already up from the carrier call; re-initialising
+    // it here would reset one rank's slab state out from under its peers.
+    let rank = mpipark5_rank()?;
+    let mut out = vec![0.0f64; 5 * nx * ny];
+    let mut ierr = 0i32;
+    unsafe {
+        nfor_mpipark5_gather(
+            nx as i32,
+            ny as i32,
+            yg.as_ptr(),
+            out.as_mut_ptr(),
+            &mut ierr,
+        )
+    };
+    if ierr != 0 {
+        return Err(Error::InvalidArgs);
+    }
+    if rank == 0 {
+        Ok(Some(out))
+    } else {
+        Ok(None)
+    }
+}
+
+/// this rank's zero-based slot in the mpipark5 decomposition.
+pub fn mpipark5_rank() -> Result<i32, Error> {
+    let mut rank = 0i32;
+    let mut ierr = 0i32;
+    unsafe { nfor_mpipark5_rank(&mut rank, &mut ierr) };
+    if ierr != 0 {
+        return Err(Error::InvalidArgs);
+    }
+    Ok(rank)
 }

@@ -60,6 +60,14 @@ EXACT_ZERO_LANES = ("euler", "uniform")
 ROUNDOFF_LANES = ("viscous", "sa", "body")
 TWOT_LANE = "twot"
 
+# the five-species composition lane. the seam reconstruction is bitwise
+# zero by construction, so the species gates classify as exact-zero.
+SPECIES_LANE = "mpipark5"
+
+# the advective species march: the distributed park5 march must reproduce
+# the serial cartesian oracle bit for bit at every rank count.
+ADVECTIVE_SPECIES_LANE = "mpipark5adv"
+
 # a run that overruns this is a seam deadlock, not a slow machine.
 RUN_TIMEOUT_S = 180
 
@@ -204,6 +212,8 @@ def main():
         "sa": "mpi_np1_sa_matches_rust",
         "body": "mpi_np1_matches_rust_capsule",
         "gather": "mpi_gather_nf_fields_reassembles_exactly",
+        SPECIES_LANE: "mpi_mpipark5_carrier_seam_and_gather",
+        ADVECTIVE_SPECIES_LANE: "mpi_mpipark5_march_matches_serial",
     }
     results = {}
     try:
@@ -296,6 +306,35 @@ def main():
             twot["passed"]
             and float(twot["measured"].get("twot_plane_liveness", 0.0))
             > 1.0e-9 * float(twot["measured"].get("twot_seed_peak", 1.0)),
+        )
+        species = results[f"{SPECIES_LANE}_np{np_value}"]
+        check(
+            f"species_seam_reconstruction_is_bitwise_zero_at_np{np_value}",
+            species["passed"]
+            and species["measured"].get("mpipark5_seam_zero") == 1,
+        )
+        adv = results[f"{ADVECTIVE_SPECIES_LANE}_np{np_value}"]
+        check(
+            f"species_march_matches_the_serial_oracle_at_np{np_value}",
+            adv["passed"]
+            and adv["measured"].get("mpipark5_march_worst_abs_vs_serial_one_step")
+            == 0.0,
+        )
+        check(
+            f"species_march_keeps_the_composition_normalised_at_np{np_value}",
+            adv["passed"]
+            and float(
+                adv["measured"].get("mpipark5_march_worst_composition_sum_error", 1.0)
+            )
+            <= 1.0e-12,
+        )
+        check(
+            f"species_march_actually_carries_the_composition_at_np{np_value}",
+            adv["passed"]
+            and float(
+                adv["measured"].get("mpipark5_march_worst_composition_change", 0.0)
+            )
+            > 1.0e-6,
         )
         gather = results[f"gather_np{np_value}"]
         check(
