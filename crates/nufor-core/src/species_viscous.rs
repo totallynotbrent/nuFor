@@ -32,7 +32,6 @@ use crate::error::Error;
 use crate::grid2d::Grid2d;
 use crate::park::NS;
 use crate::species::SpeciesState;
-use crate::species_props::{effective_diffusivity, mixture_conductivity, mixture_viscosity};
 use crate::state2d::ConservedState2d;
 
 /// the per-species formation enthalpy per mass, J/kg.
@@ -75,19 +74,17 @@ pub(crate) fn cell_transport(
     let closure = crate::species_fortran::closure(&state.rho, &e_int, &species.y)?;
     let t = closure.t;
     let p = closure.p;
-    let mut mu = vec![0.0f64; n];
-    let mut k = vec![0.0f64; n];
-    let mut d = vec![0.0f64; n];
-    for k_idx in 0..n {
-        let mut y: [f64; NS] = [0.0; NS];
-        for (ys, ysrc) in y.iter_mut().zip(species.y.iter()) {
-            *ys = ysrc[k_idx];
-        }
-        mu[k_idx] = mixture_viscosity(&y, t[k_idx]);
-        k[k_idx] = mixture_conductivity(&y, t[k_idx]);
-        d[k_idx] = effective_diffusivity(&y, t[k_idx], p[k_idx].max(1.0));
-    }
-    Ok(CellTransport { t, mu, k, d })
+    // the transport properties are a batch kernel owned by the fortran
+    // core. the per-cell rust loop it replaced paid the abi crossing
+    // once per cell per coefficient.
+    let p_clamped: Vec<f64> = p.iter().map(|pv| pv.max(1.0)).collect();
+    let coeffs = crate::species_fortran::props(&species.y, &t, &p_clamped)?;
+    Ok(CellTransport {
+        t,
+        mu: coeffs.mu,
+        k: coeffs.kappa,
+        d: coeffs.d,
+    })
 }
 
 /// the wall treatment selected for body faces.

@@ -33,6 +33,16 @@
   the lane gains exports. Pure file surgery: the mpi parity lanes pass
   75/75 checks, the park5 mpi case and the cylinder park5 case reproduce a
   bitwise identical vtk, and the workspace suite passes 80/80.
+- the mixture transport properties move into the fortran core: the wilke
+  viscosity law, the frozen-conductivity sum and the effective binary
+  diffusivity move from `species_props.rs` to `fortran/api/nuforprops.f90`
+  with the rp-1232 curve fits, and the viscous species lane now evaluates
+  them through the batch `nfor_park5_props` c surface instead of paying an
+  abi crossing per cell per coefficient. The rust copy stays as the
+  independent parity reference. The properties agree with that reference
+  to 1e-12 relative across the charge set, the cylindrical viscous case
+  reproduces a bitwise identical vtk against the previous build, and the
+  workspace suite passes 81/81.
 - the park5 lanes share one set of primitives instead of carrying copies:
   the van leer limiter, the conserved-to-primitive carrier pack and the
   domain-edge ghost fill move to `nuforpark5common.f90`, and the seam

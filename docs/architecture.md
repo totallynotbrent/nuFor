@@ -96,6 +96,12 @@ copy:
 - `nufor_mpi.f90` holds the MPI primitives both the Euler march and the
   carrier use, including the seam-column agreement check that compares a
   rank's own edge columns against the ghost columns its neighbour sent.
+- `nuforprops.f90` holds the mixture transport properties: the Wilke
+  viscosity law, the frozen-conductivity sum and the effective binary
+  diffusivity, fitted against the RP-1232 curves. The Rust core reaches
+  them through the batch `nfor_park5_props` entry point, so the per-cell
+  property evaluation happens once in the Fortran core instead of once per
+  cell per coefficient across the ABI.
 
 ## Build
 

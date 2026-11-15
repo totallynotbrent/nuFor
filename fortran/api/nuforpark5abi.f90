@@ -12,6 +12,8 @@ module nuforpark5abi
   use iso_c_binding, only: c_double, c_int
   use iso_fortran_env, only: real64
   use nuforpark5
+  use nuforprops, only: mixture_viscosity, mixture_conductivity, &
+                       effective_diffusivity
   implicit none
 
   integer, parameter :: DP = real64
@@ -28,10 +30,41 @@ module nuforpark5abi
   public :: nfor_park5_seed_energy
   public :: nfor_park5_internal_energy
   public :: nfor_park5_equilibria
+  public :: nfor_park5_props
 
 contains
 
   ! ---------------- c surface ----------------
+
+  ! the batch transport-property kernel for n cells: the wilke mixture
+  ! viscosity, the frozen mixture conductivity and the effective binary
+  ! diffusivity, one value per cell.
+  !
+  ! t and p arrive per cell because the diffusivity scales with pressure
+  ! and the fits with temperature; y holds the species planes
+  ! contiguously (species s occupies y((s-1)*n+1 : s*n)).
+  subroutine nfor_park5_props(n, y, t, p, mu, kappa, d, err) &
+      bind(c, name="nfor_park5_props")
+    integer(c_int), value, intent(in) :: n
+    real(c_double), intent(in) :: y(*), t(*), p(*)
+    real(c_double), intent(out) :: mu(*), kappa(*), d(*)
+    integer(c_int), intent(out) :: err
+    real(DP) :: yc(NS)
+    integer :: k, s
+    if (n <= 0) then
+      err = NFOR_EARGS
+      return
+    end if
+    do k = 1, int(n)
+      do s = 1, NS
+        yc(s) = y((s - 1) * int(n) + k)
+      end do
+      mu(k) = mixture_viscosity(yc, t(k))
+      kappa(k) = mixture_conductivity(yc, t(k))
+      d(k) = effective_diffusivity(yc, t(k), p(k))
+    end do
+    err = NFOR_OK
+  end subroutine nfor_park5_props
 
   ! the mixture closure for n cells: y holds the species planes
   ! contiguously (species s occupies y((s-1)*n+1 : s*n)).

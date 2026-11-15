@@ -89,7 +89,7 @@ module nuforpark5
   public :: pressure_at, sound_speed_at, temperature_at
   public :: internal_energy_at, mix_gas_constant, k_eq, omega
   public :: chem_substep_cell
-  public :: HF_SPEC, NS
+  public :: HF_SPEC, NS, M_SPEC
 
   interface
     function c_exp(x) bind(c, name="exp") result(y)

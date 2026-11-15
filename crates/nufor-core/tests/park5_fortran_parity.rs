@@ -17,6 +17,8 @@ use nufor_core::park::NS;
 use nufor_core::park5_fortran;
 use nufor_core::species_chem;
 use nufor_core::species_closure as closure5;
+use nufor_core::species_fortran;
+use nufor_core::species_props;
 
 /// the relative tolerance for the closure and the transport, where the
 /// two compilers may associate the sums differently.
@@ -368,5 +370,71 @@ fn the_stated_temperature_energy_matches_the_rust_reference() {
             got = e[0],
             want = want
         );
+    }
+}
+
+/// the transport properties agree between the fortran core and the rust
+/// reference across compositions and temperatures.
+///
+/// the fortran side is the shipping implementation now
+/// (`fortran/api/nuforprops.f90`); the rust side under
+/// `species_props.rs` is the independent yardstick the gate compares
+/// against, so the two sides cannot agree trivially.
+#[test]
+fn transport_properties_match_the_rust_reference() {
+    // one case: the species planes, the temperature and the pressure.
+    type PropCase = (Vec<Vec<f64>>, Vec<f64>, Vec<f64>);
+    let mut cases: Vec<PropCase> = Vec::new();
+    for (y, rho, temperature) in charges() {
+        let t_plane = vec![temperature; 3];
+        let p_plane = vec![
+            rho * 287.05 * temperature,
+            rho * 287.05 * temperature * 2.0,
+            rho * 287.05 * temperature * 0.25,
+        ];
+        let ys: Vec<Vec<f64>> = (0..NS).map(|s| vec![y[s]; 3]).collect();
+        cases.push((ys, t_plane, p_plane));
+    }
+    // a cold wall-layer case, where the sutherland branch and the
+    // low-temperature fits meet.
+    let cold: [f64; NS] = [0.80, 0.20, 0.0, 0.0, 0.0];
+    cases.push((
+        (0..NS).map(|s| vec![cold[s]; 3]).collect(),
+        vec![350.0, 800.0, 999.0],
+        vec![101325.0, 202650.0, 50662.0],
+    ));
+    for (ys, t, p) in cases {
+        let got = species_fortran::props(&ys, &t, &p).expect("fortran park5 props");
+        for k in 0..t.len() {
+            let mut y: [f64; NS] = [0.0; NS];
+            for s in 0..NS {
+                y[s] = ys[s][k];
+            }
+            let want_mu = species_props::mixture_viscosity(&y, t[k]);
+            let want_k = species_props::mixture_conductivity(&y, t[k]);
+            let want_d = species_props::effective_diffusivity(&y, t[k], p[k].max(1.0));
+            let rel = |a: f64, b: f64| ((a - b) / b.abs().max(1e-300)).abs();
+            assert!(
+                rel(got.mu[k], want_mu) < LOOSE_REL,
+                "viscosity mismatch at t={}: fortran={} rust={}",
+                t[k],
+                got.mu[k],
+                want_mu
+            );
+            assert!(
+                rel(got.kappa[k], want_k) < LOOSE_REL,
+                "conductivity mismatch at t={}: fortran={} rust={}",
+                t[k],
+                got.kappa[k],
+                want_k
+            );
+            assert!(
+                rel(got.d[k], want_d) < LOOSE_REL,
+                "diffusivity mismatch at t={}: fortran={} rust={}",
+                t[k],
+                got.d[k],
+                want_d
+            );
+        }
     }
 }

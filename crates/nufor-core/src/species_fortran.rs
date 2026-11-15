@@ -92,6 +92,54 @@ pub fn closure(rho: &[f64], e_int: &[f64], planes: &[Vec<f64>]) -> Result<Fields
     Ok(Fields { p, t, a })
 }
 
+/// the per-cell transport coefficients: the wilke mixture viscosity, the
+/// frozen mixture conductivity and the effective binary diffusivity.
+///
+/// the properties live in the fortran core. this crate reads them
+/// through the c surface so there is one implementation in the build.
+/// the rust copy under `species_props.rs` stays as the independent
+/// reference the parity gate compares against.
+pub struct Transport {
+    /// the mixture viscosity per cell, Pa s.
+    pub mu: Vec<f64>,
+    /// the frozen mixture conductivity per cell, W/(m K).
+    pub kappa: Vec<f64>,
+    /// the effective binary diffusivity per cell, m^2/s.
+    pub d: Vec<f64>,
+}
+
+/// the batch transport-property kernel for a set of cells.
+pub fn props(planes: &[Vec<f64>], t: &[f64], p: &[f64]) -> Result<Transport, Error> {
+    let n = t.len();
+    if n == 0 || p.len() != n || planes.len() < NS {
+        return Err(Error::InvalidArgs);
+    }
+    for plane in planes.iter().take(NS) {
+        if plane.len() != n {
+            return Err(Error::InvalidArgs);
+        }
+    }
+    let flat = flatten(planes, n);
+    let mut mu = vec![0.0f64; n];
+    let mut kappa = vec![0.0f64; n];
+    let mut d = vec![0.0f64; n];
+    let mut err: c_int = 0;
+    unsafe {
+        crate::ffi_park5::nfor_park5_props(
+            n as c_int,
+            flat.as_ptr(),
+            t.as_ptr(),
+            p.as_ptr(),
+            mu.as_mut_ptr(),
+            kappa.as_mut_ptr(),
+            d.as_mut_ptr(),
+            &mut err,
+        );
+    }
+    check(err)?;
+    Ok(Transport { mu, kappa, d })
+}
+
 /// the per-species formation enthalpy per mass, J/kg.
 ///
 /// the table lives in the fortran core. the rust side reads it through

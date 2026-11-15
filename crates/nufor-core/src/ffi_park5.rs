@@ -62,6 +62,19 @@ extern "C" {
         resid: *mut f64,
         err: *mut c_int,
     );
+    /// the batch transport-property kernel: the wilke mixture viscosity,
+    /// the frozen mixture conductivity and the effective binary
+    /// diffusivity per cell.
+    pub(crate) fn nfor_park5_props(
+        n: c_int,
+        y: *const f64,
+        t: *const f64,
+        p: *const f64,
+        mu: *mut f64,
+        kappa: *mut f64,
+        d: *mut f64,
+        err: *mut c_int,
+    );
     /// the cartesian park5 march: the flow advances under the mixture
     /// closure, the species ride the face mass fluxes and the
     /// operator-split chemistry follows.
