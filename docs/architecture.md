@@ -102,6 +102,10 @@ copy:
   them through the batch `nfor_park5_props` entry point, so the per-cell
   property evaluation happens once in the Fortran core instead of once per
   cell per coefficient across the ABI.
+- `crates/nufor-core/src/axi_park5.rs` collects the axisymmetric Park-5
+  faces of a whole sweep into one batch and sends them through the Fortran
+  mixture closure in a single call, so the face loop pays one ABI crossing
+  per sweep rather than one per interface.
 
 ## Build
 

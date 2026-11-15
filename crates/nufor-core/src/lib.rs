@@ -9,6 +9,7 @@ use std::os::raw::c_int;
 pub mod amr2d;
 pub mod amr2d_march;
 mod axi;
+mod axi_park5;
 mod blasius;
 mod body;
 pub mod catalytic;

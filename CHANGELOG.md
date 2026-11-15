@@ -33,6 +33,13 @@
   the lane gains exports. Pure file surgery: the mpi parity lanes pass
   75/75 checks, the park5 mpi case and the cylinder park5 case reproduce a
   bitwise identical vtk, and the workspace suite passes 80/80.
+- the axisymmetric park5 face sweep sends its whole set of reconstructed
+  faces through the fortran mixture closure in one batch: the closure is
+  evaluated per sweep instead of per interface, dropping one abi crossing
+  and a handful of buffer allocations from every face in the row and column
+  sweeps. The closure is per-cell exact, so the results do not move: the
+  cylinder park5 case reproduces a bitwise identical vtk against the
+  previous build, and the run log agrees apart from its wall-clock column.
 - the mixture transport properties move into the fortran core: the wilke
   viscosity law, the frozen-conductivity sum and the effective binary
   diffusivity move from `species_props.rs` to `fortran/api/nuforprops.f90`

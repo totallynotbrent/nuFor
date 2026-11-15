@@ -1288,55 +1288,11 @@ fn face_pair(
                 },
             )
         }
+        // park5 does not reach here: its faces come from the swept
+        // closure, which sends the whole sweep through the fortran
+        // kernel in one batch.
         ThermoModel::Park5 { .. } => {
-            // the closure variable `x` is the internal energy per mass and the
-            // per-side composition arrives with the face from the caller's
-            // species reconstruction. pressure, sound speed and specific
-            // internal energy all come from the mixture closure, so a frozen
-            // uniform field runs as an exact perfect-gas case.
-            // the closure is a batch kernel owned by the fortran core.
-            // the two faces of the interface go through it in one
-            // batch, so the reconstructed states and the marched
-            // states read the same thermodynamics.
-            let mut left = [0.0f64; 5];
-            for (dst, src) in left.iter_mut().zip(yl.iter()) {
-                *dst = *src;
-            }
-            let mut right = [0.0f64; 5];
-            for (dst, src) in right.iter_mut().zip(yr.iter()) {
-                *dst = *src;
-            }
-            // species-major across the two faces: plane s holds the
-            // left face first and the right face second.
-            let planes: Vec<Vec<f64>> = (0..5).map(|s| vec![left[s], right[s]]).collect();
-            let fields = crate::species_fortran::closure(&[rl, rr], &[xl, xr], &planes);
-            let (pl, al, pr, ar) = match fields {
-                Ok(f) => (f.p[0], f.a[0], f.p[1], f.a[1]),
-                Err(_) => (
-                    crate::species_closure::pressure_at(rl, xl, &left),
-                    crate::species_closure::sound_speed_at(rl, xl, &left),
-                    crate::species_closure::pressure_at(rr, xr, &right),
-                    crate::species_closure::sound_speed_at(rr, xr, &right),
-                ),
-            };
-            (
-                FacePrim {
-                    rho: rl,
-                    u: ul,
-                    v: vl,
-                    p: pl,
-                    a: al,
-                    e: xl,
-                },
-                FacePrim {
-                    rho: rr,
-                    u: ur,
-                    v: vr,
-                    p: pr,
-                    a: ar,
-                    e: xr,
-                },
-            )
+            panic!("park5 faces are built by the swept closure");
         }
         ThermoModel::Combustion { lane, .. } => {
             // the runtime-width mixture closure: same reconstruction
@@ -1714,16 +1670,41 @@ pub(crate) fn compute_axi_fluxes(
             }
             y
         };
+        // park5 sends the whole sweep through the fortran closure in one
+        // batch; the other closures evaluate per face.
+        let park5 = matches!(model, ThermoModel::Park5 { .. });
+        let closure = if park5 {
+            Some(crate::axi_park5::sweep_closure(
+                &rl, &rr, &xl, &xr, &yl_rows, &yr_rows,
+            )?)
+        } else {
+            None
+        };
         let mut sw = Sweep::new(nx);
         for f in 0..=nx {
-            let (yl, yr) = if species.is_some() {
-                (y_stack(&yl_rows, f), y_stack(&yr_rows, f))
-            } else {
-                (Vec::new(), Vec::new())
+            let (l, r) = match (&closure, species) {
+                (Some(c), _) => c.pair(f, rl[f], ul[f], vl[f], xl[f], rr[f], ur[f], vr[f], xr[f]),
+                (None, Some(_)) => {
+                    let yl = y_stack(&yl_rows, f);
+                    let yr = y_stack(&yr_rows, f);
+                    face_pair(
+                        model, rl[f], ul[f], vl[f], xl[f], rr[f], ur[f], vr[f], xr[f], &yl, &yr,
+                    )
+                }
+                (None, None) => face_pair(
+                    model,
+                    rl[f],
+                    ul[f],
+                    vl[f],
+                    xl[f],
+                    rr[f],
+                    ur[f],
+                    vr[f],
+                    xr[f],
+                    &[],
+                    &[],
+                ),
             };
-            let (l, r) = face_pair(
-                model, rl[f], ul[f], vl[f], xl[f], rr[f], ur[f], vr[f], xr[f], &yl, &yr,
-            );
             let q = hllc_flux(gamma, l, r, 0);
             sw.mass[f] = q.mass;
             sw.mx[f] = q.mx;
@@ -1876,16 +1857,41 @@ pub(crate) fn compute_axi_fluxes(
             }
             y
         };
+        // park5 sends the whole sweep through the fortran closure in one
+        // batch; the other closures evaluate per face.
+        let park5 = matches!(model, ThermoModel::Park5 { .. });
+        let closure = if park5 {
+            Some(crate::axi_park5::sweep_closure(
+                &rl, &rr, &xl, &xr, &yl_cols, &yr_cols,
+            )?)
+        } else {
+            None
+        };
         let mut sw = Sweep::new(ny);
         for f in 0..=ny {
-            let (yl, yr) = if species.is_some() {
-                (y_stack(&yl_cols, f), y_stack(&yr_cols, f))
-            } else {
-                (Vec::new(), Vec::new())
+            let (l, r) = match (&closure, species) {
+                (Some(c), _) => c.pair(f, rl[f], ul[f], vl[f], xl[f], rr[f], ur[f], vr[f], xr[f]),
+                (None, Some(_)) => {
+                    let yl = y_stack(&yl_cols, f);
+                    let yr = y_stack(&yr_cols, f);
+                    face_pair(
+                        model, rl[f], ul[f], vl[f], xl[f], rr[f], ur[f], vr[f], xr[f], &yl, &yr,
+                    )
+                }
+                (None, None) => face_pair(
+                    model,
+                    rl[f],
+                    ul[f],
+                    vl[f],
+                    xl[f],
+                    rr[f],
+                    ur[f],
+                    vr[f],
+                    xr[f],
+                    &[],
+                    &[],
+                ),
             };
-            let (l, r) = face_pair(
-                model, rl[f], ul[f], vl[f], xl[f], rr[f], ur[f], vr[f], xr[f], &yl, &yr,
-            );
             let q = hllc_flux(gamma, l, r, 1);
             sw.mass[f] = q.mass;
             sw.mx[f] = q.mx;
