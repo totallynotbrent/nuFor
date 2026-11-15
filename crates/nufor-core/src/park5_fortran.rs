@@ -2,7 +2,7 @@
 //!
 //! this is the safe surface over `fortran/api/nuforpark5.f90`. the
 //! fortran module is the authority for the MPI-native phase of the
-//! roadmap's rung 14: it carries the mixture closure, the park 1990
+//! roadmap's rung 12: it carries the mixture closure, the park 1990
 //! kinetics, the upwind species transport and the operator-split
 //! chemistry substep, and the rust reference lane in
 //! `species_closure.rs`, `species_chem.rs`, `species_transport.rs`

@@ -1,4 +1,4 @@
-//! rung 12 viscous gate on the unstructured mesh.
+//! rung 10 viscous gate on the unstructured mesh.
 //!
 //! three checks on `viscous_ugrid_tendency`:
 //!  1. a uniform quiescent field yields EXACTLY zero tendency (machine zero,

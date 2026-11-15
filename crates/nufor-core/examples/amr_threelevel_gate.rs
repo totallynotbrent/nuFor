@@ -1,4 +1,4 @@
-//! rung 11 third-level gate: a 3-level AMR march on a Sod-like blast.
+//! rung 9 third-level gate: a 3-level AMR march on a Sod-like blast.
 //!
 //! coarse 64x8 grid, level-1 blocks tracking the discontinuity, half of
 //! them promoted to a level-2 patch at quarter coarse spacing.

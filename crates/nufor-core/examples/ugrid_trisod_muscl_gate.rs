@@ -1,4 +1,4 @@
-//! rung 12 completion gate: MUSCL second-order reconstruction on the TRUE
+//! rung 10 completion gate: MUSCL second-order reconstruction on the TRUE
 //! triangular unstructured mesh, via `advance_ugrid_recon(..., muscl=true)`.
 //!
 //! same Sod shock tube as the first-order triangle gate, now marched with

@@ -1,4 +1,4 @@
-//! two-level block-AMR march driver (rung 11).
+//! two-level block-AMR march driver (rung 9).
 //!
 //! one coarse [`Grid2d`] covers the domain; each [`RefineBlock`] is a 2x2
 //! fine patch living inside one coarse cell at half spacing. the step

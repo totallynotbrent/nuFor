@@ -1,4 +1,4 @@
-//! rung 11 hysteresis gate: regridding must not flicker at the refine
+//! rung 9 hysteresis gate: regridding must not flicker at the refine
 //! frontier.
 //!
 //! drives a sliding high-gradient plateau across a fixed grid for 40 pseudo

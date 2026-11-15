@@ -1,6 +1,6 @@
 //! block-structured two-level adaptive refinement driver for the 2D grid.
 //!
-//! rung 11 asks for AMR on a gradient indicator. this module implements
+//! rung 9 asks for AMR on a gradient indicator. this module implements
 //! the STRUCTURE, not a new solver: a coarse level covers the domain at
 //! spacing dx, and each refined BLOCK subdivides one coarse cell into a
 //! 2x2 patch of finer cells at dx/2 sitting at level 1. the indicator is

@@ -1,8 +1,8 @@
-# rung 9b wall-exchange divergence: the evidence
+# rung 8b wall-exchange divergence: the evidence
 
 date: 2026-10-31
 repo: /home/ebarleb/Bots/nuFor
-branch state: uncommitted working tree (rung 9b in progress)
+branch state: uncommitted working tree (rung 8b in progress)
 
 ## what was measured
 

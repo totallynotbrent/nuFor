@@ -1,4 +1,4 @@
-//! rung 11 regriд integration gate: the march loop itself consumes
+//! rung 9 regriд integration gate: the march loop itself consumes
 //! hysteretic regridding, not just the standalone selector.
 //!
 //! runs `advance2d_amr` with `maybe_regrid` consulted every 4 steps on a

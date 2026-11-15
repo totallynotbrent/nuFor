@@ -1,7 +1,7 @@
 """thrust coefficients for the chamber-throat case.
 
 reads the settled axial profile and computes the vacuum-style thrust
-statement the roadmap promised for rung 9: the momentum-plus-pressure
+statement the roadmap promised for rung 8: the momentum-plus-pressure
 thrust at the exit plane, referenced to the chamber pressure and throat
 area as the thrust coefficient, and to gravity as the specific impulse.
 mass flow is quoted at three stations so the gate can check the march

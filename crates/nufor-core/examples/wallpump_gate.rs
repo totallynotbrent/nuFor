@@ -1,4 +1,4 @@
-//! rung 13 gate: the capped wall-frame normal velocity must keep the EB
+//! rung 11 gate: the capped wall-frame normal velocity must keep the EB
 //! wall flux at the physical pressure-only level at hypersonic Mach.
 //!
 //! sweeps Mach on a stagnant-post-shock wall cell, builds the mirror ghost

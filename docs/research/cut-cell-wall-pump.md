@@ -5,7 +5,7 @@ title: Wall-pump diagnosis, Mach 22 overpressure (since fixed)
 # Diagnosis: the reflected-ghost wall Riemann pump at Mach 22
 
 Scope: the cut-cell lane's wall Riemann pump overreading near-wall
-cells at hypersonic Mach (roadmap rung 13's open defect: stagnation
+cells at hypersonic Mach (roadmap rung 11's open defect: stagnation
 Cp 3.91–3.99 vs a physical ~1.7–1.9, C_A 1.86–1.91 vs Newtonian 0.603
 at 160 cells; field destruction within 700 steps at 640). This note
 traces the mechanism in code, ranks candidate fixes, and gives a
@@ -118,7 +118,7 @@ originates in the inviscid EB flux of `cutcell_march.rs`.
    revived for the non-axisymmetric flank, noting the documented
    near-axis vacuum failure at lines 296-302 must be avoided). Does
    not remove the ~2× pump at the wall cell itself; treats the symptom
-   downstream. Necessary eventually (rung 13's stated "wall-local
+   downstream. Necessary eventually (rung 11's stated "wall-local
    scheme"), insufficient alone.
 
 ## (c) Reproduction recipe
@@ -144,6 +144,6 @@ originates in the inviscid EB flux of `cutcell_march.rs`.
 
 ## Outcome
 
-The ranked fix 1 landed in rung 13; see the banner above and the gates
+The ranked fix 1 landed in rung 11; see the banner above and the gates
 under `cases/wallpump/` and `cases/capsule-peak-q/`. This note stays as
 the mechanism record behind that fix.

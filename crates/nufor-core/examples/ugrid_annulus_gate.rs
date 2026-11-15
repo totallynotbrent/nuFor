@@ -1,4 +1,4 @@
-//! rung 12 curved-geometry validation: an annulus (quarter-ring sector)
+//! rung 10 curved-geometry validation: an annulus (quarter-ring sector)
 //! triangulated mesh exercises non-rectangular topology.
 //!
 //! gates:

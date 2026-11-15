@@ -1,4 +1,4 @@
-//! validation gate for the unstructured triangle mesh lane (rung 12).
+//! validation gate for the unstructured triangle mesh lane (rung 10).
 //!
 //! promotes the gmsh-prototype-level machinery to a CLAIMABLE state by
 //! proving the invariants a 2D triangle solver needs on a representative

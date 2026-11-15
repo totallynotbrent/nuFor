@@ -1,4 +1,4 @@
-//! rung 11 march integration: the production two-level driver
+//! rung 9 march integration: the production two-level driver
 //! `advance2d_amr` on a Sod shock tube.
 //!
 //! a coarse 64x8 grid runs with fine blocks selected from the density

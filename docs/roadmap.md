@@ -7,10 +7,8 @@ capability with its analytic gates, in an order where every milestone
 makes the next one possible. I don't commit to dates; milestones land
 when their gates pass.
 
-The focus is 2D: planar and axisymmetric. The 3D Euler and viscous
-solvers exist and stay validated in the tree, but the roadmap below
-plans no further 3D work; everything ahead is 2D (or axisymmetric,
-which carries 3D axisymmetric reality at 2D cost).
+The focus is 2D: planar and axisymmetric. Everything ahead is 2D (or
+axisymmetric, which carries axisymmetric reality at planar cost).
 
 ## Where we are
 
@@ -39,8 +37,6 @@ which carries 3D axisymmetric reality at 2D cost).
   anchors, an injector, a choked throat and a bell.
 - Case console: live runs, field figures (schlieren included), forces,
   the standalone report.
-- 3D inviscid Euler: validated, committed.
-- 3D viscous Navier-Stokes: validated, committed.
 - Masked bodies: done, validated on the cylinder bow shock and
   the sphere-cone trade-study geometry.
 - Axisymmetric solver: done, validated on the sphere bow shock
@@ -101,19 +97,18 @@ flowchart LR
     E --> H
 ```
 
-1. **3D viscous**: done.
-2. **Masked bodies**: done. The solid-cell mask answers any shape that
+1. **Masked bodies**: done. The solid-cell mask answers any shape that
    provides inside plus normal: the analytic circle, polygons, and
    analytic signed-distance bodies. Staircase walls are first-order at
    the surface but give real bow shocks, standoff, and pressure
    distributions.
-3. **Axisymmetric solver**: done. The annular update carries the face
+2. **Axisymmetric solver**: done. The annular update carries the face
    radii and the p/r geometric source, with the slip-wall ghost as the
    axis condition.
-4. **Equilibrium air**: done (moved up from "out of scope": the
+3. **Equilibrium air**: done (moved up from "out of scope": the
    aeroshell project needed it, and the CEA table plus the TGAS1 face
    fits are the validated form).
-5. **Live two-temperature nonequilibrium (Park 2T)**: done. `e_v` is a
+4. **Live two-temperature nonequilibrium (Park 2T)**: done. `e_v` is a
    live field (unpinned t_v) with Millikan-White + Park-cutoff
    relaxation and the t_rxn = sqrt(T Tv) mixing rule; the 5-species
    rates (Park 1990) now march under the five-species chemistry. Gates: the
@@ -122,7 +117,7 @@ flowchart LR
    as the external anchor. License note: hyStrath is GPL-3.0, same as
    nuFor; the borrow is the validation target and the physics
    constants, not code.
-6. **Fay-Riddell stagnation heating gate**: done. A
+5. **Fay-Riddell stagnation heating gate**: done. A
    wall-resolved viscous cylinder at entry conditions, validated
    against the planar Fay-Riddell closed form (0.57 Pr^-0.6 vs the
    sphere's 0.763). The gate case runs a nose-only domain at global
@@ -141,14 +136,14 @@ flowchart LR
    (the gas there is over 60% dissociated atoms; mixture viscosity
    is 1.51x Sutherland's pure-N2 value). This is the gate that makes
    any wall heat flux the solver prints citable.
-7. **Continuum-validity probe per station**: done. Bird's
+6. **Continuum-validity probe per station**: done. Bird's
    gradient-length local Knudsen number over the flow cells plus the
    global freestream Kn, one block in every 2D and axisymmetric run
    log (`nufor-core::continuum_probe`, the hard-sphere mean free path
    from viscosity, the Boyd/Lofthouse 0.05 breakdown threshold).
    Puts a number behind "continuum CFD applies here" instead of an
    assertion, and states which cells crossed the line.
-7a. **Nozzle cold flow**: done. Liou's CDV nozzle (AIAA 87-0355,
+6a. **Nozzle cold flow**: done. Liou's CDV nozzle (AIAA 87-0355,
    the NPARC/WIND verification archive) as an axisymmetric Euler
    case: cosine area law, polygon-masked contour, and two new
    boundary conditions, the reservoir inflow (stagnation state
@@ -169,7 +164,7 @@ flowchart LR
    qualification, and the thrust-coefficient post-processing
    landed with the 9a chamber work where a thrust statement became
    meaningful.
-8. **Species continuity (5-species Park nonequilibrium)**: done.
+7. **Species continuity (5-species Park nonequilibrium)**: done.
    Species mass fractions as transported fields with the Park 1990
    dissociation/exchange set from park.rs, backward rates through the
    Park 1985 equilibrium-constant fits, formation energies routed
@@ -182,7 +177,7 @@ flowchart LR
    and the Mach 20 nitrogen cylinder (peak T 2.0 kK under the frozen
    ceiling, atomic fraction rising monotonically through the shock
    layer; results on the research page).
-9. **Catalytic wall conditions**: closed by an explicit continuum
+8. **Catalytic wall conditions**: closed by an explicit continuum
    validity cutoff (declared acceptable, not a slip branch). Non-catalytic, partially accommodating and fully
    catalytic wall options on the species viscous lane, with Wilke
    mixture transport and effective-binary diffusion through the shock
@@ -202,7 +197,7 @@ flowchart LR
    and Smoluchowski temperature-jump wall conditions from the same body of
    work stay research extras: below 43 km the trajectory is continuum
    (Kn << 1), so slip walls are a branch, not a planned step.
-9a. **Combustion chemistry (engine chamber flow)**: the first cut is
+8a. **Combustion chemistry (engine chamber flow)**: the first cut is
    built. Nine species for the H2/O2 lane, advected beside the
    conserved state with operator-split finite-rate chemistry over
    NASA-7 thermodynamics, and the face fluxes carry the composition.
@@ -271,7 +266,7 @@ flowchart LR
    mechanism alongside the fixed-width nine-species lane, which stays
    untouched. The engine contour's own wall treatment landed with the
    engine wall conditions below.
-9b. **Engine wall conditions**: closed. Cooled-wall and film-cooling
+8b. **Engine wall conditions**: closed. Cooled-wall and film-cooling
    treatments for the engine lane: isothermal and Bartz-style conjugate
    wall options on the nozzle contour, an injected-wall species and
    enthalpy flux for film cooling, and the wall heat flux bracket the
@@ -302,12 +297,7 @@ flowchart LR
    Rides on the species, catalytic-wall, and combustion steps; the TPS
    catalytic-wall machinery is the same wall machinery pointed at
    engine conditions.
-10. **3D SA/RANS**: cut. nuFor is a 2D code (planar and
-    axisymmetric) by focus; the 3D Euler and viscous solvers stay in
-    the tree as validated machinery, but no further 3D work is
-    planned. The entry trajectory is laminar-dominant and the SA lane
-    in 2D already covers the turbulence need.
-11. **Adaptive mesh refinement**: block-structured AMR on a density or
+9. **Adaptive mesh refinement**: block-structured AMR on a density or
     Mach-gradient indicator, in the hyStrath DyM spirit. The hi-res
     anchor spends four uniform-grid hours on a shock layer occupying a
     few percent of the cells; two AMR levels put that under an hour. Placed after 2T/species because the indicator should
@@ -340,7 +330,7 @@ flowchart LR
     moves; on a translating pulse the set migrated 5 times in 15 checks
     with 0.0023 hierarchical mass drift over 60 steps (`cases/amr-regrid/
     gate.json`). See [[research/amr-march-design]]. Closed.
-12. **Unstructured meshes**: triangles in 2D. The gmsh
+10. **Unstructured meshes**: triangles in 2D. The gmsh
     prototype exists and the research note is written; promoting it to
     a validated capability is the largest single lift. Arbitrary geometries
     without the staircase are the payoff: the structural advantage
@@ -366,7 +356,7 @@ flowchart LR
     1.8e-4 (pure chord discretization), all centroids respect the radii,
     and 50 viscous steps conserve total energy to 2.8e-15 with positivity
     (gate in `cases/ugrid-annulus/gate.json`). Closed.
-13. **Cut cells**: fractional-cell geometry at curved walls instead of
+11. **Cut cells**: fractional-cell geometry at curved walls instead of
     the staircase, so surface pressures sample the true surface. Built
     and measured: true stagnation states at moderate Mach, but at
     hypersonic walls the wall Riemann pump and the redistribution pool
@@ -387,7 +377,7 @@ flowchart LR
    near 2x physical (gate in `cases/capsule-peak-q/gate-mach22-fixed.json`).
    Below sonic wall speed the dissipative pair is kept for stability.
    Closed.
-14. **MPI-parallel Fortran core**: the parallelism step. Fortran owns
+12. **MPI-parallel Fortran core**: the parallelism step. Fortran owns
     the parallel solver core (domain decomposition, halo
     exchange, the march) behind one coarse FFI; Rust stays the front
     door (case files, CLI, UI, output) and never calls MPI. Design,
@@ -480,8 +470,7 @@ it, scoped to what this solver can honestly compute:
 3. **Run.** The march runs server-side with checkpoints; the UI shows
    live frames.
 4. **See results.** Field views of pressure, speed, density,
-   temperature, Mach on any plane: 2D cases whole-domain, 3D cases by
-   slice (top-down, side, any xy/xz/yz offset). Surface tables: the
+   temperature, Mach across the domain. Surface tables: the
    pressure distribution along the body, integrated forces (the
    aeroshell's axial force coefficient comes straight off this).
    Actual flow visualization (streamlines, particles) is a later
@@ -576,7 +565,7 @@ adiabatic round trip at the flame point, and the chamber sound speed.
 
 What the lane does not have yet: no engine cycle and no turbomachinery. Parallelism arrived ahead of that wish list: the
 lane and every other march route onto the MPI Fortran core at bit parity
-with the serial drivers (rung 14). The wall treatments an engine report
+with the serial drivers (rung 12). The wall treatments an engine report
 wants (conjugate cooling, film cooling, the cold wall against the cooled
 wall bracket) landed in 9b on the catalytic wall machinery. The throat's
 eight-percent area deficit is fixed by the cut-cell march, which reads

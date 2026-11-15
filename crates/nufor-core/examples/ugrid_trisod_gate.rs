@@ -1,4 +1,4 @@
-//! rung 12 gate: run the unstructured FV march on a TRIANGULAR mesh and
+//! rung 10 gate: run the unstructured FV march on a TRIANGULAR mesh and
 //! hold it to the analytic Sod shock tube.
 //!
 //! the existing ugrid_sod test runs on cartesian QUADS; this gate repeats
