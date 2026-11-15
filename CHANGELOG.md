@@ -25,6 +25,14 @@
   (decomposition and halo exchanges) and `nuforcollect.f90` (rank probe
   and gathers). Pure file surgery: the mpi parity lanes pass 75/75 checks
   and the park5 mpi case reproduces a bitwise identical vtk.
+- the park5 c surface moves out of the physics module: the mixture closure,
+  the reaction rates, the chemistry substep and the species transport stay in
+  `nuforpark5.f90` (483 lines) while the abi wrapper the rust core calls
+  moves to `nuforpark5abi.f90` (270 lines). neither module passes the
+  700-line ceiling, and the boundary stays separable from the algebra as
+  the lane gains exports. Pure file surgery: the mpi parity lanes pass
+  75/75 checks, the park5 mpi case and the cylinder park5 case reproduce a
+  bitwise identical vtk, and the workspace suite passes 80/80.
 - the park5 lanes share one set of primitives instead of carrying copies:
   the van leer limiter, the conserved-to-primitive carrier pack and the
   domain-edge ghost fill move to `nuforpark5common.f90`, and the seam

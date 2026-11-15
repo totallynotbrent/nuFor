@@ -39,10 +39,11 @@ shipping path.
 
 The five-species Park-5 lane follows this rule. The mixture closure, the
 reaction rates, the operator-split chemistry substep and the upwind species
-transport all live in `fortran/api/nuforpark5.f90`. The Rust marching lane
-calls them as batch operations over the whole field, one call per kernel per
-step. Calling the kernel per cell instead would pay the ABI crossing roughly
-three times over for every cell.
+transport all live in `fortran/api/nuforpark5.f90`, and the C surface the
+Rust core calls lives beside them in `fortran/api/nuforpark5abi.f90`. The
+Rust marching lane calls them as batch operations over the whole field, one
+call per kernel per step. Calling the kernel per cell instead would pay the
+ABI crossing roughly three times over for every cell.
 
 The rule reaches the places outside the marcher as well. Everything that
 derives a thermodynamic or thermochemical quantity from a composition reads it
@@ -87,6 +88,11 @@ copy:
 
 - `nuforpark5common.f90` holds the van Leer limiter, the conserved-to-
   primitive carrier pack, and the domain-edge ghost fill.
+- `nuforpark5.f90` holds the Park-5 physics kernels: the mixture closure, the
+  reaction rates, the chemistry substep and the species transport.
+- `nuforpark5abi.f90` holds the C surface over those kernels. Keeping the
+  boundary separate lets both modules grow without either passing the
+  700-line ceiling.
 - `nufor_mpi.f90` holds the MPI primitives both the Euler march and the
   carrier use, including the seam-column agreement check that compares a
   rank's own edge columns against the ghost columns its neighbour sent.
