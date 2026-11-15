@@ -148,4 +148,87 @@ contains
     r = d%rank == 0
   end function
 
+
+  ! ---------------------------------------------------------------
+  ! seam column agreement: publish the two columns that close one end
+  ! of this slab to the neighbour on that side and compare them against
+  ! the ghost columns the halo delivered. the two views of a shared
+  ! global column must agree exactly, and the largest disagreement is
+  ! reported rather than assumed.
+  !
+  ! the west ghosts 1,2 hold the west neighbour's last two interior
+  ! columns; the east ghosts nx_local+3,nx_local+4 hold the east
+  ! neighbour's first two. f is (nvar, nx_local+4, ny) with the interior
+  ! columns at 3..nx_local+2, matching halo_exchange_x.
+  subroutine seam_column_check(f, nvar, d, max_diff)
+    real(DP), intent(in) :: f(:,:,:)
+    integer, intent(in) :: nvar
+    type(decomp_t), intent(in) :: d
+    real(DP), intent(out) :: max_diff
+    integer, parameter :: TAG_LOW = 431, TAG_HIGH = 432
+    real(DP) :: snd_lo(2*nvar*d%ny), snd_hi(2*nvar*d%ny)
+    real(DP) :: rcv_lo(2*nvar*d%ny), rcv_hi(2*nvar*d%ny)
+    real(DP) :: loc_lo(2*nvar*d%ny), loc_hi(2*nvar*d%ny)
+    real(DP) :: dd, gd
+    integer :: reqs(4), j, v, ierr
+
+    if (d%nranks == 1) then
+      max_diff = 0.0_DP
+      return
+    end if
+
+    do j = 1, d%ny
+      do v = 1, nvar
+        snd_lo(v+(j-1)*nvar) = f(v, 3, j)
+        snd_lo(v+d%ny*nvar+(j-1)*nvar) = f(v, 4, j)
+        snd_hi(v+(j-1)*nvar) = f(v, d%nx_local+1, j)
+        snd_hi(v+d%ny*nvar+(j-1)*nvar) = f(v, d%nx_local+2, j)
+        loc_lo(v+(j-1)*nvar) = f(v, 1, j)
+        loc_lo(v+d%ny*nvar+(j-1)*nvar) = f(v, 2, j)
+        loc_hi(v+(j-1)*nvar) = f(v, d%nx_local+3, j)
+        loc_hi(v+d%ny*nvar+(j-1)*nvar) = f(v, d%nx_local+4, j)
+      end do
+    end do
+
+    ! the low columns travel west and the high columns travel east; the
+    ! receiver hears them from the opposite direction of travel.
+    dd = 0.0_DP
+    reqs = MPI_REQUEST_NULL
+    if (d%east_rank /= MPI_PROC_NULL) &
+      call mpi_irecv(rcv_lo, 2*nvar*d%ny, MPI_DOUBLE_PRECISION, d%east_rank, &
+                     TAG_LOW, MPI_COMM_WORLD, reqs(1), ierr)
+    if (d%west_rank /= MPI_PROC_NULL) &
+      call mpi_irecv(rcv_hi, 2*nvar*d%ny, MPI_DOUBLE_PRECISION, d%west_rank, &
+                     TAG_HIGH, MPI_COMM_WORLD, reqs(2), ierr)
+    if (d%west_rank /= MPI_PROC_NULL) &
+      call mpi_isend(snd_lo, 2*nvar*d%ny, MPI_DOUBLE_PRECISION, d%west_rank, &
+                     TAG_LOW, MPI_COMM_WORLD, reqs(3), ierr)
+    if (d%east_rank /= MPI_PROC_NULL) &
+      call mpi_isend(snd_hi, 2*nvar*d%ny, MPI_DOUBLE_PRECISION, d%east_rank, &
+                     TAG_HIGH, MPI_COMM_WORLD, reqs(4), ierr)
+    if (d%east_rank /= MPI_PROC_NULL) then
+      call mpi_wait(reqs(1), MPI_STATUS_IGNORE, ierr)
+      dd = max(dd, max_abs_diff_arrays(rcv_lo, loc_hi, 2*nvar*d%ny))
+    end if
+    if (d%west_rank /= MPI_PROC_NULL) then
+      call mpi_wait(reqs(2), MPI_STATUS_IGNORE, ierr)
+      dd = max(dd, max_abs_diff_arrays(rcv_hi, loc_lo, 2*nvar*d%ny))
+    end if
+    call mpi_waitall(4, reqs, MPI_STATUSES_IGNORE, ierr)
+    call global_max(dd, gd, d)
+    max_diff = gd
+  end subroutine seam_column_check
+
+  ! largest absolute difference between two equal-length arrays.
+  pure function max_abs_diff_arrays(a, b, n) result(m)
+    real(DP) :: m
+    integer, intent(in) :: n
+    real(DP), intent(in) :: a(n), b(n)
+    integer :: i
+    m = 0.0_DP
+    do i = 1, n
+      m = max(m, abs(a(i)-b(i)))
+    end do
+  end function max_abs_diff_arrays
+
 end module nufor_mpi

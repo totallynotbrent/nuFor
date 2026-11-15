@@ -81,9 +81,9 @@
       "attempts": 1,
       "measured": {
         "body_columns_above_1e9": 0,
-        "body_worst_cell_i": 91,
-        "body_worst_cell_j": 37,
-        "body_worst_rel_diff": 2.468386761635356e-15
+        "body_worst_cell_i": 26,
+        "body_worst_cell_j": 22,
+        "body_worst_rel_diff": 1.6117830953840876e-16
       },
       "passed": true,
       "test": "mpi_np1_matches_rust_capsule",
@@ -94,9 +94,9 @@
       "attempts": 1,
       "measured": {
         "body_columns_above_1e9": 0,
-        "body_worst_cell_i": 91,
-        "body_worst_cell_j": 37,
-        "body_worst_rel_diff": 2.468386761635356e-15
+        "body_worst_cell_i": 26,
+        "body_worst_cell_j": 22,
+        "body_worst_rel_diff": 1.6117830953840876e-16
       },
       "passed": true,
       "test": "mpi_np1_matches_rust_capsule",
@@ -107,9 +107,9 @@
       "attempts": 1,
       "measured": {
         "body_columns_above_1e9": 0,
-        "body_worst_cell_i": 91,
-        "body_worst_cell_j": 37,
-        "body_worst_rel_diff": 2.468386761635356e-15
+        "body_worst_cell_i": 26,
+        "body_worst_cell_j": 22,
+        "body_worst_rel_diff": 1.6117830953840876e-16
       },
       "passed": true,
       "test": "mpi_np1_matches_rust_capsule",
@@ -120,9 +120,9 @@
       "attempts": 1,
       "measured": {
         "body_columns_above_1e9": 0,
-        "body_worst_cell_i": 91,
-        "body_worst_cell_j": 37,
-        "body_worst_rel_diff": 2.468386761635356e-15
+        "body_worst_cell_i": 26,
+        "body_worst_cell_j": 22,
+        "body_worst_rel_diff": 1.6117830953840876e-16
       },
       "passed": true,
       "test": "mpi_np1_matches_rust_capsule",
@@ -133,9 +133,9 @@
       "attempts": 1,
       "measured": {
         "body_columns_above_1e9": 0,
-        "body_worst_cell_i": 91,
-        "body_worst_cell_j": 37,
-        "body_worst_rel_diff": 2.468386761635356e-15
+        "body_worst_cell_i": 26,
+        "body_worst_cell_j": 22,
+        "body_worst_rel_diff": 1.6117830953840876e-16
       },
       "passed": true,
       "test": "mpi_np1_matches_rust_capsule",
@@ -145,8 +145,8 @@
     "euler_np1": {
       "attempts": 1,
       "measured": {
-        "euler_dt_last_mpi": 3.97126098556835e-05,
-        "euler_dt_last_serial": 3.97126098556835e-05,
+        "euler_dt_last_mpi": 3.973160746395888e-05,
+        "euler_dt_last_serial": 3.973160746395888e-05,
         "euler_worst_cell_i": 0,
         "euler_worst_cell_j": 0,
         "euler_worst_rel_diff": 0.0
@@ -159,8 +159,8 @@
     "euler_np2": {
       "attempts": 1,
       "measured": {
-        "euler_dt_last_mpi": 3.97126098556835e-05,
-        "euler_dt_last_serial": 3.97126098556835e-05,
+        "euler_dt_last_mpi": 3.973160746395888e-05,
+        "euler_dt_last_serial": 3.973160746395888e-05,
         "euler_worst_cell_i": 0,
         "euler_worst_cell_j": 0,
         "euler_worst_rel_diff": 0.0
@@ -173,8 +173,8 @@
     "euler_np3": {
       "attempts": 1,
       "measured": {
-        "euler_dt_last_mpi": 3.97126098556835e-05,
-        "euler_dt_last_serial": 3.97126098556835e-05,
+        "euler_dt_last_mpi": 3.973160746395888e-05,
+        "euler_dt_last_serial": 3.973160746395888e-05,
         "euler_worst_cell_i": 0,
         "euler_worst_cell_j": 0,
         "euler_worst_rel_diff": 0.0
@@ -187,8 +187,8 @@
     "euler_np4": {
       "attempts": 1,
       "measured": {
-        "euler_dt_last_mpi": 3.97126098556835e-05,
-        "euler_dt_last_serial": 3.97126098556835e-05,
+        "euler_dt_last_mpi": 3.973160746395888e-05,
+        "euler_dt_last_serial": 3.973160746395888e-05,
         "euler_worst_cell_i": 0,
         "euler_worst_cell_j": 0,
         "euler_worst_rel_diff": 0.0
@@ -201,8 +201,8 @@
     "euler_np5": {
       "attempts": 1,
       "measured": {
-        "euler_dt_last_mpi": 3.97126098556835e-05,
-        "euler_dt_last_serial": 3.97126098556835e-05,
+        "euler_dt_last_mpi": 3.973160746395888e-05,
+        "euler_dt_last_serial": 3.973160746395888e-05,
         "euler_worst_cell_i": 0,
         "euler_worst_cell_j": 0,
         "euler_worst_rel_diff": 0.0
@@ -560,10 +560,10 @@
     "sa_np1": {
       "attempts": 1,
       "measured": {
-        "sa_worst_cell_i": 10,
-        "sa_worst_cell_j": 3,
+        "sa_worst_cell_i": 1,
+        "sa_worst_cell_j": 0,
         "sa_worst_field": "my",
-        "sa_worst_rel_diff": 8.522528622899992e-14
+        "sa_worst_rel_diff": 1.4166177432926302e-16
       },
       "passed": true,
       "test": "mpi_np1_sa_matches_rust",
@@ -573,10 +573,10 @@
     "sa_np2": {
       "attempts": 1,
       "measured": {
-        "sa_worst_cell_i": 10,
-        "sa_worst_cell_j": 3,
+        "sa_worst_cell_i": 1,
+        "sa_worst_cell_j": 0,
         "sa_worst_field": "my",
-        "sa_worst_rel_diff": 8.522528622899992e-14
+        "sa_worst_rel_diff": 1.4166177432926302e-16
       },
       "passed": true,
       "test": "mpi_np1_sa_matches_rust",
@@ -586,10 +586,10 @@
     "sa_np3": {
       "attempts": 1,
       "measured": {
-        "sa_worst_cell_i": 10,
-        "sa_worst_cell_j": 3,
+        "sa_worst_cell_i": 1,
+        "sa_worst_cell_j": 0,
         "sa_worst_field": "my",
-        "sa_worst_rel_diff": 8.522528622899992e-14
+        "sa_worst_rel_diff": 1.4166177432926302e-16
       },
       "passed": true,
       "test": "mpi_np1_sa_matches_rust",
@@ -599,10 +599,10 @@
     "sa_np4": {
       "attempts": 1,
       "measured": {
-        "sa_worst_cell_i": 10,
-        "sa_worst_cell_j": 3,
+        "sa_worst_cell_i": 1,
+        "sa_worst_cell_j": 0,
         "sa_worst_field": "my",
-        "sa_worst_rel_diff": 8.522528622899992e-14
+        "sa_worst_rel_diff": 1.4166177432926302e-16
       },
       "passed": true,
       "test": "mpi_np1_sa_matches_rust",
@@ -612,10 +612,10 @@
     "sa_np5": {
       "attempts": 1,
       "measured": {
-        "sa_worst_cell_i": 10,
-        "sa_worst_cell_j": 3,
+        "sa_worst_cell_i": 1,
+        "sa_worst_cell_j": 0,
         "sa_worst_field": "my",
-        "sa_worst_rel_diff": 8.522528622899992e-14
+        "sa_worst_rel_diff": 1.4166177432926302e-16
       },
       "passed": true,
       "test": "mpi_np1_sa_matches_rust",
@@ -629,7 +629,7 @@
         "twot_differing_entries": 0,
         "twot_dt_last_mpi": 1.4240081527044735e-06,
         "twot_dt_last_serial": 1.4240081527044735e-06,
-        "twot_plane_liveness": 222762924.19714594,
+        "twot_plane_liveness": 312910483.8181559,
         "twot_seed_peak": 142208.3122881714,
         "twot_state_differing_e": 0,
         "twot_state_differing_mx": 0,
@@ -652,7 +652,7 @@
         "twot_differing_entries": 0,
         "twot_dt_last_mpi": 1.4240081527044735e-06,
         "twot_dt_last_serial": 1.4240081527044735e-06,
-        "twot_plane_liveness": 222762924.19714594,
+        "twot_plane_liveness": 312910483.8181559,
         "twot_seed_peak": 142208.3122881714,
         "twot_state_differing_e": 0,
         "twot_state_differing_mx": 0,
@@ -675,7 +675,7 @@
         "twot_differing_entries": 0,
         "twot_dt_last_mpi": 1.4240081527044735e-06,
         "twot_dt_last_serial": 1.4240081527044735e-06,
-        "twot_plane_liveness": 222762924.19714594,
+        "twot_plane_liveness": 312910483.8181559,
         "twot_seed_peak": 142208.3122881714,
         "twot_state_differing_e": 0,
         "twot_state_differing_mx": 0,
@@ -698,7 +698,7 @@
         "twot_differing_entries": 0,
         "twot_dt_last_mpi": 1.4240081527044735e-06,
         "twot_dt_last_serial": 1.4240081527044735e-06,
-        "twot_plane_liveness": 222762924.19714594,
+        "twot_plane_liveness": 312910483.8181559,
         "twot_seed_peak": 142208.3122881714,
         "twot_state_differing_e": 0,
         "twot_state_differing_mx": 0,
@@ -721,7 +721,7 @@
         "twot_differing_entries": 0,
         "twot_dt_last_mpi": 1.4240081527044735e-06,
         "twot_dt_last_serial": 1.4240081527044735e-06,
-        "twot_plane_liveness": 222762924.19714594,
+        "twot_plane_liveness": 312910483.8181559,
         "twot_seed_peak": 142208.3122881714,
         "twot_state_differing_e": 0,
         "twot_state_differing_mx": 0,
@@ -800,9 +800,9 @@
     "viscous_np1": {
       "attempts": 1,
       "measured": {
-        "viscous_worst_cell_i": 60,
-        "viscous_worst_cell_j": 1,
-        "viscous_worst_rel_diff": 5.24391592544059e-15
+        "viscous_worst_cell_i": 0,
+        "viscous_worst_cell_j": 0,
+        "viscous_worst_rel_diff": 0.0
       },
       "passed": true,
       "test": "mpi_np1_visc_matches_rust",
@@ -812,9 +812,9 @@
     "viscous_np2": {
       "attempts": 1,
       "measured": {
-        "viscous_worst_cell_i": 60,
-        "viscous_worst_cell_j": 1,
-        "viscous_worst_rel_diff": 5.24391592544059e-15
+        "viscous_worst_cell_i": 0,
+        "viscous_worst_cell_j": 0,
+        "viscous_worst_rel_diff": 0.0
       },
       "passed": true,
       "test": "mpi_np1_visc_matches_rust",
@@ -824,9 +824,9 @@
     "viscous_np3": {
       "attempts": 1,
       "measured": {
-        "viscous_worst_cell_i": 60,
-        "viscous_worst_cell_j": 1,
-        "viscous_worst_rel_diff": 5.24391592544059e-15
+        "viscous_worst_cell_i": 0,
+        "viscous_worst_cell_j": 0,
+        "viscous_worst_rel_diff": 0.0
       },
       "passed": true,
       "test": "mpi_np1_visc_matches_rust",
@@ -836,9 +836,9 @@
     "viscous_np4": {
       "attempts": 1,
       "measured": {
-        "viscous_worst_cell_i": 60,
-        "viscous_worst_cell_j": 1,
-        "viscous_worst_rel_diff": 5.24391592544059e-15
+        "viscous_worst_cell_i": 0,
+        "viscous_worst_cell_j": 0,
+        "viscous_worst_rel_diff": 0.0
       },
       "passed": true,
       "test": "mpi_np1_visc_matches_rust",
@@ -848,9 +848,9 @@
     "viscous_np5": {
       "attempts": 1,
       "measured": {
-        "viscous_worst_cell_i": 60,
-        "viscous_worst_cell_j": 1,
-        "viscous_worst_rel_diff": 5.24391592544059e-15
+        "viscous_worst_cell_i": 0,
+        "viscous_worst_cell_j": 0,
+        "viscous_worst_rel_diff": 0.0
       },
       "passed": true,
       "test": "mpi_np1_visc_matches_rust",

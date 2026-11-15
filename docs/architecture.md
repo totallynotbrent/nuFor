@@ -71,6 +71,15 @@ The Euler step is split along the same lines inside `nuforsolver2d.f90`:
 - `nufoorturb.f90` holds the SA turbulence closure and transport.
 - `nuforvisc.f90` holds the molecular viscosity add-on.
 
+The three Park-5 lanes share one set of primitives rather than each carrying a
+copy:
+
+- `nuforpark5common.f90` holds the van Leer limiter, the conserved-to-
+  primitive carrier pack, and the domain-edge ghost fill.
+- `nufor_mpi.f90` holds the MPI primitives both the Euler march and the
+  carrier use, including the seam-column agreement check that compares a
+  rank's own edge columns against the ghost columns its neighbour sent.
+
 ## Build
 
 Cargo owns the Rust workspace; a `build.rs` drives CMake to compile the

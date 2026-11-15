@@ -25,6 +25,15 @@
   (decomposition and halo exchanges) and `nuforcollect.f90` (rank probe
   and gathers). Pure file surgery: the mpi parity lanes pass 75/75 checks
   and the park5 mpi case reproduces a bitwise identical vtk.
+- the park5 lanes share one set of primitives instead of carrying copies:
+  the van leer limiter, the conserved-to-primitive carrier pack and the
+  domain-edge ghost fill move to `nuforpark5common.f90`, and the seam
+  agreement check becomes a shared mpi primitive in `nufor_mpi.f90`. The
+  five-species carrier drops its own private exchange and edge fill
+  (`nuformpipark5.f90` shrinks from 404 to 251 lines), leaving the serial
+  and mpi seams free to diverge without forking the algebra underneath
+  them. Behaviour-neutral: the mpi parity lanes pass 75/75 checks and the
+  park5 mpi case reproduces a bitwise identical vtk.
 - unstructured meshes: gmsh physical groups tag boundary faces (wall,
   inflow, outflow); slip walls take the exact pressure flux, uniform-IC
   cases run on imported meshes, and the heartbeat's peak-pressure read

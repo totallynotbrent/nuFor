@@ -34,6 +34,7 @@ module nuforpark5mpi
   use nufor_mpi
   use nuforpark5, only: closure_triple, chem_substep_grid
   use nuforriemann, only: hllc_face_x_pub => hllc_face_x
+  use nuforpark5common, only: park5_vlim, park5_domain_edges
   implicit none
 
   integer, parameter :: RP = real64
@@ -45,15 +46,6 @@ module nuforpark5mpi
   public :: nfor_mpipark5_march
 
 contains
-
-  pure real(RP) function vlim(dm, dp_)
-    real(RP), intent(in) :: dm, dp_
-    if (dm*dp_ > 0.0_RP) then
-      vlim = 2.0_RP*dm*dp_/(dm+dp_)
-    else
-      vlim = 0.0_RP
-    end if
-  end function vlim
 
   ! ------------------------------------------------------------------
   ! c surface: advance this rank's slab one park5 step.
@@ -182,7 +174,7 @@ contains
       end do
     end do
     call halo_exchange_x(car, NCAR, dec)
-    call apply_domain_edges(car, nl, nj, dec, int(bc_w), int(bc_e), bcv, yf)
+    call park5_domain_edges(car, nl, nj, dec, int(bc_w), int(bc_e), bcv, yf)
 
     ! ===================== x sweep (rows) =====================
     ! face f (1..nl+1) sits between pad columns f+1 and f+2, so local
@@ -196,12 +188,12 @@ contains
       te(1:nl+4) = car(4,1:nl+4,j)
       ty(:,1:nl+4) = car(5:NCAR,1:nl+4,j)
       do c = 2, nl+3
-        sxr(c-1) = vlim(thr(c)-thr(c-1), thr(c+1)-thr(c))
-        sxu(c-1) = vlim(tu(c)-tu(c-1), tu(c+1)-tu(c))
-        sxv(c-1) = vlim(tv(c)-tv(c-1), tv(c+1)-tv(c))
-        sxe(c-1) = vlim(te(c)-te(c-1), te(c+1)-te(c))
+        sxr(c-1) = park5_vlim(thr(c)-thr(c-1), thr(c+1)-thr(c))
+        sxu(c-1) = park5_vlim(tu(c)-tu(c-1), tu(c+1)-tu(c))
+        sxv(c-1) = park5_vlim(tv(c)-tv(c-1), tv(c+1)-tv(c))
+        sxe(c-1) = park5_vlim(te(c)-te(c-1), te(c+1)-te(c))
         do s = 1, NP5
-          sxy(s,c-1) = vlim(ty(s,c)-ty(s,c-1), ty(s,c+1)-ty(s,c))
+          sxy(s,c-1) = park5_vlim(ty(s,c)-ty(s,c-1), ty(s,c+1)-ty(s,c))
         end do
       end do
       do f = 1, nf
@@ -268,12 +260,12 @@ contains
       thr(nj+4) = thr(nj+3); tu(nj+4) = tu(nj+3); tv(nj+4) = tv(nj+3)
       te(nj+4) = te(nj+3); ty(:,nj+4) = ty(:,nj+3)
       do c = 2, nj+3
-        sxr(c-1) = vlim(thr(c)-thr(c-1), thr(c+1)-thr(c))
-        sxu(c-1) = vlim(tu(c)-tu(c-1), tu(c+1)-tu(c))
-        sxv(c-1) = vlim(tv(c)-tv(c-1), tv(c+1)-tv(c))
-        sxe(c-1) = vlim(te(c)-te(c-1), te(c+1)-te(c))
+        sxr(c-1) = park5_vlim(thr(c)-thr(c-1), thr(c+1)-thr(c))
+        sxu(c-1) = park5_vlim(tu(c)-tu(c-1), tu(c+1)-tu(c))
+        sxv(c-1) = park5_vlim(tv(c)-tv(c-1), tv(c+1)-tv(c))
+        sxe(c-1) = park5_vlim(te(c)-te(c-1), te(c+1)-te(c))
         do s = 1, NP5
-          sxy(s,c-1) = vlim(ty(s,c)-ty(s,c-1), ty(s,c+1)-ty(s,c))
+          sxy(s,c-1) = park5_vlim(ty(s,c)-ty(s,c-1), ty(s,c+1)-ty(s,c))
         end do
       end do
       do f = 1, nj+1

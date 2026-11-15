@@ -13,6 +13,7 @@
 ! van-leer slopes never read out of bounds. face f (1..nx+1) sits
 ! between centres f+1 and f+2, i.e. cell f-1 and cell f.
 module nuforcartpark5
+  use nuforpark5common, only: park5_vlim
   use iso_fortran_env, only: real64
   use nuforpark5, only: closure_triple, transport_planar, chem_substep_grid
   use nuforriemann, only: hllc_face_x_pub => hllc_face_x
@@ -29,15 +30,6 @@ module nuforcartpark5
   public :: cart_park5_step, nfor_cart_park5_step
 
 contains
-
-  pure real(DP) function vlim(dm, dp_)
-    real(DP), intent(in) :: dm, dp_
-    if (dm*dp_ > 0.0_DP) then
-      vlim = 2.0_DP*dm*dp_/(dm+dp_)
-    else
-      vlim = 0.0_DP
-    end if
-  end function vlim
 
   ! one forward-euler park5 step on a plain nx*ny cartesian grid.
   ! arrays are flat with k = (j-1)*nx + i (i 0-based externally).
@@ -138,12 +130,12 @@ contains
       te(nx+4) = te(nx+3); ty(:,nx+4) = ty(:,nx+3)
       ! centred van-leer slopes at real centres c=2..nx+3
       do c = 2, nx+3
-        sxr(c-1) = vlim(thr(c)-thr(c-1), thr(c+1)-thr(c))
-        sxu(c-1) = vlim(tu(c)-tu(c-1), tu(c+1)-tu(c))
-        sxv(c-1) = vlim(tv(c)-tv(c-1), tv(c+1)-tv(c))
-        sxe(c-1) = vlim(te(c)-te(c-1), te(c+1)-te(c))
+        sxr(c-1) = park5_vlim(thr(c)-thr(c-1), thr(c+1)-thr(c))
+        sxu(c-1) = park5_vlim(tu(c)-tu(c-1), tu(c+1)-tu(c))
+        sxv(c-1) = park5_vlim(tv(c)-tv(c-1), tv(c+1)-tv(c))
+        sxe(c-1) = park5_vlim(te(c)-te(c-1), te(c+1)-te(c))
         do s = 1, NP5
-          sxy(s,c-1) = vlim(ty(s,c)-ty(s,c-1), ty(s,c+1)-ty(s,c))
+          sxy(s,c-1) = park5_vlim(ty(s,c)-ty(s,c-1), ty(s,c+1)-ty(s,c))
         end do
       end do
       ! face f = 1..nx+1 between centres cL=f+1 and cR=f+2
@@ -208,12 +200,12 @@ contains
       thr(ny+4) = thr(ny+3); tu(ny+4) = tu(ny+3); tv(ny+4) = tv(ny+3)
       te(ny+4) = te(ny+3); ty(:,ny+4) = ty(:,ny+3)
       do c = 2, ny+3
-        sxr(c-1) = vlim(thr(c)-thr(c-1), thr(c+1)-thr(c))
-        sxu(c-1) = vlim(tu(c)-tu(c-1), tu(c+1)-tu(c))
-        sxv(c-1) = vlim(tv(c)-tv(c-1), tv(c+1)-tv(c))
-        sxe(c-1) = vlim(te(c)-te(c-1), te(c+1)-te(c))
+        sxr(c-1) = park5_vlim(thr(c)-thr(c-1), thr(c+1)-thr(c))
+        sxu(c-1) = park5_vlim(tu(c)-tu(c-1), tu(c+1)-tu(c))
+        sxv(c-1) = park5_vlim(tv(c)-tv(c-1), tv(c+1)-tv(c))
+        sxe(c-1) = park5_vlim(te(c)-te(c-1), te(c+1)-te(c))
         do s = 1, NP5
-          sxy(s,c-1) = vlim(ty(s,c)-ty(s,c-1), ty(s,c+1)-ty(s,c))
+          sxy(s,c-1) = park5_vlim(ty(s,c)-ty(s,c-1), ty(s,c+1)-ty(s,c))
         end do
       end do
       do f = 1, ny+1

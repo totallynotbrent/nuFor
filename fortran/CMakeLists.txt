@@ -51,6 +51,7 @@ if(MPI_Fortran_FOUND)
     api/nufor2t.f90
     api/nuforbridge.f90
     api/nuforpark5.f90
+    api/nuforpark5common.f90
     api/nuforcartpark5.f90
     api/nuforpark5mpi.f90
     api/nuformpipark5.f90
@@ -77,6 +78,7 @@ else()
     api/nufor2t.f90
     api/nuforbridge.f90
     api/nuforpark5.f90
+    api/nuforpark5common.f90
     api/nuforcartpark5.f90
     api/nuforpark5mpi.f90
     api/nuformpipark5.f90
