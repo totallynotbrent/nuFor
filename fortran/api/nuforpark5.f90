@@ -632,4 +632,93 @@ contains
     deallocate(yc, fxx, fyy, rhov, dxv, dyv)
   end subroutine nfor_park5_transport
 
+  ! the per-species formation enthalpy per mass, J/kg. the rust side
+  ! reads this table instead of keeping its own copy, so the two
+  ! implementations cannot drift apart on the constants.
+  subroutine nfor_park5_formation_enthalpy(hf, err) &
+      bind(c, name="nfor_park5_formation_enthalpy")
+    real(c_double), intent(out) :: hf(NS)
+    integer(c_int), intent(out) :: err
+    integer :: s
+    do s = 1, NS
+      hf(s) = HF_SPEC(s)
+    end do
+    err = NFOR_OK
+  end subroutine nfor_park5_formation_enthalpy
+
+  ! the mixture gas constant and the internal energy at a temperature,
+  ! for the initial-condition seeding path. the rust side reads these
+  ! from the fortran core rather than keeping its own formulas.
+  subroutine nfor_park5_seed_energy(n, rho, p, y, t_out, e_out, err) &
+      bind(c, name="nfor_park5_seed_energy")
+    integer(c_int), value, intent(in) :: n
+    real(c_double), intent(in) :: rho(*), p(*), y(*)
+    real(c_double), intent(out) :: t_out(*), e_out(*)
+    integer(c_int), intent(out) :: err
+    real(DP) :: yc(NS), t
+    integer :: k, s
+
+    if (n <= 0) then
+      err = NFOR_EARGS
+      return
+    end if
+    do k = 1, n
+      do s = 1, NS
+        yc(s) = y((s-1)*n + k)
+      end do
+      t = p(k) / max(rho(k) * mix_gas_constant(yc), 1.0e-30_DP)
+      t_out(k) = t
+      e_out(k) = internal_energy_at(t, yc)
+    end do
+    err = NFOR_OK
+  end subroutine nfor_park5_seed_energy
+
+  ! the internal energy per mass at a temperature and composition, for
+  ! the boundary conditions that state a temperature instead of a
+  ! pressure. the rust side reads this from the fortran core.
+  subroutine nfor_park5_internal_energy(n, t, y, e_out, err) &
+      bind(c, name="nfor_park5_internal_energy")
+    integer(c_int), value, intent(in) :: n
+    real(c_double), intent(in) :: t(*), y(*)
+    real(c_double), intent(out) :: e_out(*)
+    integer(c_int), intent(out) :: err
+    real(DP) :: yc(NS)
+    integer :: k, s
+
+    if (n <= 0) then
+      err = NFOR_EARGS
+      return
+    end if
+    do k = 1, n
+      do s = 1, NS
+        yc(s) = y((s-1)*n + k)
+      end do
+      e_out(k) = internal_energy_at(t(k), yc)
+    end do
+    err = NFOR_OK
+  end subroutine nfor_park5_internal_energy
+
+  ! the equilibrium constants of the five reactions at a temperature. the
+  ! rust side reads these from the fortran core rather than keeping its
+  ! own fits.
+  subroutine nfor_park5_equilibria(n, t, kc, err) &
+      bind(c, name="nfor_park5_equilibria")
+    integer(c_int), value, intent(in) :: n
+    real(c_double), intent(in) :: t(*)
+    real(c_double), intent(out) :: kc(5, *)
+    integer(c_int), intent(out) :: err
+    integer :: k, r
+
+    if (n <= 0) then
+      err = NFOR_EARGS
+      return
+    end if
+    do k = 1, n
+      do r = 1, 5
+        kc(r, k) = k_eq(r, t(k))
+      end do
+    end do
+    err = NFOR_OK
+  end subroutine nfor_park5_equilibria
+
 end module nuforpark5

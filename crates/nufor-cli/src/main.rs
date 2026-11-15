@@ -2183,15 +2183,24 @@ fn progress_readout(
                 nufor_core::combustion_closure::pressure_at(st.rho[k], e_int[k], &y)
             })
             .collect(),
-        (Some(sp), None) => (0..n)
-            .map(|k| {
-                let mut y = [0.0f64; 5];
-                for (ys, ysrc) in y.iter_mut().zip(sp.y.iter()) {
-                    *ys = ysrc[k];
-                }
-                nufor_core::species_closure::pressure_at(st.rho[k], e_int[k], &y)
-            })
-            .collect(),
+        (Some(sp), None) => {
+            // the closure is a batch kernel owned by the fortran core.
+            // if the fortran side rejects the batch the lane falls back
+            // to the reference implementation rather than losing the
+            // field altogether.
+            match nufor_core::species_fortran::closure(&st.rho, &e_int, &sp.y) {
+                Ok(fields) => fields.p,
+                Err(_) => (0..n)
+                    .map(|k| {
+                        let mut y = [0.0f64; 5];
+                        for (ys, ysrc) in y.iter_mut().zip(sp.y.iter()) {
+                            *ys = ysrc[k];
+                        }
+                        nufor_core::species_closure::pressure_at(st.rho[k], e_int[k], &y)
+                    })
+                    .collect(),
+            }
+        }
         (None, None) => nufor_core::thermo_pressure(model, &st.rho, &e_int, &u, &v)
             .unwrap_or_else(|_| vec![0.0; n]),
     };
@@ -3377,17 +3386,25 @@ fn write_run_log_2d(
         }
         (pp, tt)
     } else if let Some(sp) = species {
-        let mut pp = vec![0.0f64; n];
-        let mut tt = vec![0.0f64; n];
-        for k in 0..n {
-            let mut y = [0.0f64; 5];
-            for (ys, ysrc) in y.iter_mut().zip(sp.y.iter()) {
-                *ys = ysrc[k];
+        // the closure is a batch kernel owned by the fortran core.
+        // if the fortran side rejects the batch the lane falls back to
+        // the reference implementation rather than losing the fields.
+        match nufor_core::species_fortran::closure(rho, &e_int, sp.y.as_slice()) {
+            Ok(fields) => (fields.p, fields.t),
+            Err(_) => {
+                let mut pp = vec![0.0f64; n];
+                let mut tt = vec![0.0f64; n];
+                for k in 0..n {
+                    let mut y = [0.0f64; 5];
+                    for (ys, ysrc) in y.iter_mut().zip(sp.y.iter()) {
+                        *ys = ysrc[k];
+                    }
+                    pp[k] = nufor_core::species_closure::pressure_at(rho[k], e_int[k], &y);
+                    tt[k] = nufor_core::species_closure::temperature_at(e_int[k], &y);
+                }
+                (pp, tt)
             }
-            pp[k] = nufor_core::species_closure::pressure_at(rho[k], e_int[k], &y);
-            tt[k] = nufor_core::species_closure::temperature_at(e_int[k], &y);
         }
-        (pp, tt)
     } else {
         let p = match nufor_core::thermo_pressure(model, rho, &e_int, &u, &v) {
             Ok(x) => x,
@@ -4385,9 +4402,19 @@ fn ic_uniform_energy(
             // the seed carries the composition the march will evolve: a
             // nitrogen case seeded with air's energy reads below the
             // formation floor and the temperature clamps.
+            // the closure is a batch kernel owned by the fortran core.
+            // the seed reads its temperature and internal energy from
+            // there, so the initial state and the marched state use the
+            // same thermodynamics.
             let y = park5_start_composition(cfg);
-            let t = p / (rho * nufor_core::species_closure::mix_gas_constant(&y));
-            Ok(nufor_core::species_closure::internal_energy_at(t, &y))
+            let planes: Vec<Vec<f64>> = (0..5).map(|s| vec![y[s]]).collect();
+            match nufor_core::species_fortran::seed_energy(&[rho], &[p], &planes) {
+                Ok((_, e)) => Ok(e[0]),
+                Err(_) => {
+                    let t = p / (rho * nufor_core::species_closure::mix_gas_constant(&y));
+                    Ok(nufor_core::species_closure::internal_energy_at(t, &y))
+                }
+            }
         }
         ThermoModel::Combustion { .. } => {
             // uniform combustion ICs start as the injection

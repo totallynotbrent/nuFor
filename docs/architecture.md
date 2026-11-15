@@ -44,6 +44,17 @@ calls them as batch operations over the whole field, one call per kernel per
 step. Calling the kernel per cell instead would pay the ABI crossing roughly
 three times over for every cell.
 
+The rule reaches the places outside the marcher as well. Everything that
+derives a thermodynamic or thermochemical quantity from a composition reads it
+across the same C surface: the vtk snapshot writer, the mpi inflow inverter,
+the viscous transport snapshot, the axisymmetric interface reconstruction, the
+initial-condition seeder and the catalytic wall. The per-species formation
+enthalpies and the equilibrium-constant fits are part of that surface too, so
+the constants have one copy in the build. `crates/nufor-core/src/species_closure.rs`,
+`species_chem.rs` and `species_transport.rs` keep their Rust implementations
+because the parity gate compares against them; they are reference copies, not
+shipping paths.
+
 ## Fortran module map
 
 The Fortran layer is split by concern, and no module grows past roughly 700

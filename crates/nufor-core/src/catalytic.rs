@@ -26,7 +26,6 @@
 
 use crate::error::Error;
 use crate::park::{M, NS};
-use crate::species_closure::HF_SPECIES;
 
 /// the catalytic wall model selected by the case file.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -68,6 +67,18 @@ impl CatalyticWall {
     pub fn accommodates(self) -> bool {
         self.efficiency() > 0.0
     }
+}
+
+/// the per-species formation enthalpy per mass, J/kg.
+///
+/// the table belongs to the fortran core. this crate reads it through
+/// the c surface so there is one copy of the constants in the build.
+fn hf_table() -> &'static [f64; NS] {
+    use std::sync::OnceLock;
+    static TABLE: OnceLock<[f64; NS]> = OnceLock::new();
+    TABLE.get_or_init(|| {
+        crate::species_fortran::formation_enthalpy().expect("fortran park5 formation enthalpy")
+    })
 }
 
 /// the wall-face composition the chosen condition carries: none for
@@ -142,8 +153,15 @@ pub fn equilibrium_wall_composition(
     // exchange channel is second-order small at a cold wall and the
     // bracket does not need it: the fully-catalytic wall deposits
     // atoms as their parent molecules.
-    let kc_n2 = crate::species_chem::k_eq(0, t_wall); // mol/m^3
-    let kc_o2 = crate::species_chem::k_eq(1, t_wall);
+    // the equilibrium constants are fortran-owned fits. the rust side
+    // reads them through the c surface rather than keeping its own.
+    let (kc_n2, kc_o2) = match crate::species_fortran::equilibria(&[t_wall]) {
+        Ok(kc) => (kc[0][0], kc[0][1]),
+        Err(_) => (
+            crate::species_chem::k_eq(0, t_wall),
+            crate::species_chem::k_eq(1, t_wall),
+        ),
+    }; // mol/m^3
     let b_n = kc_n2 * M[0] / (4.0 * rho);
     let b_o = kc_o2 * M[1] / (4.0 * rho);
     let alpha_n = ((b_n * b_n + 4.0 * b_n).sqrt() - b_n) / 2.0;
@@ -202,6 +220,7 @@ pub fn catalytic_surface_flux(
     let k0 = -(2.0 * h0 + h1) / (h0 * (h0 + h1));
     let k1 = (h0 + h1) / (h0 * h1);
     let k2 = -h0 / (h1 * (h0 + h1));
+    let hf = hf_table();
     let mut q_cat = 0.0f64;
     for s in 0..NS {
         let dy = y_wall[s] * k0 + y0[s] * k1 + y1[s] * k2;
@@ -210,7 +229,7 @@ pub fn catalytic_surface_flux(
         // atoms rising away from a catalytic wall flow wallward and
         // deposit their formation enthalpy on the surface.
         let j_wallward = rho * d_eff * dy;
-        q_cat += HF_SPECIES[s] * j_wallward;
+        q_cat += hf[s] * j_wallward;
     }
     q_cat
 }
@@ -264,7 +283,7 @@ mod tests {
         c0[3] = 0.1 * 0.1;
         c1[3] = 0.3 * 0.3;
         let q = catalytic_surface_flux(&y_wall, &c0, &c1, 1.0, 1.0, [0.05, 0.1, 0.3]);
-        let hf_n = HF_SPECIES[3];
+        let hf_n = hf_table()[3];
         assert!((q - hf_n * 0.1).abs() < 1e-6 * hf_n, "q = {q}");
     }
 

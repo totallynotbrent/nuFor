@@ -1308,11 +1308,19 @@ pub struct MpiPark5Result {
 /// the closure's pressure rises with the internal energy, so a bracketing
 /// bisection converges on the unique physical root.
 fn park5_internal_energy_for_pressure(rho: f64, p: f64, y: &[f64]) -> f64 {
+    // the closure is a batch kernel owned by the fortran core. the
+    // inversion walks a batch of trial energies through it, so the
+    // inflow's thermodynamics come from the same implementation the
+    // march uses.
+    let one = vec![rho];
+    let plane: Vec<Vec<f64>> = (0..crate::park::NS).map(|s| vec![y[s]]).collect();
     let mut lo = 0.0f64;
     let mut hi = 1.0e6f64;
     for _ in 0..200 {
         let mid = 0.5 * (lo + hi);
-        if crate::species_closure::pressure_at(rho, mid, y) < p {
+        let fields =
+            crate::species_fortran::closure(&one, &[mid], &plane).expect("fortran park5 closure");
+        if fields.p[0] < p {
             lo = mid;
         } else {
             hi = mid;

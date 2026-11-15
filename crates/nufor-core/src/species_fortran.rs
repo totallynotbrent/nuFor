@@ -92,6 +92,107 @@ pub fn closure(rho: &[f64], e_int: &[f64], planes: &[Vec<f64>]) -> Result<Fields
     Ok(Fields { p, t, a })
 }
 
+/// the per-species formation enthalpy per mass, J/kg.
+///
+/// the table lives in the fortran core. the rust side reads it through
+/// the c surface so there is one copy of the constants in the build.
+pub fn formation_enthalpy() -> Result<[f64; NS], Error> {
+    let mut hf = [0.0f64; NS];
+    let mut err: c_int = 0;
+    unsafe {
+        crate::ffi_park5::nfor_park5_formation_enthalpy(hf.as_mut_ptr(), &mut err);
+    }
+    check(err)?;
+    Ok(hf)
+}
+
+/// the seeded temperature and internal energy per mass for a batch of
+/// cells, from the density, the pressure and the composition.
+///
+/// the seeding path reads these from the fortran core so the initial
+/// state and the marched state use the same thermodynamics.
+pub fn seed_energy(
+    rho: &[f64],
+    p: &[f64],
+    planes: &[Vec<f64>],
+) -> Result<(Vec<f64>, Vec<f64>), Error> {
+    let n = rho.len();
+    if n == 0 || p.len() != n || planes.len() < NS {
+        return Err(Error::InvalidArgs);
+    }
+    for plane in planes.iter().take(NS) {
+        if plane.len() != n {
+            return Err(Error::InvalidArgs);
+        }
+    }
+    let flat = flatten(planes, n);
+    let mut t = vec![0.0f64; n];
+    let mut e = vec![0.0f64; n];
+    let mut err: c_int = 0;
+    unsafe {
+        crate::ffi_park5::nfor_park5_seed_energy(
+            n as c_int,
+            rho.as_ptr(),
+            p.as_ptr(),
+            flat.as_ptr(),
+            t.as_mut_ptr(),
+            e.as_mut_ptr(),
+            &mut err,
+        );
+    }
+    check(err)?;
+    Ok((t, e))
+}
+
+/// the internal energy per mass at a stated temperature, for the
+/// boundary conditions that carry a temperature instead of a pressure.
+pub fn internal_energy(t: &[f64], planes: &[Vec<f64>]) -> Result<Vec<f64>, Error> {
+    let n = t.len();
+    if n == 0 || planes.len() < NS {
+        return Err(Error::InvalidArgs);
+    }
+    for plane in planes.iter().take(NS) {
+        if plane.len() != n {
+            return Err(Error::InvalidArgs);
+        }
+    }
+    let flat = flatten(planes, n);
+    let mut e = vec![0.0f64; n];
+    let mut err: c_int = 0;
+    unsafe {
+        crate::ffi_park5::nfor_park5_internal_energy(
+            n as c_int,
+            t.as_ptr(),
+            flat.as_ptr(),
+            e.as_mut_ptr(),
+            &mut err,
+        );
+    }
+    check(err)?;
+    Ok(e)
+}
+
+/// the equilibrium constants of the five park5 reactions at a
+/// temperature.
+///
+/// the catalytic wall reads these from the fortran core rather than
+/// keeping its own fits.
+pub fn equilibria(t: &[f64]) -> Result<[[f64; 5]; 1], Error> {
+    let n = t.len();
+    if n == 0 {
+        return Err(Error::InvalidArgs);
+    }
+    let mut kc = vec![0.0f64; 5 * n];
+    let mut err: c_int = 0;
+    unsafe {
+        crate::ffi_park5::nfor_park5_equilibria(n as c_int, t.as_ptr(), kc.as_mut_ptr(), &mut err);
+    }
+    check(err)?;
+    let mut out = [[0.0f64; 5]; 1];
+    out[0].copy_from_slice(&kc[..5]);
+    Ok(out)
+}
+
 /// the reaction source for a batch of cells at the given temperature.
 pub fn omega(rho: &[f64], t: &[f64], planes: &[Vec<f64>]) -> Result<Sources, Error> {
     let n = rho.len();

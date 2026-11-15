@@ -54,6 +54,13 @@
   post-shock edge chain, pinned by Rankine-Hugoniot table gates and
   scaling gates. The stagnation-heating anchor; docs in
   `docs/numerics/foundations/fay-riddell.md`.
+- the parking-lane thermodynamics now reads the fortran core. the vtk
+  snapshot writer, the mpi inflow inverter, the viscous transport snapshot, the
+  axisymmetric interface reconstruction, the initial-condition seeder and the
+  catalytic wall all derive pressure, temperature, sound speed, internal energy
+  and the reaction equilibrium constants through the park5 c surface instead
+  of the rust reference copies. the per-species formation enthalpies moved with
+  them, so the constants have one copy in the build.
 
 Two-temperature relaxation: `physics.eos = "park2t"` carries a
 live vibrational energy field on the nitrogen Euler march (harmonic

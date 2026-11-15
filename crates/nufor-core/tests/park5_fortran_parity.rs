@@ -286,3 +286,87 @@ fn the_fortran_lane_rejects_bad_arguments() {
     planes.extend(vec![vec![0.0f64]; NS - 2]);
     assert!(park5_fortran::chem_substep(&[1.0, 1.0], &[1.0], 1e-6, &mut planes).is_err());
 }
+
+/// the fortran core owns the formation-enthalpy table and the
+/// equilibrium-constant fits. the rust reference keeps its own copy so
+/// the parity gate can compare them.
+#[test]
+fn the_formation_enthalpy_table_matches_the_rust_reference() {
+    let fortran_hf = nufor_core::species_fortran::formation_enthalpy().expect("fortran hf");
+    let rust_hf = closure5::HF_SPECIES;
+    for s in 0..NS {
+        let scale = rust_hf[s].abs().max(1.0);
+        assert!(
+            (fortran_hf[s] - rust_hf[s]).abs() / scale <= LOOSE_REL,
+            "species {s}: fortran {e} vs rust {r}",
+            e = fortran_hf[s],
+            r = rust_hf[s]
+        );
+    }
+}
+
+/// the seeded temperature and internal energy must match the rust
+/// reference across the composition spread.
+#[test]
+fn the_seeded_energy_matches_the_rust_reference() {
+    for (y, rho, t_ref) in charges() {
+        let t_target = t_ref;
+        let planes: Vec<Vec<f64>> = (0..NS).map(|s| vec![y[s]]).collect();
+        let (t, e) = nufor_core::species_fortran::seed_energy(&[rho], &[1.0e5], &planes)
+            .expect("fortran seed energy");
+        // the rust reference computes the temperature the same way from
+        // the same mixture gas constant, so compare the energy at that
+        // temperature.
+        let r = closure5::mix_gas_constant(&y);
+        let t_expected = 1.0e5 / (rho * r);
+        assert!(
+            (t[0] - t_expected).abs() / t_expected.abs().max(1.0) <= LOOSE_REL,
+            "temperature {got} vs {want}",
+            got = t[0],
+            want = t_expected
+        );
+        let e_expected = closure5::internal_energy_at(t_expected, &y);
+        assert!(
+            (e[0] - e_expected).abs() / e_expected.abs().max(1.0) <= LOOSE_REL,
+            "energy {got} vs {want}",
+            got = e[0],
+            want = e_expected
+        );
+        let _ = t_target;
+    }
+}
+
+/// the equilibrium-constant fits must match the rust reference at the
+/// temperature spread the catalytic wall uses.
+#[test]
+fn the_equilibrium_constants_match_the_rust_reference() {
+    for t in [300.0, 1200.0, 3000.0, 6500.0, 11000.0] {
+        let kc = nufor_core::species_fortran::equilibria(&[t]).expect("fortran equilibria");
+        for (r, got) in kc[0].iter().enumerate() {
+            let want = species_chem::k_eq(r, t);
+            let scale = want.abs().max(1.0e-300);
+            assert!(
+                (*got - want).abs() / scale <= TIGHT_REL,
+                "reaction {r} at {t} K: fortran {got} vs rust {want}"
+            );
+        }
+    }
+}
+
+/// the internal energy at a stated temperature must match the rust
+/// reference.
+#[test]
+fn the_stated_temperature_energy_matches_the_rust_reference() {
+    for (y, _, t_ref) in charges() {
+        let planes: Vec<Vec<f64>> = (0..NS).map(|s| vec![y[s]]).collect();
+        let e = nufor_core::species_fortran::internal_energy(&[t_ref], &planes)
+            .expect("fortran internal energy");
+        let want = closure5::internal_energy_at(t_ref, &y);
+        assert!(
+            (e[0] - want).abs() / want.abs().max(1.0) <= LOOSE_REL,
+            "energy {got} vs {want}",
+            got = e[0],
+            want = want
+        );
+    }
+}

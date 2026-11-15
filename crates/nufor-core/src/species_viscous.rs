@@ -32,9 +32,20 @@ use crate::error::Error;
 use crate::grid2d::Grid2d;
 use crate::park::NS;
 use crate::species::SpeciesState;
-use crate::species_closure as closure5;
 use crate::species_props::{effective_diffusivity, mixture_conductivity, mixture_viscosity};
 use crate::state2d::ConservedState2d;
+
+/// the per-species formation enthalpy per mass, J/kg.
+///
+/// the table belongs to the fortran core. this crate reads it through
+/// the c surface so there is one copy of the constants in the build.
+fn hf_table() -> &'static [f64; NS] {
+    use std::sync::OnceLock;
+    static TABLE: OnceLock<[f64; NS]> = OnceLock::new();
+    TABLE.get_or_init(|| {
+        crate::species_fortran::formation_enthalpy().expect("fortran park5 formation enthalpy")
+    })
+}
 
 /// per-cell transport snapshot: (T, mu, k, D) at the cell's own state.
 pub(crate) struct CellTransport {
@@ -54,19 +65,24 @@ pub(crate) fn cell_transport(
 ) -> Result<CellTransport, Error> {
     let n = g.nx * g.ny;
     let (u, v, et) = crate::state2d::cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e)?;
-    let mut t = vec![0.0f64; n];
+    // the closure is a batch kernel owned by the fortran core. the
+    // viscous pass reads the same pressure and temperature the march
+    // does, so the transport coefficients and the flow state cannot
+    // drift apart.
+    let e_int: Vec<f64> = (0..n)
+        .map(|k_idx| et[k_idx] - 0.5 * (u[k_idx] * u[k_idx] + v[k_idx] * v[k_idx]))
+        .collect();
+    let closure = crate::species_fortran::closure(&state.rho, &e_int, &species.y)?;
+    let t = closure.t;
+    let p = closure.p;
     let mut mu = vec![0.0f64; n];
     let mut k = vec![0.0f64; n];
     let mut d = vec![0.0f64; n];
-    let mut p = vec![0.0f64; n];
     for k_idx in 0..n {
-        let e_int = et[k_idx] - 0.5 * (u[k_idx] * u[k_idx] + v[k_idx] * v[k_idx]);
         let mut y: [f64; NS] = [0.0; NS];
         for (ys, ysrc) in y.iter_mut().zip(species.y.iter()) {
             *ys = ysrc[k_idx];
         }
-        t[k_idx] = closure5::temperature_at(e_int, &y);
-        p[k_idx] = closure5::pressure_at(state.rho[k_idx], e_int, &y);
         mu[k_idx] = mixture_viscosity(&y, t[k_idx]);
         k[k_idx] = mixture_conductivity(&y, t[k_idx]);
         d[k_idx] = effective_diffusivity(&y, t[k_idx], p[k_idx].max(1.0));
@@ -176,7 +192,7 @@ pub(crate) fn add_species_viscous(
                 let dydx = (ys[b] - ys[a]) / dx;
                 let js = -rho_f * d_f * dydx;
                 fdx[s][k] = js;
-                q_enth += closure5::HF_SPECIES[s] * js;
+                q_enth += hf_table()[s] * js;
             }
             // energy rhs flux: stress work + the folded heat/enthalpy
             // terms (each the negative of the physical flux, matching
@@ -327,7 +343,7 @@ pub(crate) fn add_species_viscous(
                         None => 0.0,
                     };
                     fdy[s][k] = js;
-                    q_enth += closure5::HF_SPECIES[s] * js;
+                    q_enth += hf_table()[s] * js;
                 }
                 gye[k] += q_enth;
                 continue;
@@ -376,7 +392,7 @@ pub(crate) fn add_species_viscous(
                 let dydy = (ys[b] - ys[a]) / dy;
                 let js = -rho_f * d_f * dydy;
                 fdy[s][k] = js;
-                q_enth += closure5::HF_SPECIES[s] * js;
+                q_enth += hf_table()[s] * js;
             }
             gye[k] = 0.5 * (u[a] + u[b]) * txy + 0.5 * (v[a] + v[b]) * tyy + qy - q_enth;
             gym_x[k] = txy;

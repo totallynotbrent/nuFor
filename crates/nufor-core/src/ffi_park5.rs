@@ -90,4 +90,28 @@ extern "C" {
         dt_out: *mut f64,
         err: *mut c_int,
     );
+    /// the per-species formation enthalpy per mass, J/kg.
+    pub(crate) fn nfor_park5_formation_enthalpy(hf: *mut f64, err: *mut c_int);
+    /// the internal energy per mass at a stated temperature and
+    /// composition.
+    /// the equilibrium constants of the five park5 reactions.
+    pub(crate) fn nfor_park5_equilibria(n: c_int, t: *const f64, kc: *mut f64, err: *mut c_int);
+    pub(crate) fn nfor_park5_internal_energy(
+        n: c_int,
+        t: *const f64,
+        y: *const f64,
+        e_out: *mut f64,
+        err: *mut c_int,
+    );
+    /// the seeded temperature and internal energy per mass from a
+    /// density, pressure and composition.
+    pub(crate) fn nfor_park5_seed_energy(
+        n: c_int,
+        rho: *const f64,
+        p: *const f64,
+        y: *const f64,
+        t_out: *mut f64,
+        e_out: *mut f64,
+        err: *mut c_int,
+    );
 }

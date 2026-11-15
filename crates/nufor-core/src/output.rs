@@ -199,21 +199,13 @@ pub fn write_vtk2d_park5(
     let e_int: Vec<f64> = (0..n)
         .map(|k| et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]))
         .collect();
-    let mut p = vec![0.0f64; n];
-    let mut temp = vec![0.0f64; n];
-    let mut a = vec![0.0f64; n];
-    for k in 0..n {
-        let y_cell: [f64; crate::park::NS] = [
-            species.y[0][k],
-            species.y[1][k],
-            species.y[2][k],
-            species.y[3][k],
-            species.y[4][k],
-        ];
-        p[k] = crate::species_closure::pressure_at(st.rho[k], e_int[k], &y_cell);
-        temp[k] = crate::species_closure::temperature_at(e_int[k], &y_cell);
-        a[k] = crate::species_closure::sound_speed_at(st.rho[k], e_int[k], &y_cell);
-    }
+    // the closure is a batch kernel owned by the fortran core, so the
+    // snapshot and the march derive pressure, temperature and sound
+    // speed from the same implementation.
+    let closure = crate::species_fortran::closure(&st.rho, &e_int, &species.y)?;
+    let p = closure.p;
+    let temp = closure.t;
+    let a = closure.a;
     let mach: Vec<f64> = (0..n)
         .map(|k| (u[k] * u[k] + v[k] * v[k]).sqrt() / a[k].max(1e-6))
         .collect();

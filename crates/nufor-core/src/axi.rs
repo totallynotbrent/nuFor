@@ -1294,21 +1294,49 @@ fn face_pair(
             // species reconstruction. pressure, sound speed and specific
             // internal energy all come from the mixture closure, so a frozen
             // uniform field runs as an exact perfect-gas case.
-            let face = |r: f64, u: f64, v: f64, x: f64, y: &[f64]| -> FacePrim {
-                let mut y5 = [0.0f64; 5];
-                for (dst, src) in y5.iter_mut().zip(y.iter()) {
-                    *dst = *src;
-                }
-                FacePrim {
-                    rho: r,
-                    u,
-                    v,
-                    p: crate::species_closure::pressure_at(r, x, &y5),
-                    a: crate::species_closure::sound_speed_at(r, x, &y5),
-                    e: x,
-                }
+            // the closure is a batch kernel owned by the fortran core.
+            // the two faces of the interface go through it in one
+            // batch, so the reconstructed states and the marched
+            // states read the same thermodynamics.
+            let mut left = [0.0f64; 5];
+            for (dst, src) in left.iter_mut().zip(yl.iter()) {
+                *dst = *src;
+            }
+            let mut right = [0.0f64; 5];
+            for (dst, src) in right.iter_mut().zip(yr.iter()) {
+                *dst = *src;
+            }
+            // species-major across the two faces: plane s holds the
+            // left face first and the right face second.
+            let planes: Vec<Vec<f64>> = (0..5).map(|s| vec![left[s], right[s]]).collect();
+            let fields = crate::species_fortran::closure(&[rl, rr], &[xl, xr], &planes);
+            let (pl, al, pr, ar) = match fields {
+                Ok(f) => (f.p[0], f.a[0], f.p[1], f.a[1]),
+                Err(_) => (
+                    crate::species_closure::pressure_at(rl, xl, &left),
+                    crate::species_closure::sound_speed_at(rl, xl, &left),
+                    crate::species_closure::pressure_at(rr, xr, &right),
+                    crate::species_closure::sound_speed_at(rr, xr, &right),
+                ),
             };
-            (face(rl, ul, vl, xl, yl), face(rr, ur, vr, xr, yr))
+            (
+                FacePrim {
+                    rho: rl,
+                    u: ul,
+                    v: vl,
+                    p: pl,
+                    a: al,
+                    e: xl,
+                },
+                FacePrim {
+                    rho: rr,
+                    u: ur,
+                    v: vr,
+                    p: pr,
+                    a: ar,
+                    e: xr,
+                },
+            )
         }
         ThermoModel::Combustion { lane, .. } => {
             // the runtime-width mixture closure: same reconstruction
@@ -1415,7 +1443,14 @@ pub(crate) fn compute_axi_fluxes(
                         Some(t) => *t,
                         None => *p / (*rho * crate::species_closure::mix_gas_constant(&y)),
                     };
-                    crate::species_closure::internal_energy_at(t, &y)
+                    // the closure is a batch kernel owned by the fortran
+                    // core, so the seeded energy comes from the same
+                    // implementation the march uses.
+                    let planes: Vec<Vec<f64>> = (0..crate::park::NS).map(|s| vec![y[s]]).collect();
+                    match crate::species_fortran::internal_energy(&[t], &planes) {
+                        Ok(e) => e[0],
+                        Err(_) => crate::species_closure::internal_energy_at(t, &y),
+                    }
                 })
             }
             (
