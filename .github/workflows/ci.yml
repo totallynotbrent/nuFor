@@ -186,7 +186,7 @@ jobs:
           bin=$(ls -t target/debug/deps/mpi_restart-* | grep -v '\.d$' | head -1)
           export NUFOUR_MPI_RESTART_DIR="$RUNNER_TEMP/nufor_mpi_restart_gate"
           mkdir -p "$NUFOUR_MPI_RESTART_DIR"
-          for test in mpi_split_restart_reproduces_continuous mpi_split_restart_2t_reproduces_continuous; do
+          for test in mpi_split_restart_reproduces_continuous mpi_split_restart_2t_reproduces_continuous mpi_split_restart_park5_reproduces_continuous; do
           for np in 1 2 3; do
             log=""
             ok=0

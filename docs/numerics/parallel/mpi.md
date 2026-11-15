@@ -237,9 +237,22 @@ The two-temperature plane rides the same machinery. The restart writer
 already knew how to carry an extra plane alongside the conserved state, so
 `e_v` travels as that plane and comes back identical: the resumed run
 reproduces the uninterrupted one on all four conserved planes and on the
-vibrational plane, bit for bit, at np=1 through np=4. The generic nature
-of the extra-plane path is why this costs no format change; a future
-species-transport plane would travel the same way.
+the vibrational plane, bit for bit, at np=1 through np=4. The generic nature
+of the extra-plane path is why this costs no format change.
+
+A Park 5 composition does not fit that single-extra-plane path: it is five
+mass fractions, and the resumed march has to carry all five or the chemistry
+restarts from the seed. The restart format therefore grew a species layout,
+recognised by its own magic, holding the four conserved planes followed by
+one plane per species. The plain conserved-only and single-extra-plane files
+stay readable exactly as they were. Both the serial and the MPI Park 5 lanes
+write the species layout, and a resumed run reads the composition back
+instead of seeding it, so the evolved nitrogen dissociation carries across
+the restart. The end-to-end gate in
+`crates/nufor-cli/tests/park5_restart_gate.rs` runs a case, checks that the
+saved composition carries dissociated nitrogen rather than the pure-nitrogen
+seed, then resumes from the file and checks that the chemistry carries
+forward through the second leg.
 ## Five-species Park-5 march
 
 The species lane brings its own planes rather than borrowing space in the

@@ -19,12 +19,13 @@ use nufor_core::{
     advance2d_model_visc_rk2, advance2d_sa_lts, advance2d_sa_model_rk2, advance3d_rk2,
     advance_ugrid, advance_ugrid_recon, apply_solid_combustion, apply_solid_fn, apply_solid_ref,
     body_cache, cons_to_prim2d, eos_pressure2d, euler_solve, face_flow_area, grid1d, grid2d,
-    grid3d, prim_to_cons, prim_to_cons2d, prim_to_cons3d, read_restart, read_restart2d, render_png,
-    wall_distance2d, write_csv, write_h5, write_restart, write_restart2d, write_restart2d_aux,
-    write_vtk, write_vtk2d_combustion, write_vtk2d_model, write_vtk2d_park5, write_vtk3d, Bc2d,
-    Boundaries2d, Boundary, Bounds3d, ConservedState, ConservedState2d, ConservedState3d, Error,
-    EulerConfig, Grid1d, Grid2d, Grid3d, OutputState, Restart2dMeta, SaParams, SolidPolygon,
-    SolidShape, SphereCone, SphereConeSdf, TurbState, Ugrid,
+    grid3d, prim_to_cons, prim_to_cons2d, prim_to_cons3d, read_restart, read_restart2d,
+    read_restart2d_species, render_png, wall_distance2d, write_csv, write_h5, write_restart,
+    write_restart2d, write_restart2d_aux, write_restart2d_species, write_vtk,
+    write_vtk2d_combustion, write_vtk2d_model, write_vtk2d_park5, write_vtk3d, Bc2d, Boundaries2d,
+    Boundary, Bounds3d, ConservedState, ConservedState2d, ConservedState3d, Error, EulerConfig,
+    Grid1d, Grid2d, Grid3d, OutputState, Restart2dMeta, SaParams, SolidPolygon, SolidShape,
+    SphereCone, SphereConeSdf, TurbState, Ugrid,
 };
 use nufor_core::{model_from_config, park2t, ThermoModel};
 
@@ -2349,9 +2350,15 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     let mut restart_step = 0u64;
     let mut restart_time = 0.0f64;
     let mut restart_aux: Option<Vec<f64>> = None;
+    // a park5 restart carries the composition planes beside the flow state;
+    // the species layout is a distinct magic, so read it first and fall back
+    // to the conserved-only reader.
+    let mut restart_species: Option<Vec<Vec<f64>>> = None;
     let mut st = match &cfg.time.restart_in {
         Some(rpath) => {
-            let rd = match read_restart2d(Path::new(rpath)) {
+            let rd = match read_restart2d_species(Path::new(rpath))
+                .or_else(|_| read_restart2d(Path::new(rpath)))
+            {
                 Ok(rd) => rd,
                 Err(e) => {
                     eprintln!("restart read error: {e}");
@@ -2368,6 +2375,9 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
             restart_step = rd.step;
             restart_time = rd.time;
             restart_aux = rd.aux.filter(|a| a.len() == g.nx * g.ny);
+            restart_species = rd
+                .species
+                .filter(|pls| pls.len() == 5 && pls.iter().all(|pl| pl.len() == g.nx * g.ny));
             rd.state
         }
         None => match ic2d_from_case_model(&cfg.initial_condition, &g, gamma, model, cfg) {
@@ -2442,11 +2452,16 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     // park5 cases carry the composition beside the flow state: pure
     // nitrogen for the dissociation gates, standard air otherwise.
     let mut park5_species = if matches!(model, ThermoModel::Park5 { .. }) {
-        let y0 = park5_start_composition(cfg);
-        let built = if cfg.physics.gas.as_str() == "n2" {
-            nufor_core::species::SpeciesState::uniform(g.nx * g.ny, &y0)
-        } else {
-            Ok(nufor_core::species::SpeciesState::air(g.nx * g.ny))
+        let built = match restart_species.take() {
+            Some(pls) => nufor_core::species::SpeciesState::from_planes(pls),
+            None => {
+                let y0 = park5_start_composition(cfg);
+                if cfg.physics.gas.as_str() == "n2" {
+                    nufor_core::species::SpeciesState::uniform(g.nx * g.ny, &y0)
+                } else {
+                    Ok(nufor_core::species::SpeciesState::air(g.nx * g.ny))
+                }
+            }
         };
         Some(match built {
             Ok(s) => s,
@@ -2593,6 +2608,23 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
                         t,
                         wall,
                     );
+                }
+                // the mpi park5 lane writes the composition planes beside the
+                // flow state so the resumed run keeps its evolved chemistry.
+                if let Some(rpath) = &cfg.time.restart_out {
+                    let meta = Restart2dMeta {
+                        nx: g.nx,
+                        ny: g.ny,
+                        gamma,
+                        time: t,
+                        step: restart_step + steps as u64,
+                    };
+                    if let Some(sp) = park5_species.as_ref() {
+                        if let Err(e) = write_restart2d_species(Path::new(rpath), &st, meta, &sp.y)
+                        {
+                            eprintln!("restart write error: {e}");
+                        }
+                    }
                 }
                 mpi_shutdown();
                 return rc;
@@ -2761,30 +2793,18 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
         if let Some(rpath) = &cfg.time.restart_out {
             // the rans lane appends the nu_tilde aux plane so a restarted
             // mpi run resumes the developed turbulence field, not the seed.
-            let wr = match &turb {
-                Some(tb) => write_restart2d_aux(
-                    Path::new(rpath),
-                    &st,
-                    Restart2dMeta {
-                        nx: g.nx,
-                        ny: g.ny,
-                        gamma,
-                        time: t,
-                        step: restart_step + steps as u64,
-                    },
-                    &tb.nu_tilde,
-                ),
-                None => write_restart2d(
-                    Path::new(rpath),
-                    &st,
-                    Restart2dMeta {
-                        nx: g.nx,
-                        ny: g.ny,
-                        gamma,
-                        time: t,
-                        step: restart_step + steps as u64,
-                    },
-                ),
+            // a park5 lane writes the composition planes beside it.
+            let meta = Restart2dMeta {
+                nx: g.nx,
+                ny: g.ny,
+                gamma,
+                time: t,
+                step: restart_step + steps as u64,
+            };
+            let wr = match (&turb, park5_species.as_ref()) {
+                (_, Some(sp)) => write_restart2d_species(Path::new(rpath), &st, meta, &sp.y),
+                (Some(tb), None) => write_restart2d_aux(Path::new(rpath), &st, meta, &tb.nu_tilde),
+                (None, None) => write_restart2d(Path::new(rpath), &st, meta),
             };
             if let Err(e) = wr {
                 eprintln!("restart write error: {e}");
@@ -3160,30 +3180,19 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
         if let Some(rpath) = &cfg.time.restart_out {
             // a turbulence-carrying lane appends the nu_tilde aux plane so
             // the resumed run picks the developed field back up.
-            let wr = match &turb {
-                Some(tb) => write_restart2d_aux(
-                    Path::new(rpath),
-                    &st,
-                    Restart2dMeta {
-                        nx: g.nx,
-                        ny: g.ny,
-                        gamma,
-                        time: t,
-                        step: restart_step + steps as u64,
-                    },
-                    &tb.nu_tilde,
-                ),
-                None => write_restart2d(
-                    Path::new(rpath),
-                    &st,
-                    Restart2dMeta {
-                        nx: g.nx,
-                        ny: g.ny,
-                        gamma,
-                        time: t,
-                        step: restart_step + steps as u64,
-                    },
-                ),
+            // a park5 lane writes the composition planes beside the flow
+            // state so the resumed run keeps its evolved chemistry.
+            let meta = Restart2dMeta {
+                nx: g.nx,
+                ny: g.ny,
+                gamma,
+                time: t,
+                step: restart_step + steps as u64,
+            };
+            let wr = match (&turb, park5_species.as_ref()) {
+                (_, Some(sp)) => write_restart2d_species(Path::new(rpath), &st, meta, &sp.y),
+                (Some(tb), None) => write_restart2d_aux(Path::new(rpath), &st, meta, &tb.nu_tilde),
+                (None, None) => write_restart2d(Path::new(rpath), &st, meta),
             };
             if let Err(e) = wr {
                 eprintln!("restart write error: {e}");

@@ -20,12 +20,16 @@ const MAGIC: &[u8; 4] = b"NUFR";
 const LEGACY_MAGIC: &[u8; 6] = b"NUFR1\0";
 /// magic of the 2d layout (rho, mx, my, e over an nx*ny grid).
 const MAGIC2D: &[u8; 4] = b"NUF2";
+/// magic of the 2d layout that also carries the species composition planes.
+const MAGIC2DS: &[u8; 4] = b"NUFS";
 /// an upper bound on n so a corrupt size field cannot drive a huge allocation.
 const MAX_CELLS: u64 = 100_000_000;
 /// reserved header bytes for n, gamma, time, and step.
 const HDR: usize = 32;
 /// header bytes for the 2d layout: n, nx, ny, gamma, time, step.
 const HDR2D: usize = 48;
+/// header bytes for the species layout: the 2d header plus the species count.
+const HDR2DS: usize = 56;
 
 /// the full state recovered from a restart file.
 #[derive(Debug, Clone, PartialEq)]
@@ -60,6 +64,9 @@ pub struct RestartData2d {
     /// an optional trailing aux plane (e.g. the SA nu_tilde field), present
     /// when the writer appended one; absent in the plain conserved-only file.
     pub aux: Option<Vec<f64>>,
+    /// the species composition planes, one per species, when the file was
+    /// written in the species layout; absent in the conserved-only file.
+    pub species: Option<Vec<Vec<f64>>>,
 }
 
 /// the header fields carried by a 2d restart file.
@@ -147,6 +154,111 @@ fn write_restart2d_impl(
     std::fs::write(path, &out).map_err(|_| Error::KernelFailure)
 }
 
+/// writes a full 2d state plus the species composition planes to a restart
+/// file in the species layout: the conserved four, then one plane per
+/// species, each plane flat row-major over nx*ny.
+pub fn write_restart2d_species(
+    path: &Path,
+    state: &crate::state2d::ConservedState2d,
+    meta: Restart2dMeta,
+    planes: &[Vec<f64>],
+) -> Result<(), Error> {
+    let n = state.rho.len();
+    if planes.is_empty() || planes.iter().any(|pl| pl.len() != n) {
+        return Err(Error::InvalidArgs);
+    }
+    if n < 2
+        || n != state.mx.len()
+        || n != state.my.len()
+        || n != state.e.len()
+        || n != meta.nx * meta.ny
+        || meta.nx < 2
+        || meta.ny < 2
+    {
+        return Err(Error::InvalidArgs);
+    }
+    if (n as u64) > MAX_CELLS {
+        return Err(Error::InvalidArgs);
+    }
+    let ns = planes.len();
+    let mut out = Vec::with_capacity(MAGIC2DS.len() + HDR2DS + (4 + ns) * n * 8);
+    out.extend_from_slice(MAGIC2DS);
+    out.extend_from_slice(&(n as u64).to_le_bytes());
+    out.extend_from_slice(&(meta.nx as u64).to_le_bytes());
+    out.extend_from_slice(&(meta.ny as u64).to_le_bytes());
+    out.extend_from_slice(&meta.gamma.to_le_bytes());
+    out.extend_from_slice(&meta.time.to_le_bytes());
+    out.extend_from_slice(&meta.step.to_le_bytes());
+    out.extend_from_slice(&(ns as u64).to_le_bytes());
+    for a in [&state.rho, &state.mx, &state.my, &state.e] {
+        for v in a {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+    }
+    for plane in planes {
+        for v in plane {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+    }
+    std::fs::write(path, &out).map_err(|_| Error::KernelFailure)
+}
+
+/// reads a species-layout restart file back into the conserved state and the
+/// composition planes.
+pub fn read_restart2d_species(path: &Path) -> Result<RestartData2d, Error> {
+    let bytes = std::fs::read(path).map_err(|_| Error::KernelFailure)?;
+    if bytes.len() < MAGIC2DS.len() + HDR2DS || &bytes[..4] != MAGIC2DS {
+        return Err(Error::InvalidArgs);
+    }
+    let rd = &bytes[MAGIC2DS.len()..MAGIC2DS.len() + HDR2DS];
+    let n = u64::from_le_bytes(rd[0..8].try_into().unwrap()) as usize;
+    let nx = u64::from_le_bytes(rd[8..16].try_into().unwrap()) as usize;
+    let ny = u64::from_le_bytes(rd[16..24].try_into().unwrap()) as usize;
+    let gamma = f64::from_le_bytes(rd[24..32].try_into().unwrap());
+    let time = f64::from_le_bytes(rd[32..40].try_into().unwrap());
+    let step = u64::from_le_bytes(rd[40..48].try_into().unwrap());
+    let ns = u64::from_le_bytes(rd[48..56].try_into().unwrap()) as usize;
+    if !(2..=MAX_CELLS as usize).contains(&n)
+        || nx < 2
+        || ny < 2
+        || n != nx * ny
+        || ns == 0
+        || !gamma.is_finite()
+        || !time.is_finite()
+        || gamma <= 1.0
+    {
+        return Err(Error::InvalidArgs);
+    }
+    if bytes.len() != MAGIC2DS.len() + HDR2DS + (4 + ns) * n * 8 {
+        return Err(Error::InvalidArgs);
+    }
+    let mut cur = MAGIC2DS.len() + HDR2DS;
+    let mut take = |count: usize| -> Vec<f64> {
+        let mut v = Vec::with_capacity(count);
+        for _ in 0..count {
+            let slice: [u8; 8] = bytes[cur..cur + 8].try_into().unwrap();
+            cur += 8;
+            v.push(f64::from_le_bytes(slice));
+        }
+        v
+    };
+    let rho = take(n);
+    let mx = take(n);
+    let my = take(n);
+    let e = take(n);
+    let species: Vec<Vec<f64>> = (0..ns).map(|_| take(n)).collect();
+    Ok(RestartData2d {
+        state: crate::state2d::ConservedState2d { rho, mx, my, e },
+        nx,
+        ny,
+        gamma,
+        time,
+        step,
+        aux: None,
+        species: Some(species),
+    })
+}
+
 /// reads a 2d restart file back, validating magic, schema shape, and size.
 pub fn read_restart2d(path: &Path) -> Result<RestartData2d, Error> {
     let bytes = std::fs::read(path).map_err(|_| Error::KernelFailure)?;
@@ -199,6 +311,7 @@ pub fn read_restart2d(path: &Path) -> Result<RestartData2d, Error> {
         time,
         step,
         aux,
+        species: None,
     })
 }
 

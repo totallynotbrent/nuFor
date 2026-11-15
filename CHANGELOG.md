@@ -4,6 +4,14 @@
 
 ### Added
 
+- a species layout in the 2d restart format, recognised by its own magic:
+  the four conserved planes followed by one plane per species. The plain
+  conserved-only and single-extra-plane files stay readable as they were.
+  both the serial and the mpi park5 lanes write it, and a resumed run reads
+  the evolved composition back instead of re-seeding it, so dissociated
+  nitrogen carries across a restart. Covered end to end by
+  `crates/nufor-cli/tests/park5_restart_gate.rs`.
+
 - the mpi five-species park5 march: `physics.eos = "park5"` cases under
   `mpirun` now run the conserved fields and the five composition planes in
   the fortran core on an x-slab decomposition

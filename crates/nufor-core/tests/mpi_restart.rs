@@ -436,3 +436,172 @@ fn split_restart_2t_inner() {
     mpi_report::fence();
     mpi_shutdown();
 }
+
+/// marches the park5 lane in `chunks` chunks of `chunk_len` steps and
+/// returns the final state and composition planes on rank 0.
+fn march_park5_chunks(
+    g: &nufor_core::Grid2d,
+    bc: &Boundaries2d,
+    st0: &ConservedState2d,
+    planes0: &[Vec<f64>],
+    chunk_len: usize,
+    chunks: usize,
+) -> (ConservedState2d, Vec<Vec<f64>>) {
+    let mut st = st0.clone();
+    let mut planes = planes0.to_vec();
+    for _ in 0..chunks {
+        let r = nufor_core::ffi_mpi::march_park5_2d_mpi(
+            &st, &planes, g, bc, 0.45, 1.0e30, chunk_len, &AIR_COMP,
+        )
+        .expect("the park5 march");
+        if let (Some(gst), Some(gp)) = (r.state, r.planes) {
+            st = gst;
+            planes = gp;
+        }
+        // every rank re-carves the next chunk from the same numbers.
+        nufor_core::ffi_mpi::mpi_bcast_state(&mut st).expect("broadcast the state");
+        for pl in planes.iter_mut() {
+            nufor_core::ffi_mpi::mpi_bcast_field(pl).expect("broadcast a species plane");
+        }
+    }
+    (st, planes)
+}
+
+/// the standard-air mass fractions the composition lane starts from.
+const AIR_COMP: [f64; 5] = [0.767, 0.233, 0.0, 0.0, 0.0];
+
+/// mpi-native species restart gate: a park5 march stopped halfway and
+/// resumed from a restart file must land on exactly the composition and
+/// state the uninterrupted march reaches.
+///
+/// the composition planes have to reach every rank for the resumed half to
+/// march on the same chemistry, and they have to survive the file intact:
+// the resumed run seeds its composition from the file, so a lost or
+/// reordered plane shows up as a divergent march rather than as a crash.
+#[test]
+#[ignore] // run under mpirun -np N, see the ci parity-smoke step
+fn mpi_split_restart_park5_reproduces_continuous() {
+    use nufor_core::ffi_mpi::{mpi_rank, mpi_shutdown};
+
+    let (nx, ny) = (48usize, 32usize);
+    let n = nx * ny;
+    let g = grid2d(nx, ny, 0.0, 1.0, 0.0, 1.0).unwrap();
+    let bc = Boundaries2d {
+        west: Bc2d::SupersonicInflow {
+            rho: 1.225,
+            u: 400.0,
+            v: 0.0,
+            p: 1.225 * 287.05 * 300.0,
+            t: Some(300.0),
+        },
+        east: Bc2d::Transmissive,
+        south: Bc2d::Transmissive,
+        north: Bc2d::Transmissive,
+    };
+
+    let rho0 = 1.225f64;
+    let u0 = 400.0f64;
+    let e_int = nufor_core::species_closure::internal_energy_at(300.0, &AIR_COMP);
+    let st0 = ConservedState2d {
+        rho: vec![rho0; n],
+        mx: vec![rho0 * u0; n],
+        my: vec![0.0; n],
+        e: vec![rho0 * (e_int + 0.5 * u0 * u0); n],
+    };
+    // a graded composition so the transport operator has real work to do.
+    let planes0: Vec<Vec<f64>> = (0..5)
+        .map(|s| {
+            (0..n)
+                .map(|k| {
+                    let i = k % nx;
+                    let j = k / nx;
+                    let dx = 0.05 * (std::f64::consts::TAU * i as f64 / nx as f64).cos();
+                    let dy = 0.02 * (std::f64::consts::TAU * j as f64 / ny as f64).sin();
+                    let d = dx + dy;
+                    match s {
+                        0 => AIR_COMP[0] + d,
+                        1 => AIR_COMP[1] - d,
+                        _ => AIR_COMP[s],
+                    }
+                })
+                .collect()
+        })
+        .collect();
+
+    // uninterrupted: four chunks of two steps.
+    let (cont_st, cont_y) = march_park5_chunks(&g, &bc, &st0, &planes0, 2, 4);
+
+    // split: two chunks, a restart file in the species layout, then two
+    // chunks resumed from the file.
+    let (half_st, half_y) = march_park5_chunks(&g, &bc, &st0, &planes0, 2, 2);
+
+    let rank = mpi_rank().unwrap_or(0);
+    let dir = std::env::var_os("NUFOUR_MPI_RESTART_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::env::temp_dir().join("nufor_mpi_restart_park5"));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("halfpark5.rst");
+    if rank == 0 {
+        nufor_core::write_restart2d_species(
+            &path,
+            &half_st,
+            Restart2dMeta {
+                nx: g.nx,
+                ny: g.ny,
+                gamma: 1.4,
+                time: 0.0,
+                step: 4,
+            },
+            &half_y,
+        )
+        .expect("write the park5 restart");
+    }
+    // the write has to land before any rank reads the file.
+    mpi_report::fence();
+
+    // every rank reads the same file and must see the same composition.
+    let rd = nufor_core::read_restart2d_species(&path).expect("read the park5 restart");
+    assert_eq!(rd.nx, g.nx);
+    assert_eq!(rd.ny, g.ny);
+    assert_eq!(rd.step, 4);
+    let resumed_y = rd
+        .species
+        .expect("the restart carries the composition planes");
+    assert_eq!(resumed_y.len(), 5);
+    for s in 0..5 {
+        assert_eq!(
+            max_abs_diff(&resumed_y[s], &half_y[s]),
+            0.0,
+            "species plane {s} came back altered"
+        );
+    }
+
+    let (res_st, res_y) = march_park5_chunks(&g, &bc, &rd.state, &resumed_y, 2, 2);
+
+    if rank == 0 {
+        for (name, a, b) in [
+            ("rho", &cont_st.rho, &res_st.rho),
+            ("mx", &cont_st.mx, &res_st.mx),
+            ("my", &cont_st.my, &res_st.my),
+            ("e", &cont_st.e, &res_st.e),
+        ] {
+            let d = max_abs_diff(a, b);
+            println!("park5 restart vs continuous: {name} max abs diff {d:.3e}");
+            mpi_report::number(&format!("restartpark5_{}_max_abs_diff", name), d);
+            assert_eq!(
+                d, 0.0,
+                "the resumed park5 march diverged on {name}: {d:.3e}"
+            );
+        }
+        for s in 0..5 {
+            let d = max_abs_diff(&cont_y[s], &res_y[s]);
+            println!("park5 restart vs continuous: y{s} max abs diff {d:.3e}");
+            mpi_report::number(&format!("restartpark5_y{}_max_abs_diff", s), d);
+            assert_eq!(d, 0.0, "the resumed park5 march diverged on y{s}: {d:.3e}");
+        }
+        mpi_report::flush();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+    mpi_report::fence();
+    mpi_shutdown();
+}

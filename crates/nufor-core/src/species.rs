@@ -32,6 +32,19 @@ impl SpeciesState {
         })
     }
 
+    /// rebuilds the composition from one plane per species, as a restart
+    /// file carries them: every plane must have the same cell count.
+    pub fn from_planes(planes: Vec<Vec<f64>>) -> Result<Self, Error> {
+        if planes.len() != NS {
+            return Err(Error::InvalidArgs);
+        }
+        let n = planes[0].len();
+        if planes.iter().any(|pl| pl.len() != n) {
+            return Err(Error::InvalidArgs);
+        }
+        Ok(SpeciesState { y: planes })
+    }
+
     /// standard air: 0.767 N2 / 0.233 O2 by mass (the 79/21 molar split).
     pub fn air(n: usize) -> Self {
         SpeciesState {
