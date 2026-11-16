@@ -7,7 +7,7 @@
 //! one mpi communicator, so a process that runs them back to back has the
 //! previous gate's collective state live when the next one starts.
 //! `tools/regression.sh` runs them one per process.
-use nufor_core::ffi_mpi::{march_euler2d_mpi, march_viscous2d_mpi};
+use nufor_core::ffi_mpi::{march_euler2d_mpi, march_pg2t2d_mpi, march_viscous2d_mpi};
 use nufor_core::{
     advance2d_model, advance2d_model_rk2, advance2d_model_visc_rk2, grid2d, prim_to_cons2d, Bc2d,
     Boundaries2d, ConservedState2d, ThermoModel,
@@ -1430,4 +1430,251 @@ fn mpi_mpipark5_march_matches_serial() {
         _ => assert_ne!(drank, 0, "rank 0 must assemble the global state"),
     }
     mpi_shutdown();
+}
+
+// -------------------------------------------------------------------
+// mpi park2t gate: the fortran perfect-gas 2t lane (march_pg2t2d_mpi)
+// versus the serial rust oracle (advance2d_model_rk2 Perfect +
+// park2t::park2t_substep) over NF_MPI_STEPS steps on a 2d sod case.
+// -----------------------------------------------------------------------------
+use nufor_core::park2t;
+
+fn sod_perfect_state(g: &nufor_core::Grid2d) -> ConservedState2d {
+    // identical piecewise-constant state to sod_state(), closed with the
+    // calorically-perfect equation of state.
+    let n = g.nx * g.ny;
+    let mut st = ConservedState2d {
+        rho: vec![1.0; n],
+        mx: vec![0.0; n],
+        my: vec![0.0; n],
+        e: vec![0.0; n],
+    };
+    let gamma = 1.4;
+    for j in 0..g.ny {
+        for i in 0..g.nx {
+            let k = j * g.nx + i;
+            let (_rho, p) = if g.centers_x[k] < 0.0 {
+                (1.0, 1.0)
+            } else {
+                (0.125, 0.1)
+            };
+            st.rho[k] = _rho;
+            st.e[k] = p / (gamma - 1.0);
+        }
+    }
+    st
+}
+
+#[test]
+#[ignore] // run under mpirun, one process per gate
+fn mpi_pg2t_matches_rust_sod2d() {
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(mpi_pg2t_matches_rust_sod2d_inner)
+        .expect("spawn mpi test thread")
+        .join()
+        .expect("mpi test thread panicked");
+}
+
+fn mpi_pg2t_matches_rust_sod2d_inner() {
+    let g = grid2d(64, 64, -1.0, 1.0, -1.0, 1.0).unwrap();
+    let bc = Boundaries2d {
+        west: Bc2d::Transmissive,
+        east: Bc2d::Transmissive,
+        south: Bc2d::Transmissive,
+        north: Bc2d::Transmissive,
+    };
+    let gamma = 1.4;
+    let nsteps: usize = std::env::var("NF_MPI_STEPS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(10);
+    // serial rust oracle: perfect-gas rk2 march plus the 2t substep per step
+    let mut st_ref = sod_perfect_state(&g);
+    let mut park = park2t::Park2tState::from_uniform(&g, 0.0);
+    let park_solid = vec![false; g.nx * g.ny];
+    let model = ThermoModel::Perfect { gamma };
+    let mut dt_ref_last = 0.0;
+    for _ in 0..nsteps {
+        let (dt, _) = advance2d_model_rk2(&mut st_ref, &g, model, 0.4, true, &bc, 1, None).unwrap();
+        park2t::park2t_substep(&mut st_ref, &mut park, &g, gamma, dt, &park_solid, false).unwrap();
+        dt_ref_last = dt;
+    }
+    let n = g.nx * g.ny;
+    let solid = vec![false; n];
+    let st0 = sod_perfect_state(&g);
+    let ev0 = vec![0.0f64; n]; // equilibrated-at-zero seed matches the oracle
+    let (r, _ev_mpi) =
+        march_pg2t2d_mpi(&st0, &ev0, &g, model, &bc, 0.4, 1e30, nsteps, &solid).unwrap();
+    let st_mpi = match r.state {
+        Some(s) => s,
+        None => {
+            mpi_report::fence();
+            nufor_core::ffi_mpi::mpi_shutdown();
+            return;
+        }
+    };
+    // the absolute difference is the primary measure; the relative one is
+    // normalised by the rms of the reference field, so a cell sitting on a
+    // sign change does not manufacture an infinite relative error.
+    let fields: [&[f64]; 4] = [&st_ref.rho, &st_ref.mx, &st_ref.my, &st_ref.e];
+    let scales: [f64; 4] = fields.map(|f| {
+        let s: f64 = f.iter().map(|x| x * x).sum();
+        (s / f.len().max(1) as f64).sqrt().max(1e-30)
+    });
+    let mut worst_abs = 0.0f64;
+    let mut worst_rel = 0.0f64;
+    let mut wk = 0usize;
+    for k in 0..n {
+        for (fi, (a, bref)) in [
+            (st_mpi.rho[k], st_ref.rho[k]),
+            (st_mpi.mx[k], st_ref.mx[k]),
+            (st_mpi.my[k], st_ref.my[k]),
+            (st_mpi.e[k], st_ref.e[k]),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let da = (a - bref).abs();
+            let dr = da / brefscale(scales[fi], bref);
+            if da > worst_abs {
+                worst_abs = da;
+                wk = k;
+            }
+            worst_rel = worst_rel.max(dr);
+        }
+    }
+    let mut sum_sq = 0.0f64;
+    for k in 0..n {
+        for (a, bref) in [
+            (st_mpi.rho[k], st_ref.rho[k]),
+            (st_mpi.mx[k], st_ref.mx[k]),
+            (st_mpi.my[k], st_ref.my[k]),
+            (st_mpi.e[k], st_ref.e[k]),
+        ] {
+            sum_sq += (a - bref) * (a - bref);
+        }
+    }
+    let rms = (sum_sq / (4.0 * n as f64)).sqrt();
+    println!(
+        "pg2t mpi-vs-rust worst abs diff: {worst_abs:.3e} worst rel: {worst_rel:.3e} at i={} j={}",
+        wk % g.nx,
+        wk / g.nx
+    );
+    println!(
+        "rust dt last: {dt_ref_last:.6e}  fortran dt last: {:.6e}",
+        r.dt_last
+    );
+    mpi_report::number("pg2t_worst_abs_diff", worst_abs);
+    mpi_report::number("pg2t_worst_rel_diff", worst_rel);
+    mpi_report::number("pg2t_dt_last_serial", dt_ref_last);
+    mpi_report::number("pg2t_dt_last_mpi", r.dt_last);
+    mpi_report::number("pg2t_rms_diff", rms);
+    println!("pg2t mpi-vs-rust rms diff: {rms:.3e}");
+    mpi_report::flush();
+    mpi_report::fence();
+    assert!(
+        worst_rel <= 1.0e-10,
+        "fortran perfect-gas 2t lane diverged from the serial rust oracle: abs={worst_abs:.3e} rel={worst_rel:.3e}"
+    );
+    nufor_core::ffi_mpi::mpi_shutdown();
+}
+
+/// the denominator of the normalised difference: the reference magnitude,
+/// floored by the field's rms scale so a zero-crossing cell does not blow up.
+fn brefscale(scale: f64, bref: f64) -> f64 {
+    bref.abs().max(scale)
+}
+
+// ---------------------------------------------------------------------------
+// within-fortran bit-identity gate: the new perfect-gas 2t march must give
+// bit-identical gathered results at np=1, 2, 3 and 4 for the same case.
+// the test writes the gathered conserved+plane bytes to a file tagged with
+// the world size; the runner then compares the files byte for byte.
+//
+// run:
+//   for n in 1 2 3 4; do
+//     mpirun -np $n $(ls -t target/debug/deps/mpi_parity-*) \
+//       --exact mpi_pg2t_np_bit_identity_dump --ignored --nocapture
+//   done
+// ---------------------------------------------------------------------------
+
+/// dumps the gathered park2t state and e_v plane for the current world size.
+///
+/// the file holds the raw little-endian f64 bytes of the gathered fields in
+/// a fixed order (rho, mx, my, e, e_v), so two runs can be compared with a
+/// byte-for-byte diff.
+#[test]
+#[ignore] // run under mpirun, one world size per run
+fn mpi_pg2t_np_bit_identity_dump() {
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(mpi_pg2t_np_bit_identity_dump_inner)
+        .expect("spawn mpi test thread")
+        .join()
+        .expect("mpi test thread panicked");
+}
+
+fn mpi_pg2t_np_bit_identity_dump_inner() {
+    use nufor_core::ffi_mpi::mpi_rank;
+    let g = grid2d(64, 64, -1.0, 1.0, -1.0, 1.0).unwrap();
+    let bc = Boundaries2d {
+        west: Bc2d::Transmissive,
+        east: Bc2d::Transmissive,
+        south: Bc2d::Transmissive,
+        north: Bc2d::Transmissive,
+    };
+    let gamma = 1.4;
+    let model = ThermoModel::Perfect { gamma };
+    let n = g.nx * g.ny;
+    let nsteps: usize = std::env::var("NF_MPI_STEPS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(10);
+
+    // a nontrivial seeded state: the sod shock plus a vibration-plane blob,
+    // so the march exercises both the shock and the 2t relaxation.
+    let st0 = sod_perfect_state(&g);
+    let mut ev0 = vec![0.0f64; n];
+    for j in 0..g.ny {
+        for i in 0..g.nx {
+            let k = j * g.nx + i;
+            ev0[k] = 1.0e-3 * ((i as f64) * 0.7 + (j as f64) * 1.3).sin();
+        }
+    }
+    let solid = vec![false; n];
+    let (r, ev_mpi) =
+        march_pg2t2d_mpi(&st0, &ev0, &g, model, &bc, 0.4, 1e30, nsteps, &solid).unwrap();
+    let st = match r.state {
+        Some(s) => s,
+        None => {
+            mpi_report::fence();
+            nufor_core::ffi_mpi::mpi_shutdown();
+            return;
+        }
+    };
+    let ev = ev_mpi.unwrap_or_else(|| vec![0.0f64; n]);
+
+    let ws = mpi_report::world_size();
+    let rank = mpi_rank().unwrap_or(0) as usize;
+    if rank == 0 {
+        let mut bytes: Vec<u8> = Vec::with_capacity(5 * n * 8);
+        for f in [&st.rho, &st.mx, &st.my, &st.e, &ev] {
+            for v in f {
+                bytes.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+        // the dump directory defaults to /tmp and follows
+        // NUFOUR_PG2T_DUMP_DIR when the runner wants its own scratch space.
+        let dir = std::env::var("NUFOUR_PG2T_DUMP_DIR").unwrap_or_else(|_| "/tmp".to_string());
+        let path = format!("{dir}/nufor_pg2t_np{ws}.bin");
+        std::fs::write(&path, &bytes).expect("write the gathered dump");
+        let sum: u64 = bytes.iter().map(|b| *b as u64).sum();
+        println!("pg2t np dump: {path} bytes={} byte_sum={sum}", bytes.len());
+        mpi_report::number("pg2t_np_bytes", bytes.len() as f64);
+        mpi_report::integer("pg2t_np_world_size", ws);
+        mpi_report::flush();
+    }
+    mpi_report::fence();
+    nufor_core::ffi_mpi::mpi_shutdown();
 }

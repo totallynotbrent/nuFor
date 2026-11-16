@@ -4,6 +4,15 @@
 
 ### Added
 
+- the mpi perfect-gas two-temperature march: `physics.eos = "park2t"` cases
+  under `mpirun` now run the perfect-gas euler march and the landau-teller
+  substep in the fortran core (`fortran/api/nuforpg2d.f90`,
+  `fortran/api/nuforpg2tmpi.f90`, driven from the cli through
+  `march_pg2t2d_mpi`). The perfect-gas closure could not share the
+  equilibrium-air kernel: it reconstructs pressure rather than internal
+  energy, so it carries its own reconstruction and hlcc face path. Worst
+  relative difference against the serial rust march is 4.181e-15 over 25
+  steps, and the gathered state is byte-identical at np=1 through np=4.
 - a species layout in the 2d restart format, recognised by its own magic:
   the four conserved planes followed by one plane per species. The plain
   conserved-only and single-extra-plane files stay readable as they were.

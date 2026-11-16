@@ -91,9 +91,16 @@ can be plotted directly against the translational temperature field.
 The vibrational plane also has an MPI-native form. The Fortran core
 holds a two-temperature substep that exchanges its own halo and updates
 the plane on the rank slabs, and the plane is gathered and broadcast with
-the conserved state each chunk; restart carries it as an extra plane. A
-case file with `eos = "park2t"` still runs on the serial path, because that
-closure is a perfect-gas lane the MPI router does not admit, so the MPI
-form is reached through the equilibrium-air core instead. Its parity with
-this serial substep is held bit for bit by the gate in
-[[numerics/parallel/mpi|the MPI page]], at np=1 through np=5.
+the conserved state each chunk; restart carries it as an extra plane. The
+equilibrium-air core reaches that substep through its own two-temperature
+bridge, whose parity with this serial substep is held bit for bit by the
+gate in [[numerics/parallel/mpi|the MPI page]], at np=1 through np=5.
+
+The perfect-gas lane `eos = "park2t"` has its own MPI route now, with the
+perfect-gas Euler march in `fortran/api/nuforpg2d.f90` and the bridge in
+`fortran/api/nuforpg2tmpi.f90`. The perfect-gas march could not ride on
+the equilibrium-air kernel, because the equilibrium-air closure reconstructs
+internal energy and takes the pressure from the fitted closure temperature,
+while this closure reconstructs pressure directly. The lane matches the
+serial Rust march to 4.181e-15 worst relative difference over 25 steps, and
+its gathered state is byte-identical at np=1 through np=4.

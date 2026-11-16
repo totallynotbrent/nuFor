@@ -2814,6 +2814,97 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
         return rc;
     }
 
+    // the mpi-native park2t lane: perfect-gas heun march through the fortran
+    // core plus the landau-teller substep on the post-march state, driven by
+    // nufor_core::ffi_mpi::march_pg2t2d_mpi.
+    if mpi_launched() && matches!(cfg.physics.eos, nufor_config::Eos::Park2t) {
+        let is_root = mpi_rank().unwrap_or(0) == 0;
+        let model_perfect = ThermoModel::Perfect { gamma };
+        let mut solid_mask = vec![false; g.nx * g.ny];
+        if let Some((dist, _)) = &body {
+            let band = 1.5 * g.dx.min(g.dy);
+            solid_mask = body_cache(&g, dist.as_ref(), band).mask.clone();
+        }
+        let ev_seed = park2t::e_vib_of_t_v(match cfg.initial_condition {
+            nufor_config::InitialCondition::Uniform { rho, p, .. } => {
+                p / (rho * cfg.physics.gas_constant)
+            }
+            _ => 220.0,
+        });
+        let ev0 = vec![ev_seed; g.nx * g.ny];
+        let t0p = Instant::now();
+        let aim = (t_end - restart_time).max(0.0);
+        match nufor_core::ffi_mpi::march_pg2t2d_mpi(
+            &st,
+            &ev0,
+            &g,
+            model_perfect,
+            &bc,
+            cfl,
+            aim,
+            max_steps,
+            &solid_mask,
+        ) {
+            Ok((mr, _ev_out)) => {
+                if let Some(gathered) = mr.state {
+                    st = gathered;
+                }
+                let wall = t0p.elapsed().as_secs_f64();
+                let t = restart_time + mr.time;
+                if !is_root {
+                    mpi_shutdown();
+                    return 0;
+                }
+                println!(
+                    "case {} ({}) [mpi park2t]\nthin: 2d, {}x{}\nsteps: {}\ntime: {:.4}\nwall: {:.3}s",
+                    cfg.metadata.name, path, g.nx, g.ny, mr.steps, t, wall
+                );
+                let rc = write_case_vtk2d_model(
+                    path,
+                    &cfg.metadata.name,
+                    &g,
+                    &st,
+                    model_perfect,
+                    None,
+                    None,
+                );
+                if rc == 0 {
+                    write_run_log_2d(
+                        cfg,
+                        path,
+                        &g,
+                        &st,
+                        model_perfect,
+                        None,
+                        None,
+                        mr.steps,
+                        t,
+                        wall,
+                    );
+                }
+                if let Some(rpath) = &cfg.time.restart_out {
+                    let meta = Restart2dMeta {
+                        nx: g.nx,
+                        ny: g.ny,
+                        gamma,
+                        time: t,
+                        step: restart_step + mr.steps as u64,
+                    };
+                    if let Err(e) = write_restart2d(Path::new(rpath), &st, meta) {
+                        eprintln!("restart write error: {e}");
+                    }
+                }
+                mpi_shutdown();
+                return rc;
+            }
+            Err(e) => {
+                eprintln!("park2t mpi solver error: {e}");
+                mpi_shutdown();
+                return 1;
+            }
+        }
+    }
+
     // under mpirun but NOT routed through the mpi branch (viscous,
     // non-eqair closure, or turbulence): only rank 0 marches and
     // writes. non-root ranks would just duplicate the serial run and

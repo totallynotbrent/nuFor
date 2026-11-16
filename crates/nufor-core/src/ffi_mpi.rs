@@ -170,6 +170,34 @@ extern "C" {
         ierr: *mut i32,
     );
     fn nfor_mpi_bcast4(buf: *mut f64, n4: i32, ierr: *mut i32);
+    fn nfor_mpi_step_pg2t(
+        rho: *const f64,
+        mx: *const f64,
+        my: *const f64,
+        e: *const f64,
+        ev: *const f64,
+        nloc: i32,
+        nx_l: i32,
+        ny: i32,
+        dx: f64,
+        dy: f64,
+        gamma: f64,
+        cfl: f64,
+        dt_cap: f64,
+        bc_w: i32,
+        bc_e: i32,
+        bc_s: i32,
+        bc_n: i32,
+        bc_vals: *const f64,
+        solid: *const i32,
+        rho2: *mut f64,
+        mx2: *mut f64,
+        my2: *mut f64,
+        e2: *mut f64,
+        ev2: *mut f64,
+        dt_out: *mut f64,
+        ierr: *mut i32,
+    );
     fn nfor_mpi_gather(
         rho: *const f64,
         mx: *const f64,
@@ -1246,6 +1274,187 @@ pub fn march_2t2d_mpi(
     let mut gathered_ev = gather_fields_mpi(&ev_l, 1, ev_l.len(), g.nx, g.ny)?;
     // rank 0 assembled the global plane; broadcast it so every rank marches
     // the next chunk on the same vibrational field.
+    mpi_bcast_field(&mut gathered_ev)?;
+    let ev_out = Some(gathered_ev);
+    let state = if rank == 0 {
+        let mut st = ConservedState2d {
+            rho: vec![0.0; n],
+            mx: vec![0.0; n],
+            my: vec![0.0; n],
+            e: vec![0.0; n],
+        };
+        for k in 0..n {
+            st.rho[k] = gathered[k * 4];
+            st.mx[k] = gathered[k * 4 + 1];
+            st.my[k] = gathered[k * 4 + 2];
+            st.e[k] = gathered[k * 4 + 3];
+        }
+        Some(st)
+    } else {
+        None
+    };
+    Ok((
+        MpiMarchResult {
+            state,
+            steps,
+            time: t,
+            wall,
+            dt_last,
+        },
+        ev_out,
+    ))
+}
+
+/// the mpi-native perfect-gas two-temperature (park2t) march: the perfect-gas
+/// heun step through the fortran core, then the 2t substep advancing the e_v
+/// plane on the post-march state. only ThermoModel::Perfect is accepted.
+#[allow(clippy::too_many_arguments)]
+pub fn march_pg2t2d_mpi(
+    state0: &ConservedState2d,
+    ev0: &[f64],
+    g: &Grid2d,
+    model: ThermoModel,
+    bc: &Boundaries2d,
+    cfl: f64,
+    final_time: f64,
+    max_steps: usize,
+    solid: &[bool],
+) -> Result<(MpiMarchResult, Option<Vec<f64>>), Error> {
+    let gamma = match model {
+        ThermoModel::Perfect { gamma } => gamma,
+        _ => return Err(Error::InvalidArgs),
+    };
+    let n = g.nx * g.ny;
+    if ev0.len() != n || solid.len() != n || state0.rho.len() != n {
+        return Err(Error::InvalidArgs);
+    }
+    MpiSession::new()?;
+    let (rank, i0, nx_local_i) = MpiSession::case_init(g.nx, g.ny)?;
+    let nx_local = nx_local_i as usize;
+    let nl = nx_local * g.ny;
+
+    let mut rho_l = vec![0.0f64; nl];
+    let mut mx_l = vec![0.0f64; nl];
+    let mut my_l = vec![0.0f64; nl];
+    let mut e_l = vec![0.0f64; nl];
+    let mut ev_l = vec![0.0f64; nl];
+    for j in 0..g.ny {
+        for i in 0..nx_local {
+            let k_src = j * g.nx + i0 as usize + i;
+            let k_dst = j * nx_local + i;
+            rho_l[k_dst] = state0.rho[k_src];
+            mx_l[k_dst] = state0.mx[k_src];
+            my_l[k_dst] = state0.my[k_src];
+            e_l[k_dst] = state0.e[k_src];
+            ev_l[k_dst] = ev0[k_src];
+        }
+    }
+    let solid_i32: Vec<i32> = {
+        let mut s = vec![0i32; nl];
+        for j in 0..g.ny {
+            for i in 0..nx_local {
+                s[j * nx_local + i] = solid[j * g.nx + i0 as usize + i] as i32;
+            }
+        }
+        s
+    };
+    // perfect gas reconstructs p at faces, so the inflow imposes the
+    // primitive quartet; slot 5 (internal energy) is unused by the pg lane.
+    let bc_code = |b: &crate::solver2d::Bc2d| -> (i32, [f64; 5]) {
+        use crate::solver2d::Bc2d::*;
+        match b {
+            Transmissive | SupersonicOutflow => (0, [0.0; 5]),
+            SupersonicInflow { rho, u, v, p, .. } => (1, [*rho, *u, *v, *p, 0.0]),
+            SlipWall => (3, [0.0; 5]),
+            NoSlipWall => (4, [0.0; 5]),
+            ProfileInflow { .. } => (1, [0.0; 5]),
+            ReservoirInflow { .. } | ReservoirInflowRealGas { .. } | SubsonicOutflow { .. } => {
+                (0, [0.0; 5])
+            }
+        }
+    };
+    let (bw, bvw) = bc_code(&bc.west);
+    let (be, bve) = bc_code(&bc.east);
+    let (bs, bvs) = bc_code(&bc.south);
+    let (bn, bvn) = bc_code(&bc.north);
+    let bc_vals = [bvw, bve, bvs, bvn].concat();
+
+    let dt_cap = final_time;
+    let mut t: f64 = 0.0;
+    let mut steps: usize = 0;
+    let mut dt_last: f64 = 0.0;
+    let wall_start = std::time::Instant::now();
+    let mut ierr: i32 = 0;
+    let mut rho2 = vec![0.0f64; nl];
+    let mut mx2 = vec![0.0f64; nl];
+    let mut my2 = vec![0.0f64; nl];
+    let mut e2 = vec![0.0f64; nl];
+    let mut ev2 = vec![0.0f64; nl];
+
+    while t < final_time && steps < max_steps {
+        let mut dt: f64 = 0.0;
+        unsafe {
+            nfor_mpi_step_pg2t(
+                rho_l.as_ptr(),
+                mx_l.as_ptr(),
+                my_l.as_ptr(),
+                e_l.as_ptr(),
+                ev_l.as_ptr(),
+                nl as i32,
+                nx_local as i32,
+                g.ny as i32,
+                g.dx,
+                g.dy,
+                gamma,
+                cfl,
+                dt_cap,
+                bw,
+                be,
+                bs,
+                bn,
+                bc_vals.as_ptr(),
+                solid_i32.as_ptr(),
+                rho2.as_mut_ptr(),
+                mx2.as_mut_ptr(),
+                my2.as_mut_ptr(),
+                e2.as_mut_ptr(),
+                ev2.as_mut_ptr(),
+                &mut dt,
+                &mut ierr,
+            );
+        }
+        if ierr != 0 {
+            return Err(Error::InvalidArgs);
+        }
+        std::mem::swap(&mut rho_l, &mut rho2);
+        std::mem::swap(&mut mx_l, &mut mx2);
+        std::mem::swap(&mut my_l, &mut my2);
+        std::mem::swap(&mut e_l, &mut e2);
+        std::mem::swap(&mut ev_l, &mut ev2);
+        t += dt;
+        dt_last = dt;
+        steps += 1;
+    }
+    let wall = wall_start.elapsed().as_secs_f64();
+
+    let mut gathered = vec![0.0f64; 4 * n];
+    unsafe {
+        nfor_mpi_gather(
+            rho_l.as_ptr(),
+            mx_l.as_ptr(),
+            my_l.as_ptr(),
+            e_l.as_ptr(),
+            nl as i32,
+            g.nx as i32,
+            g.ny as i32,
+            gathered.as_mut_ptr(),
+            &mut ierr,
+        );
+    }
+    if ierr != 0 {
+        return Err(Error::InvalidArgs);
+    }
+    let mut gathered_ev = gather_fields_mpi(&ev_l, 1, nl, g.nx, g.ny)?;
     mpi_bcast_field(&mut gathered_ev)?;
     let ev_out = Some(gathered_ev);
     let state = if rank == 0 {

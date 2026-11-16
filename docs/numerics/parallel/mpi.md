@@ -70,6 +70,33 @@ the y sweep, and porting the staging needs its own body-case gate before it
 lands. The capsule gate pins the single-stage kernel exactly in the
 meantime.
 
+## The perfect-gas two-temperature lane
+
+`physics.eos = "park2t"` marches the perfect-gas conservation laws with a
+separate vibrational-energy plane, and it runs on the Fortran core too. The
+lane splits into two kernels in `fortran/api/nuforpg2d.f90` and
+`fortran/api/nuforpg2tmpi.f90`: the perfect-gas Euler march (MUSCL strip
+reconstruction, HLLC face fluxes, the Heun average) and the bridge that runs
+that march and then the Landau-Teller substep on the post-march state. The
+Rust driver is `nufor_core::ffi_mpi::march_pg2t2d_mpi`.
+
+This lane could not borrow the equilibrium-air kernel. The two closures
+differ in more than their formula: equilibrium-air reconstructs internal
+energy and takes the pressure from the fitted closure temperature, while
+the perfect-gas lane reconstructs pressure directly, floors the pressure at
+1e-12, and leaves the sound speed unfloored at construction
+(`a = sqrt(gamma p / rho)`). Bridging the two with one kernel would have
+hidden a numerical difference behind a shared interface, so the perfect-gas
+march has its own kernel.
+
+The gates are two. Against the serial Rust march the worst relative
+difference is 4.181e-15 over 25 steps on a seeded shock-plus-relaxation
+field, and the CLI comparison of the MPI run against the serial run agrees
+to 2.702e-17 normalised. Within the Fortran core the gathered state is
+byte-identical at np=1, np=2, np=3, and np=4: the five dumped planes hash
+the same at every rank count, so the slab decomposition introduces no
+ordering-dependent rounding.
+
 ## The RANS lane
 
 Spalart-Allmaras cases (`physics.mu` plus a `[physics.turbulence]` block)
@@ -114,6 +141,9 @@ to the serial Rust march:
 - a capsule body at 22.5 degrees angle of attack, worst relative difference
   2.5e-15 (roundoff; the wall faces churn every step)
 - a two-temperature field, exact-zero parity
+- a perfect-gas two-temperature field (shock plus a vibration blob), worst
+  relative difference 4.181e-15 over 25 steps, and byte-identical gathered
+  states at np=1, 2, 3, and 4
 
 The two-temperature lane is the strictest of the set. It marches the
 equilibrium-air field through the Fortran core, then evolves the
@@ -208,8 +238,9 @@ mpirun -np 4 nufor run case.toml
 ```
 
 The solver routes equilibrium-air 2D Euler (body-free and masked-body both),
-laminar viscous, and SA RANS marches (body-free) through the MPI core when
-launched under `mpirun` (or with `NFOR_MPI=1` set); np=1 runs the same path.
+laminar viscous, SA RANS marches (body-free), and the perfect-gas
+two-temperature march through the MPI core when launched under `mpirun`
+(or with `NFOR_MPI=1` set); np=1 runs the same path.
 Masked-body Euler cases march in single-step chunks so rank 0 can re-project
 the wall band between steps (the body gate above); viscous masked-body cases
 stay on the serial Rust march because the Fortran viscous kernel wall-treats

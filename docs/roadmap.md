@@ -419,7 +419,14 @@ flowchart LR
     build and seeding the closure in a calm regime, both noted on the
     [[numerics/parallel/mpi|MPI page]], and the committed gate artefact
     is `cases/mpi-parity/gates.json` with `verify_committed_gate.py`
-    beside it. The third lands all
+    beside it. The perfect-gas two-temperature lane is MPI-native as well:
+    the perfect-gas Euler march and the Landau-Teller substep run in
+    `fortran/api/nuforpg2d.f90` and `fortran/api/nuforpg2tmpi.f90`, exposed
+    through `march_pg2t2d_mpi`, and the CLI sends `eos = "park2t"` cases
+    down that road under `mpirun`. The parity gate measures a worst relative
+    difference of 4.181e-15 against the serial Rust march over 25 steps, and
+    the gathered state is byte-identical at np=1 through np=4.
+    The third lands all
     new physics (live 2T, species, combustion) MPI-native from day one,
     which pulls the nonequilibrium and species work inside this one. Its
     first species slice is in: a five-species Park 5 composition now marches

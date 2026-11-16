@@ -159,6 +159,11 @@ jobs:
           # inside the test)
           check 1 mpi_mpipark5_carrier_seam_and_gather
           check 2 mpi_mpipark5_carrier_seam_and_gather
+          # the perfect-gas two-temperature lane: the fortran pg2t march
+          # against the serial rust oracle (the test asserts its own
+          # 1e-10 relative tolerance inside the test)
+          check 1 mpi_pg2t_matches_rust_sod2d
+          check 2 mpi_pg2t_matches_rust_sod2d
           # the advective five-species march: the distributed park5 march
           # must reproduce the serial cartesian oracle bit for bit (the
           # test asserts the exact-zero agreement and the normalisation)
@@ -180,6 +185,31 @@ jobs:
             echo "::error::capsule body parity gate failed"
             exit 1
           fi
+          # within-fortran bit identity for the pg2t lane: identical bytes
+          # at np=1,2,3,4 (the test honours NUFOUR_PG2T_DUMP_DIR)
+          export NUFOUR_PG2T_DUMP_DIR="$RUNNER_TEMP/nufor_pg2t_bits"
+          mkdir -p "$NUFOUR_PG2T_DUMP_DIR"
+          rm -f "$NUFOUR_PG2T_DUMP_DIR"/nufor_pg2t_np*.bin
+          for n in 1 2 3 4; do
+            log=""
+            ok=0
+            for attempt in 1 2 3; do
+              log=$(mpirun --allow-run-as-root --oversubscribe -np "$n" "$bin" --exact mpi_pg2t_np_bit_identity_dump --nocapture --ignored 2>&1) || true
+              echo "$log"
+              ok=$(echo "$log" | grep -c '1 passed; 0 failed')
+              if [ "$ok" -ge 1 ]; then break; fi
+              echo "attempt $attempt for np=$n lost the harness output, retrying"
+            done
+            if [ "$ok" -lt 1 ]; then
+              echo "::error::np=$n pg2t bit-identity dump failed (ok=$ok)"
+              exit 1
+            fi
+          done
+          if ! cmp -s "$NUFOUR_PG2T_DUMP_DIR/nufor_pg2t_np1.bin" "$NUFOUR_PG2T_DUMP_DIR/nufor_pg2t_np2.bin"              || ! cmp -s "$NUFOUR_PG2T_DUMP_DIR/nufor_pg2t_np1.bin" "$NUFOUR_PG2T_DUMP_DIR/nufor_pg2t_np3.bin"              || ! cmp -s "$NUFOUR_PG2T_DUMP_DIR/nufor_pg2t_np1.bin" "$NUFOUR_PG2T_DUMP_DIR/nufor_pg2t_np4.bin"; then
+            echo "::error::pg2t np=1,2,3,4 gathered states are not byte-identical"
+            exit 1
+          fi
+          unset NUFOUR_PG2T_DUMP_DIR
       - name: MPI distributed restart gate (np=1 + np=2 + np=3)
         shell: bash
         run: |
