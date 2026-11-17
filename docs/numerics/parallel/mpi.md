@@ -303,3 +303,26 @@ within 0.0.
 The two-deep halo is required by the centred slope at a seam cell, which
 reads the neighbour's second ghost column. One ghost depth would put the
 slope stencil across a boundary it cannot see.
+
+## Nine-species combustion march
+
+The combustion lane marches the four conserved planes plus the nine Li2004
+species through `fortran/api/nuforcombmpi.f90` on the same slab
+decomposition: Heun RK2 in time, MUSCL-HLLC sweeps on both axes, the
+annular radial terms on the face radii, donor-cell species transport, and
+operator-split chemistry per cell. The gate
+(`mpi_comb_np1_matches_rust_serial` in `crates/nufor-core/tests/mpi_parity.rs`)
+runs the distributed march against the serial Rust RK2 oracle on the Sod
+seed.
+
+Bit parity held for the perfect-gas 2T lane and the Park-5 species lane
+(worst relative difference at machine precision). The combustion lane does
+not reach bit parity yet: its gate reports a worst relative difference of
+about 4 on `mx` at the shock-crossing column, where the oracle's `mx` is
+exactly zero and the relative metric divides by a degenerate denominator.
+Measured attribution rules out chemistry, the limiter order, the
+thermo/chemical closures (bit-identical pressures, sound speeds and
+temperatures on frozen inputs), the seed composition, and the domain
+decomposition (np=1, 2 and 4 give identical results). The residual is
+concentrated in the reconstruction across the discontinuity itself and is
+reported here rather than fitted away.

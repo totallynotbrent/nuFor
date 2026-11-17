@@ -198,3 +198,13 @@ Those bands are recomputed from the committed run by
 `cases/cylinder-stagnation-fay/gates.py`, which reads the chunk table
 and the series behind them, checks the two agree, and holds the edge
 plateau, the settled mean and the spread to their published values.
+
+An independent transport cross-check now that the five-species lane
+ships: evaluating the RP-1232 Wilke mixture properties on the marched
+edge state (505 Pa, 5040 K, ambient composition) gives mu = 1.30e-4 Pa s,
+k = 0.251 W/m K, cp = 998 J/kg K, hence Pr = 0.516 and gamma_eff = 1.288
+against the perfect-gas 1.4. Swapping the form's frozen Pr for that value
+moves the Pr^-0.6 factor by (0.516/0.72)^-0.6 = 1.21, taking the 8.48
+closed form to 10.27 W/cm2, and the effective diffusivity puts Lewis at
+1.50. Both evaluations land inside the march's converged band, so the
+Park-5 transport and the CEA mixture independently close the same gap.
