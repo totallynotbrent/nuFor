@@ -572,14 +572,17 @@ almost nothing; refining the radial spacing bought two to four points.
 A cut-cell march now carries the fix. Cells cut against the body's exact
 signed distance function give the throat an area that converges on the
 contour's as the grid refines, with no dependence on where the wall falls
-against the grid. A 110 by 40 cut-cell march at the four thousand five
-hundred eighty-second horizon keeps the staircase's survival profile
-(choke at x = 0.14957 m, flux mach 1.205 past the geometric throat) and
-takes a marched throat area of 1.2566e-3 square metres against the
-contour's pi r^2 = 1.3338e-3, a deficit of minus 5.79 percent, matching
-the staircase's own quantisation figure on the same 110 by 40 grid: the
-difference is now the discretisation, not the wall rule. The governance
-story stays honest.
+against the grid. Reading the solver's own cut geometry at the throat,
+the 110 by 40 and 220 by 80 grids both give 1.3364e-3 square metres
+against the contour's pi r^2 = 1.3338e-3, a surplus of 0.20 percent,
+and the finer levels wander within plus or minus 0.2 percent of the
+contour (1.3313e-3 at 440 by 160, 1.3339e-3 at 880 by 320), while the
+staircase mask holds 1.2566e-3, a deficit of minus 5.79 percent, on the
+same grids. A 110 by 40 cut-cell march at the four thousand five hundred
+eighty-second horizon keeps the staircase's survival profile (choke at
+x = 0.14957 m, flux mach 1.205 past the geometric throat); the residual
+minus seven percent on the marched throat pressure is discretisation, not
+the wall rule. The governance story stays honest.
 
 That march takes about thirty minutes, so the gate that drives it runs
 on my desktop. The settled snapshot ships with the case, a distiller
