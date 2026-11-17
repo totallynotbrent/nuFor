@@ -35,6 +35,26 @@ Lift-to-drag across the sweep runs 0.372, 0.391, 0.381, 0.386 from the
 freestream thins, and the wall heat flux climbs from 15 to 77 kW/m2 as the
 boundary layer heats up.
 
+Five stations extend the corridor beyond the shipped set, same 320x176
+grid, same 15 ms horizon, same 22.5 degree body unless noted. Altitudes
+follow a log-linear extrapolation of the four shipped stations, and the
+other angles rotate the body about the trailing-edge pivot:
+
+| station | steps | wall (s) | max density ratio | peak p (Pa) | max T (K) | peak wall flux (MW/m^2) | L/D |
+|---------|-------|----------|-------------------|-------------|-----------|---------------------------|------|
+| 25.0 km, 22.5 deg | 619  | 67.3     | 6.01              | 9.91e4      | 2383      | 0.0045                    | 0.377 |
+| 30.0 km, 15.0 deg | 1855 | 209.7    | 11.13             | 3.68e5      | 5097      | 0.0154                    | 0.265 |
+| 30.0 km, 30.0 deg | 1349 | 168.3    | 11.21             | 3.55e5      | 4952      | 0.0147                    | 0.342 |
+| 37.0 km, 22.5 deg | 2208 | 260.8    | 18.34             | 5.22e5      | 7968      | 0.0302                    | 0.389 |
+| 45.0 km, 22.5 deg | 2806 | 355.9    | 19.59             | 3.12e5      | 18070     | 0.1089                    | 0.420 |
+
+The corridor extrapolates smoothly downward and upward: the 25 km point
+is a weak-shock regime at mach-low density ratio, and the 45 km point is
+the sternest heat test in the set (18070 K, 109 kW/m2) while holding the
+best attitude ratio at 0.420. Angle of attack moves the 30 km point the
+way a lifting body should: 15 degrees drops L/D to 0.265 and 30 degrees
+lands at 0.342, bracketing the shipped 22.5 degree value of 0.372.
+
 Fields for each station, all 320x176 marched to t = 15 ms:
 
 #### Station 30.0 km
@@ -128,6 +148,24 @@ agreement to within a few percent. The 3-8% residual against a
 frozen-Pr evaluation waits for the composition-aware wall closures.
 
 Details and the honest caveats: [[numerics/foundations/fay-riddell|Fay-Riddell stagnation heating]].
+
+## Cut-cell throat refinement
+
+The chamber throat case (`cases/chamber-throat`) walked on the cut-cell
+lane at 220x80: 5000 steps to t = 0.261 ms in 6654 s, peak pressure
+7.038 MPa. Measuring the choke the way the committed resolution study
+does (flux mach crossing one past the last minimum-area column) puts the
+sonic point at x = 0.14908 m with 3.846 MPa there, a deficit of 4.24
+percent against the level's own isentrope walk (4.016 MPa). The
+staircase march on the same 220x80 grid owes 13.16 percent, and on the
+coarse 110x40 grid 7.27 percent, so the cut wall removes most of the
+refinement penalty at fixed grid: refinement and the wall rule were
+both contributing, not one replacing the other. Geometry-wise the
+solver's own cut rule reads the throat area at 1.3364e-3 m2 against the
+contour's 1.3338e-3 (plus 0.20 percent) on 110x40 and 220x80 alike,
+staying within plus or minus 0.2 percent out to 880x320, while the
+center mask that drives the staircase pins 1.2566e-3, minus 5.79
+percent, on every grid.
 
 ## Dissociating nitrogen cylinder
 
@@ -274,15 +312,24 @@ t = 3 ms and finish clean.
 | accommodation | peak wall heat flux | against the non-catalytic wall |
 |---|---|---|
 | 0, the non-catalytic wall | 3.746 MW/m2 | 1.000 |
+| 0.125 | 3.822 MW/m2 | 1.020 |
 | 0.25 | 3.820 MW/m2 | 1.020 |
+| 0.375 | 3.792 MW/m2 | 1.012 |
 | 0.5 | 3.895 MW/m2 | 1.040 |
+| 0.625 | 4.068 MW/m2 | 1.086 |
 | 0.75 | 4.230 MW/m2 | 1.129 |
+| 0.875 | 4.643 MW/m2 | 1.240 |
 | 1, the fully catalytic wall | 4.893 MW/m2 | 1.306 |
 
 Every leg puts the peak on the same face at (0.963, 0.315). The two
 ends reproduce the committed non-catalytic and fully catalytic run logs
-exactly, and the peak grows monotonically with the accommodation; the
-gate in the case directory checks all three.
+exactly, and the peak grows overall with the accommodation; the gate in
+the case directory checks all three. Stepping at eighths sharpens the
+shape: the curve is nearly flat from 0 to a quarter (three tenths of a
+percent of spread, including one non-monotonic dip at 0.375, which sits
+below both neighbours at 3.792 against 3.822 and 3.820), steepens
+between a half and the full wall, and ends at 1.306 times the
+non-catalytic peak.
 
 The absolute numbers stay withheld, because the flux comes from the
 march itself and the flow at the wall is out of the range where a
