@@ -251,6 +251,34 @@ extern "C" {
         out_nx_local: *mut i32,
         ierr: *mut i32,
     );
+
+    fn nfor_mpicomb_march(
+        nx: i32,
+        ny: i32,
+        rho: *const f64,
+        mx: *const f64,
+        my: *const f64,
+        e_tot: *const f64,
+        ys: *const f64,
+        dxs: *const f64,
+        dys: *const f64,
+        faces_y: *const f64,
+        cfl: f64,
+        react: i32,
+        bc_w: i32,
+        bc_e: i32,
+        bc_s: i32,
+        bc_n: i32,
+        bc_vals: *const f64,
+        y_fill: *const f64,
+        rho_o: *mut f64,
+        mx_o: *mut f64,
+        my_o: *mut f64,
+        e_o: *mut f64,
+        ys_o: *mut f64,
+        dt_out: *mut f64,
+        err: *mut i32,
+    );
     fn nfor_mpipark5_carrier(
         nx_local: i32,
         ny_local: i32,
@@ -1725,6 +1753,179 @@ pub fn march_park5_2d_mpi(
         steps,
         time: t,
         wall,
+        dt_last,
+    })
+}
+
+#[derive(Debug)]
+pub struct MpiCombResult {
+    pub state: Option<ConservedState2d>,
+    pub planes: Option<Vec<Vec<f64>>>,
+    pub steps: usize,
+    pub time: f64,
+    pub dt_last: f64,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn march_comb_2d_mpi(
+    state0: &ConservedState2d,
+    planes0: &[Vec<f64>],
+    g: &crate::grid2d::Grid2d,
+    bc: &Boundaries2d,
+    cfl: f64,
+    final_time: f64,
+    max_steps: usize,
+    y_fill: &[f64],
+    react: bool,
+) -> Result<MpiCombResult, Error> {
+    const NS: usize = 9;
+    let n = g.nx * g.ny;
+    if planes0.len() < NS
+        || planes0.iter().any(|pl| pl.len() != n)
+        || y_fill.len() < NS
+        || state0.rho.len() != n
+    {
+        return Err(Error::InvalidArgs);
+    }
+    MpiSession::new()?;
+    let (_rank, i0, nx_local_i) = MpiSession::case_init(g.nx, g.ny)?;
+    let nx_local = nx_local_i as usize;
+    let nl = nx_local * g.ny;
+    let mut rho_l = vec![0.0f64; nl];
+    let mut mx_l = vec![0.0f64; nl];
+    let mut my_l = vec![0.0f64; nl];
+    let mut e_l = vec![0.0f64; nl];
+    let mut ys_l = vec![0.0f64; NS * nl];
+    for j in 0..g.ny {
+        for i in 0..nx_local {
+            let src = j * g.nx + i0 as usize + i;
+            let dst = j * nx_local + i;
+            rho_l[dst] = state0.rho[src];
+            mx_l[dst] = state0.mx[src];
+            my_l[dst] = state0.my[src];
+            e_l[dst] = state0.e[src];
+            for s in 0..NS {
+                ys_l[s * nl + dst] = planes0[s][src];
+            }
+        }
+    }
+    let dxs_l: Vec<f64> = g.dxs[i0 as usize..i0 as usize + nx_local].to_vec();
+    let zero_fill = [0.0f64; 5];
+    let (codes, sides) = park5_boundary_codes(bc, &zero_fill);
+    let (bw, be, bs, bn) = (codes[0], codes[1], codes[2], codes[3]);
+    let bc_vals = sides.concat();
+    let y_fill_arr: Vec<f64> = y_fill[..NS].to_vec();
+    let mut rho2 = vec![0.0f64; nl];
+    let mut mx2 = vec![0.0f64; nl];
+    let mut my2 = vec![0.0f64; nl];
+    let mut e2 = vec![0.0f64; nl];
+    let mut ys2 = vec![0.0f64; NS * nl];
+    let mut t = 0.0f64;
+    let mut steps = 0usize;
+    let mut dt_last = 0.0f64;
+    while t < final_time && steps < max_steps {
+        let mut dt: f64 = 0.0;
+        let mut ierr: i32 = 0;
+        unsafe {
+            nfor_mpicomb_march(
+                g.nx as i32,
+                g.ny as i32,
+                rho_l.as_ptr(),
+                mx_l.as_ptr(),
+                my_l.as_ptr(),
+                e_l.as_ptr(),
+                ys_l.as_ptr(),
+                dxs_l.as_ptr(),
+                g.dys.as_ptr(),
+                g.faces_y.as_ptr(),
+                cfl,
+                if react { 1 } else { 0 },
+                bw,
+                be,
+                bs,
+                bn,
+                bc_vals.as_ptr(),
+                y_fill_arr.as_ptr(),
+                rho2.as_mut_ptr(),
+                mx2.as_mut_ptr(),
+                my2.as_mut_ptr(),
+                e2.as_mut_ptr(),
+                ys2.as_mut_ptr(),
+                &mut dt,
+                &mut ierr,
+            );
+        }
+        if ierr != 0 {
+            return Err(Error::InvalidArgs);
+        }
+        std::mem::swap(&mut rho_l, &mut rho2);
+        std::mem::swap(&mut mx_l, &mut mx2);
+        std::mem::swap(&mut my_l, &mut my2);
+        std::mem::swap(&mut e_l, &mut e2);
+        std::mem::swap(&mut ys_l, &mut ys2);
+        t += dt;
+        dt_last = dt;
+        steps += 1;
+    }
+    let rank = mpipark5_rank()?;
+    let mut gy = vec![0.0f64; NS * n];
+    let mut ierr = 0i32;
+    unsafe {
+        nfor_mpi_gather_nf(
+            ys_l.as_ptr(),
+            NS as i32,
+            nl as i32,
+            g.nx as i32,
+            g.ny as i32,
+            gy.as_mut_ptr(),
+            &mut ierr,
+        );
+    }
+    let mut g4 = vec![0.0f64; 4 * n];
+    let four = [
+        rho_l.as_slice(),
+        mx_l.as_slice(),
+        my_l.as_slice(),
+        e_l.as_slice(),
+    ];
+    for f in 0..4 {
+        let mut tmp = vec![0.0f64; n];
+        unsafe {
+            nfor_mpi_gather_nf(
+                four[f].as_ptr(),
+                1,
+                nl as i32,
+                g.nx as i32,
+                g.ny as i32,
+                tmp.as_mut_ptr(),
+                &mut ierr,
+            );
+        }
+        g4[f * n..(f + 1) * n].copy_from_slice(&tmp);
+    }
+    let (state, planes) = if rank == 0 {
+        let mut st = ConservedState2d {
+            rho: vec![0.0; n],
+            mx: vec![0.0; n],
+            my: vec![0.0; n],
+            e: vec![0.0; n],
+        };
+        for k in 0..n {
+            st.rho[k] = g4[k];
+            st.mx[k] = g4[n + k];
+            st.my[k] = g4[2 * n + k];
+            st.e[k] = g4[3 * n + k];
+        }
+        let pls: Vec<Vec<f64>> = (0..NS).map(|s| gy[s * n..(s + 1) * n].to_vec()).collect();
+        (Some(st), Some(pls))
+    } else {
+        (None, None)
+    };
+    Ok(MpiCombResult {
+        state,
+        planes,
+        steps,
+        time: t,
         dt_last,
     })
 }

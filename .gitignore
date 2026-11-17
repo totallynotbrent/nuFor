@@ -123,3 +123,4 @@ cases/*/runs/
 
 # the settlement studies ship their results, not their run logs
 cases/engine-wall-bracket/studies/*.log
+chkbin/

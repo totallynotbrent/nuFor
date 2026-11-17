@@ -1678,3 +1678,403 @@ fn mpi_pg2t_np_bit_identity_dump_inner() {
     mpi_report::fence();
     nufor_core::ffi_mpi::mpi_shutdown();
 }
+
+// ---------------------------------------------------------------------------
+// combustion lane bit-identity gate: the li2004 mpi march must give
+// bit-identical gathered results at np=1, 2, 3 and 4 for the same case.
+//
+// run:
+//   for n in 1 2 3 4; do
+//     mpirun -np $n $(ls -t target/debug/deps/mpi_parity-*) \
+//       --exact mpi_comb_np_bit_identity_dump --ignored --nocapture
+//   done
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore] // run under mpirun, one world size per run
+fn mpi_comb_np_bit_identity_dump() {
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(mpi_comb_np_bit_identity_dump_inner)
+        .expect("spawn mpi test thread")
+        .join()
+        .expect("mpi test thread panicked");
+}
+
+fn mpi_comb_np_bit_identity_dump_inner() {
+    use nufor_core::ffi_mpi::{march_comb_2d_mpi, mpi_rank};
+    let g = grid2d(48, 32, -1.0, 1.0, -1.0, 1.0).unwrap();
+    let bc = Boundaries2d {
+        west: Bc2d::Transmissive,
+        east: Bc2d::Transmissive,
+        south: Bc2d::Transmissive,
+        north: Bc2d::Transmissive,
+    };
+    let n = g.nx * g.ny;
+    let nsteps: usize = std::env::var("NF_MPI_STEPS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(5);
+    // perturbed sod-like state with a hot lean pocket so the chemistry arm
+    // actually fires; compositions normalised to sum to 1.
+    let mut st = ConservedState2d {
+        rho: vec![0.0; n],
+        mx: vec![0.0; n],
+        my: vec![0.0; n],
+        e: vec![0.0; n],
+    };
+    let mut planes: Vec<Vec<f64>> = (0..9).map(|_| vec![0.0; n]).collect();
+    for j in 0..g.ny {
+        for i in 0..g.nx {
+            let k = j * g.nx + i;
+            let flat = std::env::var("COMB_FLAT")
+                .map(|v| v == "1")
+                .unwrap_or(false);
+            let left = i < g.nx / 2 && !flat;
+            let rho = if left { 1.0 } else { 0.125 };
+            let calm = flat
+                || std::env::var("COMB_CALM")
+                    .map(|v| v == "1")
+                    .unwrap_or(false);
+            let u = if calm {
+                0.0
+            } else if left {
+                0.9
+            } else {
+                0.0
+            };
+            let p = if left { 1.0 } else { 0.1 };
+            let (rho, p) = if flat { (1.0, 1.0) } else { (rho, p) };
+            st.rho[k] = rho;
+            st.mx[k] = rho * u;
+            st.my[k] = 0.0;
+            st.e[k] = p / (1.4 - 1.0) + 0.5 * rho * u * u;
+            // hydrogen-lean hot pocket right of the diaphragm, air-like left.
+            let frac = if left {
+                [0.0, 0.21, 0.0, 0.0, 0.0, 0.79, 0.0, 0.0, 0.0]
+            } else {
+                [0.02, 0.18, 0.01, 0.0, 0.005, 0.785, 0.0, 0.0, 0.0]
+            };
+            for s in 0..9 {
+                planes[s][k] = frac[s];
+            }
+        }
+    }
+    let fill: Vec<f64> = vec![0.0, 0.21, 0.0, 0.0, 0.0, 0.79, 0.0, 0.0, 0.0];
+    let r = march_comb_2d_mpi(&st, &planes, &g, &bc, 0.4, 1.0e30, nsteps, &fill, true)
+        .expect("comb mpi march");
+    let ws = mpi_report::world_size();
+    if let (Some(gst), Some(gp)) = (r.state, r.planes) {
+        if mpi_rank().unwrap_or(0) == 0 {
+            let mut bytes: Vec<u8> = Vec::with_capacity((4 + 9) * n * 8);
+            for f in [&gst.rho, &gst.mx, &gst.my, &gst.e] {
+                for v in f {
+                    bytes.extend_from_slice(&v.to_le_bytes());
+                }
+            }
+            for pl in &gp {
+                for v in pl {
+                    bytes.extend_from_slice(&v.to_le_bytes());
+                }
+            }
+            let dir = std::env::var("NUFOR_COMB_DUMP_DIR").unwrap_or_else(|_| "/tmp".to_string());
+            let path = format!("{dir}/nufor_comb_np{ws}.bin");
+            std::fs::write(&path, &bytes).expect("write the gathered dump");
+            let sum: u64 = bytes.iter().map(|b| *b as u64).sum();
+            println!(
+                "comb np dump: {path} bytes={} byte_sum={sum} steps={}",
+                bytes.len(),
+                r.steps
+            );
+            mpi_report::integer("comb_np_world_size", ws);
+            mpi_report::flush();
+        }
+    }
+    mpi_report::fence();
+    nufor_core::ffi_mpi::mpi_shutdown();
+}
+
+// ---------------------------------------------------------------------------
+
+/// numeric contract for the combustion mpi lane: the gathered state must
+/// reproduce the serial rust rk2 axi march to fp noise on the same seed.
+/// run under mpirun -np 1; reported through mpi_report.
+#[test]
+#[ignore] // run under mpirun -np 1, see the ci combustion parity step
+fn mpi_comb_np1_matches_rust_serial() {
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(mpi_comb_np1_matches_rust_serial_inner)
+        .expect("spawn")
+        .join()
+        .expect("mpi thread panicked");
+}
+
+fn seed_comb_grid(g: &nufor_core::grid2d::Grid2d) -> (ConservedState2d, Vec<Vec<f64>>) {
+    let n = g.nx * g.ny;
+    let mut st = ConservedState2d {
+        rho: vec![0.0; n],
+        mx: vec![0.0; n],
+        my: vec![0.0; n],
+        e: vec![0.0; n],
+    };
+    let mut planes: Vec<Vec<f64>> = (0..9).map(|_| vec![0.0; n]).collect();
+    for j in 0..g.ny {
+        for i in 0..g.nx {
+            let k = j * g.nx + i;
+            let left = if std::env::var("COMB_FLAT")
+                .map(|v| v == "1")
+                .unwrap_or(false)
+            {
+                true
+            } else {
+                i < g.nx / 2
+            };
+            let rho = if left { 1.0 } else { 0.125 };
+            let u = if left { 0.9 } else { 0.0 };
+            let p = if left { 1.0 } else { 0.1 };
+            st.rho[k] = rho;
+            st.mx[k] = rho * u;
+            st.my[k] = 0.0;
+            st.e[k] = p / (1.4 - 1.0) + 0.5 * rho * u * u;
+            let uni = std::env::var("COMB_UNIFORM_Y")
+                .map(|v| v == "1")
+                .unwrap_or(false);
+            let frac = if std::env::var("COMB_PUREN2")
+                .map(|v| v == "1")
+                .unwrap_or(false)
+            {
+                [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]
+            } else if uni {
+                [0.0, 0.21, 0.0, 0.0, 0.0, 0.79, 0.0, 0.0, 0.0]
+            } else {
+                [0.02, 0.18, 0.01, 0.0, 0.005, 0.785, 0.0, 0.0, 0.0]
+            };
+            for s in 0..9 {
+                planes[s][k] = frac[s];
+            }
+        }
+    }
+    (st, planes)
+}
+
+fn mpi_comb_np1_matches_rust_serial_inner() {
+    let muscl_ref: bool = std::env::var("MUSCL_REF").map(|v| v == "1").unwrap_or(true);
+
+    use nufor_core::chem_lane::ChemLane;
+    use nufor_core::combustion_march::advance2d_combustion_axi_rk2;
+    use nufor_core::combustion_march::CombustionState;
+    use nufor_core::ffi_mpi::{march_comb_2d_mpi, mpi_rank};
+    let g = grid2d(24, 16, -1.0, 1.0, -1.0, 1.0).unwrap();
+    let bc = Boundaries2d {
+        west: Bc2d::Transmissive,
+        east: Bc2d::Transmissive,
+        south: Bc2d::Transmissive,
+        north: Bc2d::Transmissive,
+    };
+    let n = g.nx * g.ny;
+    let nsteps: usize = std::env::var("NF_MPI_STEPS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(5);
+    let (st_seed, planes) = seed_comb_grid(&g);
+    let fill: Vec<f64> = vec![0.0, 0.21, 0.0, 0.0, 0.0, 0.79, 0.0, 0.0, 0.0];
+
+    // serial rust reference
+    let mut st_ref = st_seed.clone();
+    let mut cb = CombustionState {
+        y: planes.clone(),
+        lane: ChemLane::Li2004,
+        fill: fill.clone(),
+    };
+    for (si, _) in (0..nsteps).enumerate() {
+        let nsteps_this_loop = si + 1;
+        let nr = std::env::var("COMB_NOREACT")
+            .map(|v| v == "1")
+            .unwrap_or(false);
+        let (rdt, _o) = advance2d_combustion_axi_rk2(
+            &mut st_ref,
+            &mut cb,
+            &g,
+            0.4,
+            muscl_ref,
+            &bc,
+            1,
+            None,
+            !nr,
+        )
+        .unwrap();
+        if nsteps_this_loop == 1 {
+            if std::env::var("RPX").map(|v| v == "1").unwrap_or(false) {
+                let mut s1 = st_ref.clone();
+                let mut cb1 = cb.clone();
+                let _ = nufor_core::combustion_march::advance2d_combustion_axi(
+                    &mut s1, &mut cb1, &g, 0.4, muscl_ref, &bc, 1, None,
+                );
+                for i in 0..g.nx {
+                    println!("RR {:3} {:.8E}", i, s1.mx[i]);
+                }
+            }
+            println!("SERIAL rk2 returned dt={rdt:.17e}");
+        }
+    }
+
+    // mpi march on the same seed
+    let nr = std::env::var("COMB_NOREACT")
+        .map(|v| v == "1")
+        .unwrap_or(false);
+    let r = march_comb_2d_mpi(&st_seed, &planes, &g, &bc, 0.4, 1.0e30, nsteps, &fill, !nr)
+        .expect("comb mpi march");
+    println!("MPI march dt_last={:.17e} steps={}", r.dt_last, r.steps);
+    if std::env::var("RFX").map(|v| v == "1").unwrap_or(false) {
+        let (row, _col) =
+            nufor_core::combustion_march::debug_comb_fx_row(&st_seed, &cb, &g, true, &bc, 8)
+                .unwrap();
+        for (ii, q) in row.iter().enumerate() {
+            println!(
+                "RFX {:3} {:.15e} {:.15e} {:.15e} {:.15e}",
+                ii, q[0], q[1], q[2], q[3]
+            );
+        }
+    }
+    if mpi_rank().unwrap_or(0) == 0 {
+        if let (Some(gst), Some(_gp)) = (&r.state, &r.planes) {
+            let mut worst = 0.0f64;
+            let pairs: [(&str, &Vec<f64>, &Vec<f64>); 4] = [
+                ("rho", &gst.rho, &st_ref.rho),
+                ("mx", &gst.mx, &st_ref.mx),
+                ("my", &gst.my, &st_ref.my),
+                ("e", &gst.e, &st_ref.e),
+            ];
+            for (name, a, b) in pairs {
+                for k in 0..n {
+                    let denom = b[k].abs().max(1.0);
+                    let rel = (a[k] - b[k]).abs() / denom;
+                    if rel > worst {
+                        worst = rel;
+                        println!(
+                            "worst so far at {name}[{k}]: {rel:e} ({:.6e} vs {:.6e})",
+                            a[k], b[k]
+                        );
+                    }
+                }
+            }
+            {
+                let mut wi = 0;
+                let mut wv = 0.0;
+                for k in 0..n {
+                    let d = (gst.mx[k] - st_ref.mx[k]).abs() / st_ref.mx[k].abs().max(1.0);
+                    if d > wv {
+                        wv = d;
+                        wi = k;
+                    }
+                }
+                println!(
+                    "mx worst at i={} j={} val ref={:.6e} mpi={:.6e}",
+                    wi % g.nx,
+                    wi / g.nx,
+                    st_ref.mx[wi],
+                    gst.mx[wi]
+                );
+            }
+            for (name, _, _) in pairs {
+                let mut w = 0.0;
+                for k in 0..n {
+                    let denom = (if name == "rho" {
+                        &st_ref.rho
+                    } else if name == "mx" {
+                        &st_ref.mx
+                    } else if name == "my" {
+                        &st_ref.my
+                    } else {
+                        &st_ref.e
+                    })[k]
+                        .abs()
+                        .max(1.0);
+                    let a_k = if name == "rho" {
+                        &gst.rho
+                    } else if name == "mx" {
+                        &gst.mx
+                    } else if name == "my" {
+                        &gst.my
+                    } else {
+                        &gst.e
+                    };
+                    let rel = (a_k[k]
+                        - ({
+                            if name == "rho" {
+                                &st_ref.rho
+                            } else if name == "mx" {
+                                &st_ref.mx
+                            } else if name == "my" {
+                                &st_ref.my
+                            } else {
+                                &st_ref.e
+                            }
+                        })[k])
+                        .abs()
+                        / denom;
+                    if rel > w {
+                        w = rel;
+                    }
+                }
+                let wk = (0..n).fold((0, 0.0), |(bi, bv), k| {
+                    let denom = (if name == "rho" {
+                        &st_ref.rho
+                    } else if name == "mx" {
+                        &st_ref.mx
+                    } else if name == "my" {
+                        &st_ref.my
+                    } else {
+                        &st_ref.e
+                    })[k]
+                        .abs()
+                        .max(1.0);
+                    let rel = ((if name == "rho" {
+                        &gst.rho
+                    } else if name == "mx" {
+                        &gst.mx
+                    } else if name == "my" {
+                        &st_ref.my
+                    } else {
+                        &gst.e
+                    })[k]
+                        - ({
+                            if name == "rho" {
+                                &st_ref.rho
+                            } else if name == "mx" {
+                                &st_ref.mx
+                            } else if name == "my" {
+                                &st_ref.my
+                            } else {
+                                &st_ref.e
+                            }
+                        })[k])
+                        .abs()
+                        / denom;
+                    if rel > bv {
+                        (k, rel)
+                    } else {
+                        (bi, bv)
+                    }
+                });
+                println!(
+                    "per-field {name}: {w:.3e} at k={} (i={},j={})",
+                    wk.0,
+                    wk.0 % g.nx,
+                    wk.0 / g.nx
+                );
+            }
+            println!("comb np1 vs rust serial worst rel diff: {worst:.3e} over {nsteps} steps");
+            mpi_report::number("comb_np1_vs_serial_worst_rel", worst);
+            assert!(
+                worst < 1.0e-10,
+                "comb mpi diverged from serial rust: {worst:e}"
+            );
+            mpi_report::integer("comb_np1_match", 1);
+        }
+        mpi_report::flush();
+    }
+    mpi_report::fence();
+    nufor_core::ffi_mpi::mpi_shutdown();
+}

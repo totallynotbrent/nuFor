@@ -11,8 +11,8 @@ use nufor_config::{
     Mesh, OutputFormat, Reconstruction,
 };
 use nufor_core::ffi_mpi::{
-    march_euler2d_mpi, march_park5_2d_mpi, march_rans2d_mpi, march_viscous2d_mpi, mpi_bcast_state,
-    mpi_launched, mpi_rank, mpi_shutdown,
+    march_comb_2d_mpi, march_euler2d_mpi, march_park5_2d_mpi, march_rans2d_mpi,
+    march_viscous2d_mpi, mpi_bcast_state, mpi_launched, mpi_rank, mpi_shutdown,
 };
 use nufor_core::{
     advance2d_axi_lts, advance2d_axi_rk2, advance2d_model_rk2, advance2d_model_visc_lts,
@@ -1341,7 +1341,7 @@ fn run_case_axi(cfg: &CaseConfig, path: &str) -> i32 {
                 return 2;
             }
         };
-        Some(nufor_core::combustion_march::CombustionState::with_fill(
+        Some(nufor_core::combustion_march::CombustionState::uniform(
             lane,
             g.nx * g.ny,
             &fill,
@@ -2485,7 +2485,7 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
                 return 2;
             }
         };
-        Some(nufor_core::combustion_march::CombustionState::with_fill(
+        Some(nufor_core::combustion_march::CombustionState::uniform(
             lane,
             g.nx * g.ny,
             &fill,
@@ -2553,6 +2553,121 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     // and gathers the final full-domain state to rank 0 for output. planar,
     // inviscid and body-free only: the body-band projection, viscosity and
     // the axisymmetric update stay on the serial rust lane.
+    // the mpi combustion lane serves the li2004 9-species mechanism only;
+    // gri30 stays on the serial rust lane and must refuse loudly here.
+    if mpi_launched() && matches!(model, ThermoModel::Combustion { .. }) {
+        let mech = cfg.physics.mechanism_name();
+        if mech != "li2004-h2" {
+            eprintln!(
+                "mpi combustion lane supports li2004-h2 only; mechanism {mech:?} stays serial (rerun without mpirun)"
+            );
+            mpi_shutdown();
+            return 2;
+        }
+        if cfg.physics.mu.is_some_and(|m| m > 0.0) {
+            eprintln!("mpi combustion lane is inviscid only; set mu=0 for mpirun");
+            mpi_shutdown();
+            return 2;
+        }
+        if body.is_some() {
+            eprintln!("mpi combustion lane is body-free only; the solid band stays serial");
+            mpi_shutdown();
+            return 2;
+        }
+        let lane = combustion_lane(model);
+        let Some(cb) = combustion_state.as_ref() else {
+            eprintln!("combustion mpi lane missing the species state");
+            mpi_shutdown();
+            return 2;
+        };
+        let fill = cb.fill.clone();
+        let t0p = Instant::now();
+        let aim = (t_end - restart_time).max(0.0);
+        match march_comb_2d_mpi(
+            &st,
+            &cb.y,
+            &g,
+            &bc,
+            cfl,
+            aim,
+            max_steps,
+            &fill,
+            combustion_react,
+        ) {
+            Ok(r) => {
+                if let (Some(gst), Some(gp)) = (r.state, r.planes) {
+                    st = gst;
+                    combustion_state = Some({
+                        let ns = gp.len().min(lane.n_species());
+                        let flat: Vec<f64> = (0..ns).map(|s| gp[s][0]).collect();
+                        let mut cbs = nufor_core::combustion_march::CombustionState::uniform(
+                            lane,
+                            g.nx * g.ny,
+                            &flat,
+                        );
+                        cbs.y = gp;
+                        cbs
+                    });
+                }
+                let wall = t0p.elapsed().as_secs_f64();
+                let steps = r.steps;
+                let t = restart_time + r.time;
+                if mpi_rank().unwrap_or(0) != 0 {
+                    mpi_shutdown();
+                    return 0;
+                }
+                println!(
+                    "case {} ({}) [mpi comb li2004]\nthin: 2d, {}x{}\nsteps: {}\ntime: {:.4}\nwall: {:.3}s",
+                    cfg.metadata.name, path, g.nx, g.ny, steps, t, wall
+                );
+                let rc = write_case_vtk2d_model(
+                    path,
+                    &cfg.metadata.name,
+                    &g,
+                    &st,
+                    model,
+                    None,
+                    combustion_state.as_ref(),
+                );
+                if rc == 0 {
+                    write_run_log_2d(
+                        cfg,
+                        path,
+                        &g,
+                        &st,
+                        model,
+                        None,
+                        combustion_state.as_ref(),
+                        steps,
+                        t,
+                        wall,
+                    );
+                }
+                if let Some(rpath) = &cfg.time.restart_out {
+                    if let Err(e) = write_restart2d(
+                        Path::new(rpath),
+                        &st,
+                        Restart2dMeta {
+                            nx: g.nx,
+                            ny: g.ny,
+                            gamma,
+                            time: t,
+                            step: restart_step + steps as u64,
+                        },
+                    ) {
+                        eprintln!("restart write error: {e}");
+                    }
+                }
+                mpi_shutdown();
+                return 0;
+            }
+            Err(e) => {
+                eprintln!("mpi comb march error: {e}");
+                mpi_shutdown();
+                return 2;
+            }
+        }
+    }
     if mpi_launched()
         && matches!(model, ThermoModel::Park5 { .. })
         && cfg.physics.mu.map_or(true, |m| m == 0.0)

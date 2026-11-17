@@ -332,6 +332,55 @@ pub fn advance2d_combustion_rk2(
 /// closure: the same face machinery the park lane rides, with the
 /// annular update (r-weighted radial faces plus the p/r source).
 #[allow(clippy::too_many_arguments)]
+#[doc(hidden)]
+#[allow(clippy::type_complexity)]
+pub fn debug_comb_fx_row(
+    state: &ConservedState2d,
+    species: &CombustionState,
+    g: &Grid2d,
+    muscl: bool,
+    bc: &crate::Boundaries2d,
+    j: usize,
+) -> Option<(Vec<[f64; 4]>, Vec<[f64; 4]>)> {
+    let lane = species.lane;
+    let model = ThermoModel::Combustion {
+        gamma_shaping: 1.2,
+        lane,
+    };
+    let (nx, _ny) = (g.nx, g.ny);
+    let (u, v, et) =
+        crate::state2d::cons_to_prim2d(&state.rho, &state.mx, &state.my, &state.e).ok()?;
+    let n = nx * g.ny;
+    let mut e_int = vec![0.0f64; n];
+    let mut p = vec![0.0f64; n];
+    let mut y_cell: Vec<f64> = Vec::with_capacity(lane.n_species());
+    for k in 0..n {
+        e_int[k] = et[k] - 0.5 * (u[k] * u[k] + v[k] * v[k]);
+        species.cell_into(k, &mut y_cell);
+        p[k] = lane.pressure_at(state.rho[k], e_int[k], &y_cell);
+    }
+    let (fx, fy) = crate::axi::compute_axi_fluxes(
+        model,
+        state,
+        g,
+        muscl,
+        bc,
+        &p,
+        &e_int,
+        Some(crate::axi::SpeciesField::Combustion9(species)),
+        1,
+        None,
+    )
+    .ok()?;
+    let row: Vec<[f64; 4]> = (0..=nx)
+        .map(|i| [fx[j].mass[i], fx[j].mx[i], fx[j].my[i], fx[j].e[i]])
+        .collect();
+    let col: Vec<[f64; 4]> = (0..=g.ny)
+        .map(|jj| [fy[0].mass[jj], fy[0].mx[jj], fy[0].my[jj], fy[0].e[jj]])
+        .collect();
+    Some((row, col))
+}
+#[allow(clippy::too_many_arguments)]
 pub fn advance2d_combustion_axi(
     state: &mut ConservedState2d,
     species: &mut CombustionState,
