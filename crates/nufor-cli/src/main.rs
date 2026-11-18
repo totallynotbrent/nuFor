@@ -11,7 +11,7 @@ use nufor_config::{
     Mesh, OutputFormat, Reconstruction,
 };
 use nufor_core::ffi_mpi::{
-    march_comb_2d_mpi, march_euler2d_mpi, march_park5_2d_mpi, march_rans2d_mpi,
+    march_comb_2d_mpi, march_euler2d_mpi, march_park5_2d_mpi_geom, march_rans2d_mpi,
     march_viscous2d_mpi, mpi_bcast_state, mpi_launched, mpi_rank, mpi_shutdown,
 };
 use nufor_core::{
@@ -2550,9 +2550,10 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     let visc_body = (visc_lam || rans_sa) && body.is_some();
     // the five-species park5 lane under mpirun: the fortran core advances the
     // conserved four and the composition planes on an x-slab decomposition
-    // and gathers the final full-domain state to rank 0 for output. planar,
-    // inviscid and body-free only: the body-band projection, viscosity and
-    // the axisymmetric update stay on the serial rust lane.
+    // and gathers the final full-domain state to rank 0 for output. an
+    // annular channel (positive innermost face radius) takes the r-weighted
+    // update with the p/rc source; inviscid and body-free only: the
+    // body-band projection and viscosity stay on the serial rust lane.
     // the mpi combustion lane serves the li2004 9-species mechanism only;
     // gri30 stays on the serial rust lane and must refuse loudly here.
     if mpi_launched() && matches!(model, ThermoModel::Combustion { .. }) {
@@ -2684,7 +2685,10 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
         let y_fill = park5_start_composition(cfg);
         let t0p = Instant::now();
         let aim = (t_end - restart_time).max(0.0);
-        match march_park5_2d_mpi(&st, &sp.y, &g, &bc, cfl, aim, max_steps, &y_fill) {
+        // an annulus (strictly positive innermost face radius) selects the
+        // r-weighted lane; a flat channel keeps geom=0 and the planar path.
+        let geom = i32::from(g.faces_y.first().is_some_and(|r| *r > 0.0));
+        match march_park5_2d_mpi_geom(&st, &sp.y, &g, &bc, cfl, aim, max_steps, &y_fill, geom) {
             Ok(r) => {
                 if let (Some(gst), Some(gp)) = (r.state, r.planes) {
                     st = gst;

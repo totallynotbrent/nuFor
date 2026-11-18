@@ -54,14 +54,15 @@ contains
   ! total energy) and the five composition fractions, flat with
   ! k = (j-1)*nx_local + i. the outputs are the same state after the step.
   subroutine nfor_mpipark5_march(nx, ny, rho, mx, my, e_tot, ys, &
-                                 dxs, dys, cfl, &
+                                 dxs, dys, faces_y, geom, cfl, &
                                  bc_w, bc_e, bc_s, bc_n, bc_vals, y_fill, &
                                  rho_o, mx_o, my_o, e_o, ys_o, dt_out, err) &
       bind(c, name="nfor_mpipark5_march")
     use iso_c_binding, only: c_int, c_double
     integer(c_int), value, intent(in) :: nx, ny
     real(c_double), intent(in) :: rho(*), mx(*), my(*), e_tot(*), ys(*)
-    real(c_double), intent(in) :: dxs(*), dys(*)
+    real(c_double), intent(in) :: dxs(*), dys(*), faces_y(*)
+    integer(c_int), value, intent(in) :: geom
     ! the cfl scalar crosses by value, so it must be declared that way.
     real(c_double), value, intent(in) :: cfl
     integer(c_int), value, intent(in) :: bc_w, bc_e, bc_s, bc_n
@@ -76,13 +77,15 @@ contains
     real(RP), allocatable :: sxr(:), sxu(:), sxv(:), sxe(:), sxy(:,:)
     real(RP), allocatable :: thr(:), tu(:), tv(:), te(:), ty(:,:)
     real(RP), allocatable :: yx(:,:,:), yy(:,:,:)
-    real(RP), allocatable :: rhe(:), dee(:), ycw(:,:)
+    real(RP), allocatable :: rhe(:), dee(:), ycw(:,:), pf(:)
     real(RP) :: rl, rul, vul, el, pl, al
     real(RP) :: rr, rur, vur, er_, pr_, ar_
     real(RP) :: fm, fqx, fqy, fe, dummy, smax, smax_g, dt
     real(RP) :: dmin_x, dmin_x_g, dmin_y, dt_den
+    real(RP) :: rm, rpv, rc, pk
     real(RP) :: yleft(NP5), yright(NP5), ysum, rho_y, worst_dy, worst_ov
     real(RP) :: flux_x, flux_y, dxi, dyi, dflux, new_rho_y
+    logical :: annular
     type(decomp_t) :: dec
     integer :: world, rank, eerr, i, j, f, s, k, c, nl, nj, nn, ng, nb, nf, nbmax
     integer :: gi, sd, vv
@@ -124,7 +127,17 @@ contains
     allocate(sxr(nbmax), sxu(nbmax), sxv(nbmax), sxe(nbmax), sxy(NP5,nbmax))
     allocate(thr(nbmax), tu(nbmax), tv(nbmax), te(nbmax), ty(NP5,nbmax))
     allocate(yx(NP5,nf+1,nj), yy(NP5,nj+1,nl))
-    allocate(rhe(nn), dee(nn), ycw(NP5,nn))
+    allocate(rhe(nn), dee(nn), ycw(NP5,nn), pf(nn))
+
+    annular = (geom /= 0)
+    if (annular) then
+      ! the southernmost face of an annulus must sit off the axis for
+      ! rc to be invertible.
+      if (faces_y(1) <= 0.0_RP) then
+        err = 2
+        return
+      end if
+    end if
 
     ! ---------- primitives and the per-cell closure ----------
     smax = 0.0_RP
@@ -149,6 +162,7 @@ contains
         end do
         call closure_triple(rho(k), car(4,i+2,j), car(5:NCAR,i+2,j), &
                             pl, dummy, al)
+        pf(k) = max(pl, 1.0e-12_RP)
         ! the serial lane floors the mixture sound speed for the cfl
         ! bound, which is what holds the timestep down at low speed.
         al = max(al, 50.0_RP)
@@ -292,17 +306,35 @@ contains
 
     ! ===================== conservative update =====================
     do j = 1, nj
+      if (annular) then
+        rm = faces_y(j); rpv = faces_y(j+1)
+        rc = 0.5_RP*(rm + rpv)
+      end if
       do i = 1, nl
         k = (j-1)*nl + i
         gi = dec%i0 + i - 1
-        rho_o(k) = rho(k) - dt*((fx4(1,i+1,j)-fx4(1,i,j))/dxs(i) &
-                                + (fy4(1,j+1,i)-fy4(1,j,i))/dys(j))
-        mx_o(k) = mx(k) - dt*((fx4(2,i+1,j)-fx4(2,i,j))/dxs(i) &
-                              + (fy4(2,j+1,i)-fy4(2,j,i))/dys(j))
-        my_o(k) = my(k) - dt*((fx4(3,i+1,j)-fx4(3,i,j))/dxs(i) &
-                              + (fy4(3,j+1,i)-fy4(3,j,i))/dys(j))
-        e_o(k) = e_tot(k) - dt*((fx4(4,i+1,j)-fx4(4,i,j))/dxs(i) &
-                                + (fy4(4,j+1,i)-fy4(4,j,i))/dys(j))
+        if (annular) then
+          ! annular: r-weighted radial divergence plus the p/rc source on
+          ! radial momentum, grouped exactly like the serial axi oracle.
+          rho_o(k) = rho(k) - dt*((fx4(1,i+1,j)-fx4(1,i,j))/dxs(i) &
+                     + (rpv*fy4(1,j+1,i)-rm*fy4(1,j,i))/(rc*dys(j)))
+          mx_o(k) = mx(k) - dt*((fx4(2,i+1,j)-fx4(2,i,j))/dxs(i) &
+                   + (rpv*fy4(2,j+1,i)-rm*fy4(2,j,i))/(rc*dys(j)))
+          my_o(k) = my(k) - dt*((fx4(3,i+1,j)-fx4(3,i,j))/dxs(i) &
+                   + (rpv*fy4(3,j+1,i)-rm*fy4(3,j,i))/(rc*dys(j))) &
+                   + dt*pf(k)/rc
+          e_o(k) = e_tot(k) - dt*((fx4(4,i+1,j)-fx4(4,i,j))/dxs(i) &
+                    + (rpv*fy4(4,j+1,i)-rm*fy4(4,j,i))/(rc*dys(j)))
+        else
+          rho_o(k) = rho(k) - dt*((fx4(1,i+1,j)-fx4(1,i,j))/dxs(i) &
+                                  + (fy4(1,j+1,i)-fy4(1,j,i))/dys(j))
+          mx_o(k) = mx(k) - dt*((fx4(2,i+1,j)-fx4(2,i,j))/dxs(i) &
+                                + (fy4(2,j+1,i)-fy4(2,j,i))/dys(j))
+          my_o(k) = my(k) - dt*((fx4(3,i+1,j)-fx4(3,i,j))/dxs(i) &
+                                + (fy4(3,j+1,i)-fy4(3,j,i))/dys(j))
+          e_o(k) = e_tot(k) - dt*((fx4(4,i+1,j)-fx4(4,i,j))/dxs(i) &
+                                  + (fy4(4,j+1,i)-fy4(4,j,i))/dys(j))
+        end if
       end do
     end do
 
@@ -365,15 +397,24 @@ contains
 
     do s = 1, NP5
       do j = 1, nj
+        if (annular) then
+          rm = faces_y(j); rpv = faces_y(j+1)
+          rc = 0.5_RP*(rm + rpv)
+        end if
         do i = 1, nl
           k = (j-1)*nl + i
           ! the serial lane's arithmetic: the mass flux difference across
           ! the cell's two x faces and its two y faces, weighted by the
           ! upwind donors and scaled by the updated density.
           flux_x = yx(s,i+1,j)*fxm(i+1,j) - yx(s,i,j)*fxm(i,j)
-          flux_y = yy(s,j+1,i)*fym(j+1,i) - yy(s,j,i)*fym(j,i)
           dxi = dt / dxs(i)
-          dyi = dt / dys(j)
+          if (annular) then
+            flux_y = (rpv*yy(s,j+1,i)*fym(j+1,i) - rm*yy(s,j,i)*fym(j,i))/(rc*dys(j))
+            dyi = dt
+          else
+            flux_y = yy(s,j+1,i)*fym(j+1,i) - yy(s,j,i)*fym(j,i)
+            dyi = dt / dys(j)
+          end if
           rho_y = rho_o(k) * car(4+s,i+2,j)
           dflux = -(dxi*flux_x + dyi*flux_y)
           new_rho_y = rho_y + dflux
@@ -414,7 +455,7 @@ contains
     deallocate(car, fx4, fy4, fxm, fym)
     deallocate(sxr, sxu, sxv, sxe, sxy)
     deallocate(thr, tu, tv, te, ty)
-    deallocate(yx, yy, rhe, dee, ycw)
+    deallocate(yx, yy, rhe, dee, ycw, pf)
     err = 0
   end subroutine nfor_mpipark5_march
 

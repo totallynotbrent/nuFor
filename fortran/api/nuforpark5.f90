@@ -85,7 +85,7 @@ module nuforpark5
   integer, parameter :: KEQ_DNU(5) = [1, 1, 1, 0, 0]
 
   private
-  public :: closure_triple, chem_substep_grid, transport_planar
+  public :: closure_triple, chem_substep_grid, transport_planar, transport_axi
   public :: pressure_at, sound_speed_at, temperature_at
   public :: internal_energy_at, mix_gas_constant, k_eq, omega
   public :: chem_substep_cell
@@ -441,6 +441,91 @@ contains
       end do
     end do
   end subroutine transport_planar
+
+  ! annular flavour of the species transport: identical upwind face
+  ! carriers, but the y-face divergence is r-weighted,
+  ! (r_hi*f_hi - r_lo*f_lo) / (r_c*dy), matching the flow update's
+  ! geometric factor.
+  subroutine transport_axi(nx, ny, rho, dt, dxs, dys, faces_y, fx, fy, y, resid)
+    integer, intent(in) :: nx, ny
+    real(DP), intent(in) :: rho(nx*ny), dt, dxs(nx), dys(ny), faces_y(ny+1)
+    real(DP), intent(in) :: fx(nx+1, ny), fy(ny+1, nx)
+    real(DP), intent(inout) :: y(NS, nx*ny)
+    real(DP), intent(out) :: resid
+    real(DP) :: yx(NS, nx+1, ny), yy(NS, ny+1, nx)
+    real(DP) :: mf, left, right, flux_x, flux_y, rho_y, d, new_rho_y
+    real(DP) :: dxi, dyi, rm, rp, rc
+    integer :: s, j, i, f, k
+
+    resid = 0.0_DP
+
+    do s = 1, NS
+      do j = 0, ny - 1
+        do f = 0, nx
+          mf = fx(f+1, j+1)
+          if (f > 0) then
+            left = y(s, j*nx + f)
+          else
+            left = y(s, j*nx + 1)
+          end if
+          if (f < nx) then
+            right = y(s, j*nx + f + 1)
+          else
+            right = y(s, j*nx + nx)
+          end if
+          if (mf >= 0.0_DP) then
+            yx(s, f+1, j+1) = left
+          else
+            yx(s, f+1, j+1) = right
+          end if
+        end do
+      end do
+      do i = 0, nx - 1
+        do f = 0, ny
+          mf = fy(f+1, i+1)
+          if (f > 0) then
+            left = y(s, (f-1)*nx + i + 1)
+          else
+            left = y(s, i + 1)
+          end if
+          if (f < ny) then
+            right = y(s, f*nx + i + 1)
+          else
+            right = y(s, (ny-1)*nx + i + 1)
+          end if
+          if (mf >= 0.0_DP) then
+            yy(s, f+1, i+1) = left
+          else
+            yy(s, f+1, i+1) = right
+          end if
+        end do
+      end do
+    end do
+
+    do s = 1, NS
+      do j = 0, ny - 1
+        rm = faces_y(j+1); rp = faces_y(j+2)
+        rc = 0.5_DP*(rm + rp)
+        do i = 0, nx - 1
+          k = j*nx + i + 1
+          dxi = dt / dxs(i+1)
+          flux_x = yx(s, i+2, j+1) * fx(i+2, j+1) - yx(s, i+1, j+1) * fx(i+1, j+1)
+          flux_y = (rp*yy(s, j+2, i+1) * fy(j+2, i+1) &
+                  - rm*yy(s, j+1, i+1) * fy(j+1, i+1)) / (rc*dys(j+1))
+          dyi = dt
+          rho_y = rho(k) * y(s, k)
+          d = -(dxi * flux_x + dyi * flux_y)
+          new_rho_y = rho_y + d
+          resid = max(resid, abs(d) / max(rho(k), 1.0e-30_DP))
+          if (new_rho_y > 0.0_DP) then
+            y(s, k) = new_rho_y / rho(k)
+          else
+            y(s, k) = 0.0_DP
+          end if
+        end do
+      end do
+    end do
+  end subroutine transport_axi
 
   ! the closure internals a sibling module borrows (the hllc face pass of
   ! a species-carrying march). temperature first, then pressure from it,

@@ -228,6 +228,8 @@ extern "C" {
         ys: *const f64,
         dxs: *const f64,
         dys: *const f64,
+        faces_y: *const f64,
+        geom: i32,
         cfl: f64,
         bc_w: i32,
         bc_e: i32,
@@ -1613,6 +1615,26 @@ pub fn march_park5_2d_mpi(
     max_steps: usize,
     y_fill: &[f64],
 ) -> Result<MpiPark5Result, Error> {
+    march_park5_2d_mpi_geom(
+        state0, planes0, g, bc, cfl, final_time, max_steps, y_fill, 0,
+    )
+}
+
+/// the geometry-selecting twin: `geom != 0` runs the annular update
+/// (r-weighted radial divergence and the p/rc source), `geom == 0`
+/// keeps the planar path byte-identical to the original lane.
+#[allow(clippy::too_many_arguments)]
+pub fn march_park5_2d_mpi_geom(
+    state0: &ConservedState2d,
+    planes0: &[Vec<f64>],
+    g: &Grid2d,
+    bc: &Boundaries2d,
+    cfl: f64,
+    final_time: f64,
+    max_steps: usize,
+    y_fill: &[f64],
+    geom: i32,
+) -> Result<MpiPark5Result, Error> {
     let ns = crate::park::NS;
     let n = g.nx * g.ny;
     if planes0.len() < ns
@@ -1678,6 +1700,8 @@ pub fn march_park5_2d_mpi(
                 ys_l.as_ptr(),
                 dxs_l.as_ptr(),
                 g.dys.as_ptr(),
+                g.faces_y.as_ptr(),
+                geom,
                 cfl,
                 bw,
                 be,

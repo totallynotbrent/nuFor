@@ -326,10 +326,45 @@ pub fn cart_step(
     planes: &[Vec<f64>],
     y_fill: &[f64],
 ) -> Result<CartStepResult, Error> {
+    // the planar path: the faces and the geometry selector are inert, so
+    // a zeroed stand-in buffer satisfies the abi without being read.
+    let zeros = vec![0.0f64; ny + 1];
+    cart_step_geom(
+        nx, ny, dxs, dys, &zeros, 0, cfl, bc_w, bc_e, bc_s, bc_n, bc_vals, rho, mx, my, e, planes,
+        y_fill,
+    )
+}
+
+/// one park5 step with an explicit geometry: `faces_y` are the ny+1
+/// horizontal face radii and `geom != 0` selects the annular update
+/// (r-weighted radial divergence, p/rc source, r-weighted species
+/// divergence).
+#[allow(clippy::too_many_arguments)]
+pub fn cart_step_geom(
+    nx: usize,
+    ny: usize,
+    dxs: &[f64],
+    dys: &[f64],
+    faces_y: &[f64],
+    geom: c_int,
+    cfl: f64,
+    bc_w: CartBc,
+    bc_e: CartBc,
+    bc_s: CartBc,
+    bc_n: CartBc,
+    bc_vals: &[[f64; 5]; 4],
+    rho: &[f64],
+    mx: &[f64],
+    my: &[f64],
+    e: &[f64],
+    planes: &[Vec<f64>],
+    y_fill: &[f64],
+) -> Result<CartStepResult, Error> {
     let n = nx.checked_mul(ny).ok_or(Error::InvalidArgs)?;
     if n == 0
         || dxs.len() != nx
         || dys.len() != ny
+        || faces_y.len() < ny + 1
         || rho.len() != n
         || mx.len() != n
         || my.len() != n
@@ -367,6 +402,8 @@ pub fn cart_step(
             flat.as_ptr(),
             dxs.as_ptr(),
             dys.as_ptr(),
+            faces_y.as_ptr(),
+            geom,
             cfl,
             bc_w.code(),
             bc_e.code(),

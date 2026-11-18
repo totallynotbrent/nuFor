@@ -15,7 +15,7 @@
 module nuforcartpark5
   use nuforpark5common, only: park5_vlim
   use iso_fortran_env, only: real64
-  use nuforpark5, only: closure_triple, transport_planar, chem_substep_grid
+  use nuforpark5, only: closure_triple, transport_planar, transport_axi, chem_substep_grid
   use nuforriemann, only: hllc_face_x_pub => hllc_face_x
   implicit none
 
@@ -27,7 +27,7 @@ module nuforcartpark5
   integer, parameter :: np_pad = 8200
 
   private
-  public :: cart_park5_step, nfor_cart_park5_step
+  public :: cart_park5_step, nfor_cart_park5_step, nfor_cart_park5_step_axi
 
 contains
 
@@ -36,13 +36,14 @@ contains
   ! bcs: 0 transmissive, 1 supersonic inflow (bc_vals), 2 outflow,
   ! 3 slip wall, 4 no-slip wall. y_fill is the fill composition at
   ! inflow edges.
-  subroutine cart_park5_step(nx, ny, rho, mx, my, e, y, dxs, dys, cfl, &
+  subroutine cart_park5_step(nx, ny, rho, mx, my, e, y, dxs, dys, faces_y, geom, cfl, &
                              bc_w, bc_e, bc_s, bc_n, bc_vals, y_fill, &
                              rho2, mx2, my2, e2, y2, dt_out)
     integer, intent(in) :: nx, ny
     real(DP), intent(in) :: rho(nx*ny), mx(nx*ny), my(nx*ny), e(nx*ny)
     real(DP), intent(in) :: y(NP5, nx*ny)
-    real(DP), intent(in) :: dxs(nx), dys(ny), cfl
+    real(DP), intent(in) :: dxs(nx), dys(ny), faces_y(ny+1), cfl
+    integer, intent(in) :: geom
     integer, intent(in) :: bc_w, bc_e, bc_s, bc_n
     real(DP), intent(in) :: bc_vals(5, 4)   ! (var, side), side 1=w 2=e 3=s 4=n
     real(DP), intent(in) :: y_fill(NP5)
@@ -61,8 +62,19 @@ contains
     real(DP) :: yl(NP5), yr(NP5), ycc(NP5), sum_y
     real(DP) :: rl, rul, vul, el, al, pl, rr, rur, vur, er_, ar_, pr_
     real(DP) :: fm, fmx, fmy, fe, smax, dt, dum
+    real(DP) :: rm, rp, rc
     real(DP) :: rhe(nx*ny), dee(nx*ny), yc(NP5, nx*ny)
     integer :: i, j, f, s, k, c
+    logical :: annular
+
+    annular = (geom /= 0)
+    if (annular .and. faces_y(1) <= 0.0_DP) then
+      ! the annular factors invert rc; refuse a degenerate inner radius.
+      dt_out = 0.0_DP
+      y2 = y
+      rho2 = rho; mx2 = mx; my2 = my; e2 = e
+      return
+    end if
 
     ! the composition advances incrementally, so it starts as a copy.
     y2 = y
@@ -231,21 +243,41 @@ contains
 
     ! ===================== conservative update =====================
     do j = 1, ny
+      if (annular) then
+        rm = faces_y(j); rp = faces_y(j+1)
+        rc = 0.5_DP*(rm + rp)
+      end if
       do i = 1, nx
         k = (j-1)*nx + i
-        rho2(k) = rho(k) - dt*((fx4(1,i+1,j)-fx4(1,i,j))/dxs(i) &
-                             + (fy4(1,j+1,i)-fy4(1,j,i))/dys(j))
-        mx2(k) = mx(k) - dt*((fx4(2,i+1,j)-fx4(2,i,j))/dxs(i) &
-                           + (fy4(2,j+1,i)-fy4(2,j,i))/dys(j))
-        my2(k) = my(k) - dt*((fx4(3,i+1,j)-fx4(3,i,j))/dxs(i) &
-                           + (fy4(3,j+1,i)-fy4(3,j,i))/dys(j))
-        e2(k) = e(k) - dt*((fx4(4,i+1,j)-fx4(4,i,j))/dxs(i) &
-                         + (fy4(4,j+1,i)-fy4(4,j,i))/dys(j))
+        if (annular) then
+          rho2(k) = rho(k) - dt*((fx4(1,i+1,j)-fx4(1,i,j))/dxs(i) &
+                               + (rp*fy4(1,j+1,i)-rm*fy4(1,j,i))/(rc*dys(j)))
+          mx2(k) = mx(k) - dt*((fx4(2,i+1,j)-fx4(2,i,j))/dxs(i) &
+                             + (rp*fy4(2,j+1,i)-rm*fy4(2,j,i))/(rc*dys(j)))
+          my2(k) = my(k) - dt*((fx4(3,i+1,j)-fx4(3,i,j))/dxs(i) &
+                             + (rp*fy4(3,j+1,i)-rm*fy4(3,j,i))/(rc*dys(j))) &
+                      + dt*pp(k)/rc
+          e2(k) = e(k) - dt*((fx4(4,i+1,j)-fx4(4,i,j))/dxs(i) &
+                           + (rp*fy4(4,j+1,i)-rm*fy4(4,j,i))/(rc*dys(j)))
+        else
+          rho2(k) = rho(k) - dt*((fx4(1,i+1,j)-fx4(1,i,j))/dxs(i) &
+                               + (fy4(1,j+1,i)-fy4(1,j,i))/dys(j))
+          mx2(k) = mx(k) - dt*((fx4(2,i+1,j)-fx4(2,i,j))/dxs(i) &
+                             + (fy4(2,j+1,i)-fy4(2,j,i))/dys(j))
+          my2(k) = my(k) - dt*((fx4(3,i+1,j)-fx4(3,i,j))/dxs(i) &
+                             + (fy4(3,j+1,i)-fy4(3,j,i))/dys(j))
+          e2(k) = e(k) - dt*((fx4(4,i+1,j)-fx4(4,i,j))/dxs(i) &
+                           + (fy4(4,j+1,i)-fy4(4,j,i))/dys(j))
+        end if
       end do
     end do
 
     ! ===================== species transport + chemistry =====================
-    call transport_planar(nx, ny, rho2, dt, dxs, dys, fxm, fym, y2, dum)
+    if (annular) then
+      call transport_axi(nx, ny, rho2, dt, dxs, dys, faces_y, fxm, fym, y2, dum)
+    else
+      call transport_planar(nx, ny, rho2, dt, dxs, dys, fxm, fym, y2, dum)
+    end if
     do k = 1, nx*ny
       sum_y = 0.0_DP
       do s = 1, NP5
@@ -274,14 +306,15 @@ contains
   ! ------------------------------------------------------------------
   ! c surface: the marshalling for the rust caller. the buffers cross
   ! the boundary in the flat layout the rust side lays out.
-  subroutine nfor_cart_park5_step(nx, ny, rho, mx, my, e, y, dxs, dys, cfl, &
+  subroutine nfor_cart_park5_step(nx, ny, rho, mx, my, e, y, dxs, dys, faces_y, geom, cfl, &
                                   bc_w, bc_e, bc_s, bc_n, bc_vals, y_fill, &
                                   rho2, mx2, my2, e2, y2, dt_out, err) &
       bind(c, name="nfor_cart_park5_step")
     use iso_c_binding, only: c_int, c_double
     integer(c_int), value, intent(in) :: nx, ny
     real(c_double), intent(in) :: rho(*), mx(*), my(*), e(*), y(*)
-    real(c_double), intent(in) :: dxs(*), dys(*)
+    real(c_double), intent(in) :: dxs(*), dys(*), faces_y(*)
+    integer(c_int), value, intent(in) :: geom
     ! the cfl scalar crosses by value, so it must be declared that way.
     real(c_double), value, intent(in) :: cfl
     integer(c_int), value, intent(in) :: bc_w, bc_e, bc_s, bc_n
@@ -294,7 +327,7 @@ contains
     ! the core wants explicit-shape arrays, so the crossing buffers are
     ! copied into locals with a definite shape first.
     real(c_double), allocatable :: rh(:), mh(:), nh(:), eh(:), ro(:), mo(:), no(:), qo(:)
-    real(c_double), allocatable :: dxn(:), dyn(:), ya(:,:), y2a(:,:)
+    real(c_double), allocatable :: dxn(:), dyn(:), fya(:), ya(:,:), y2a(:,:)
     integer :: s, v, sd, nn, ni, nj
 
     if (nx <= 0 .or. ny <= 0) then
@@ -309,9 +342,9 @@ contains
     end if
     ni = int(nx); nj = int(ny); nn = ni*nj
     allocate(rh(nn), mh(nn), nh(nn), eh(nn), ro(nn), mo(nn), no(nn), qo(nn))
-    allocate(dxn(ni), dyn(nj), ya(5,nn), y2a(5,nn))
+    allocate(dxn(ni), dyn(nj), fya(nj+1), ya(5,nn), y2a(5,nn))
     rh = rho(1:nn); mh = mx(1:nn); nh = my(1:nn); eh = e(1:nn)
-    dxn = dxs(1:ni); dyn = dys(1:nj)
+    dxn = dxs(1:ni); dyn = dys(1:nj); fya = faces_y(1:nj+1)
     do sd = 1, 4
       do v = 1, 5
         bcv(v,sd) = bc_vals((sd-1)*5 + v)
@@ -324,14 +357,37 @@ contains
       ya(s,1:nn) = y((s-1)*nn + 1:s*nn)
     end do
     call cart_park5_step(ni, nj, rh, mh, nh, eh, ya, &
-                         dxn, dyn, cfl, int(bc_w), int(bc_e), int(bc_s), int(bc_n), &
+                         dxn, dyn, fya, int(geom), cfl, int(bc_w), int(bc_e), int(bc_s), int(bc_n), &
                          bcv, yf, ro, mo, no, qo, y2a, dt_out)
     rho2(1:nn) = ro; mx2(1:nn) = mo; my2(1:nn) = no; e2(1:nn) = qo
     do s = 1, 5
       y2((s-1)*nn + 1:s*nn) = y2a(s,1:nn)
     end do
-    deallocate(rh, mh, nh, eh, ro, mo, no, qo, dxn, dyn, ya, y2a)
+    deallocate(rh, mh, nh, eh, ro, mo, no, qo, dxn, dyn, fya, ya, y2a)
     err = 0
   end subroutine nfor_cart_park5_step
+
+  ! annular flavour of the same marshalling: geom /= 0 selects the
+  ! r-weighted divergence and the p/rc source in the core step.
+  subroutine nfor_cart_park5_step_axi(nx, ny, rho, mx, my, e, y, dxs, dys, faces_y, geom, cfl, &
+                                      bc_w, bc_e, bc_s, bc_n, bc_vals, y_fill, &
+                                      rho2, mx2, my2, e2, y2, dt_out, err) &
+      bind(c, name="nfor_cart_park5_step_axi")
+    use iso_c_binding, only: c_int, c_double
+    integer(c_int), value, intent(in) :: nx, ny
+    real(c_double), intent(in) :: rho(*), mx(*), my(*), e(*), y(*)
+    real(c_double), intent(in) :: dxs(*), dys(*), faces_y(*)
+    integer(c_int), value, intent(in) :: geom
+    real(c_double), value, intent(in) :: cfl
+    integer(c_int), value, intent(in) :: bc_w, bc_e, bc_s, bc_n
+    real(c_double), intent(in) :: bc_vals(*)
+    real(c_double), intent(in) :: y_fill(*)
+    real(c_double), intent(out) :: rho2(*), mx2(*), my2(*), e2(*), y2(*)
+    real(c_double), intent(out) :: dt_out
+    integer(c_int), intent(out) :: err
+    call nfor_cart_park5_step(nx, ny, rho, mx, my, e, y, dxs, dys, faces_y, geom, cfl, &
+                              bc_w, bc_e, bc_s, bc_n, bc_vals, y_fill, &
+                              rho2, mx2, my2, e2, y2, dt_out, err)
+  end subroutine nfor_cart_park5_step_axi
 
 end module nuforcartpark5

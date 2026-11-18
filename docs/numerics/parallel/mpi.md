@@ -304,6 +304,32 @@ The two-deep halo is required by the centred slope at a seam cell, which
 reads the neighbour's second ghost column. One ghost depth would put the
 slope stencil across a boundary it cannot see.
 
+## Annular Park-5 march
+
+An axisymmetric Park-5 march opts in through the geometry lane: the same
+distributed slab decomposition, but the radial divergence is weighted by the
+face radii — `(r_plus*f_{j+1} - r_minus*f_j)/(r_cell*dr)` for every conserved
+variable, `+p/r_cell` sourced onto the radial momentum, and the same
+weighting on the species face divergence. `march_park5_2d_mpi_geom(…, geom =
+1)` selects it in `crates/nufor-core/src/ffi_mpi.rs`; `geom = 0` keeps the
+validated planar path untouched, and the existing planar gate
+(`mpi_mpipark5_march_matches_serial`) still passes bit for bit at np=1..4
+against the widened signatures.
+
+There is no pre-existing serial annular Park-5 oracle, so the serial
+Cartesian oracle in `fortran/api/nuforcartpark5.f90` grew the same opt-in
+branches (plus the `nfor_cart_park5_step_axi` entry and the shared
+`transport_axi` kernel in `fortran/api/nuforpark5.f90`), and the new gate
+`mpi_mpipark5_axi_matches_serial` compares the two independently written
+annular implementations. On an annulus seeded with inner radius 0.5 and
+outer radius 1.0, the largest absolute difference over the conserved fields
+and the five species planes was 0.0 at np=1, np=2, np=3, and np=4, the
+composition sums stayed normalised to 0.0, and the gate asserts that the
+`p/r` source term is measurably alive so the annular path cannot silently
+pass as planar. Degenerate geometries (`faces_y(1) <= 0`, the cylinder
+touching the axis) refuse with `err = 2` in the MPI path and pass through
+with `dt_out = 0` in the serial oracle.
+
 ## Nine-species combustion march
 
 The combustion lane marches the four conserved planes plus the nine Li2004

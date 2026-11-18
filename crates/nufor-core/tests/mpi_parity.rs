@@ -1432,6 +1432,149 @@ fn mpi_mpipark5_march_matches_serial() {
     mpi_shutdown();
 }
 
+/// the annular twin of the park5 march gate: an axisymmetric slab
+/// (inner radius 0.5, outer 1.0) driven through the opt-in geometry
+/// lane, compared bit for bit against the serial annular oracle
+/// (cart_step_geom with the same faces). the same transport motion and
+/// composition-sum proofs apply.
+#[test]
+#[ignore] // run under mpirun -np N, see the ci parity-smoke step
+fn mpi_mpipark5_axi_matches_serial() {
+    use nufor_core::ffi_mpi::{
+        march_park5_2d_mpi_geom, mpi_shutdown, park5_boundary_codes, MpiSession,
+    };
+    use nufor_core::park::NS;
+    use nufor_core::park5_fortran::{cart_step_geom, CartBc};
+
+    const AIR: [f64; NS] = [0.767, 0.233, 0.0, 0.0, 0.0];
+
+    let (nx, ny) = (24usize, 8usize);
+    let n = nx * ny;
+    // an annulus: ymin strictly off the axis so every face radius is > 0.
+    let g = nufor_core::grid2d::grid2d(nx, ny, 0.0, 1.0, 0.5, 1.0).unwrap();
+
+    let rho0 = 1.225f64;
+    let u0 = 400.0f64;
+    let v0 = 12.0f64;
+    let e_int = nufor_core::species_closure::internal_energy_at(300.0, &AIR);
+    let st = ConservedState2d {
+        rho: vec![rho0; n],
+        mx: vec![rho0 * u0; n],
+        my: vec![rho0 * v0; n],
+        e: vec![rho0 * (e_int + 0.5 * (u0 * u0 + v0 * v0)); n],
+    };
+    let planes: Vec<Vec<f64>> = (0..NS)
+        .map(|s| {
+            (0..n)
+                .map(|k| {
+                    let i = k % nx;
+                    let j = k / nx;
+                    let dx = 0.05 * (std::f64::consts::TAU * i as f64 / nx as f64).cos();
+                    let dy = 0.02 * (std::f64::consts::TAU * j as f64 / ny as f64).sin();
+                    let d = dx + dy;
+                    match s {
+                        0 => AIR[0] + d,
+                        1 => AIR[1] - d,
+                        _ => AIR[s],
+                    }
+                })
+                .collect()
+        })
+        .collect();
+
+    let bc = nufor_core::Boundaries2d {
+        west: nufor_core::Bc2d::SupersonicInflow {
+            rho: rho0,
+            u: u0,
+            v: v0,
+            p: rho0 * 287.05 * 300.0,
+            t: Some(300.0),
+        },
+        east: nufor_core::Bc2d::Transmissive,
+        south: nufor_core::Bc2d::Transmissive,
+        north: nufor_core::Bc2d::Transmissive,
+    };
+
+    MpiSession::new().unwrap();
+    let (drank, _di0, _dnl) = MpiSession::case_init(nx, ny).unwrap();
+    let r = march_park5_2d_mpi_geom(&st, &planes, &g, &bc, 0.45, 1.0e30, 1, &AIR, 1).unwrap();
+
+    let (_, sides) = park5_boundary_codes(&bc, &AIR);
+    let ser = cart_step_geom(
+        nx,
+        ny,
+        &g.dxs,
+        &g.dys,
+        &g.faces_y,
+        1,
+        0.45,
+        CartBc::Inflow,
+        CartBc::Transmissive,
+        CartBc::Transmissive,
+        CartBc::Transmissive,
+        &sides,
+        &st.rho,
+        &st.mx,
+        &st.my,
+        &st.e,
+        &planes,
+        &AIR,
+    )
+    .unwrap();
+
+    match (&r.state, &r.planes) {
+        (Some(got), Some(got_y)) => {
+            let mut worst = 0.0f64;
+            let mut composed = 0.0f64;
+            let mut moved = 0.0f64;
+            // the geometric source must be alive: radial momentum differs
+            // from the planar answer by dt*p/rc somewhere in the field.
+            let mut src_alive = 0.0f64;
+            for k in 0..n {
+                worst = worst.max((got.rho[k] - ser.rho[k]).abs());
+                worst = worst.max((got.mx[k] - ser.mx[k]).abs());
+                worst = worst.max((got.my[k] - ser.my[k]).abs());
+                worst = worst.max((got.e[k] - ser.e[k]).abs());
+                let j = k / nx;
+                let rc = 0.5 * (g.faces_y[j] + g.faces_y[j + 1]);
+                src_alive = src_alive.max(r.dt_last * rho0 * 287.05 * 300.0 / rc);
+                let mut sum = 0.0f64;
+                for s in 0..NS {
+                    worst = worst.max((got_y[s][k] - ser.planes[s][k]).abs());
+                    sum += got_y[s][k];
+                    moved = moved.max((got_y[s][k] - planes[s][k]).abs());
+                }
+                composed = composed.max((sum - 1.0).abs());
+            }
+            mpi_report::number("mpipark5_axi_worst_abs_vs_serial_one_step", worst);
+            mpi_report::number("mpipark5_axi_worst_composition_sum_error", composed);
+            mpi_report::number("mpipark5_axi_worst_composition_change", moved);
+            mpi_report::number("mpipark5_axi_geometric_source_scale", src_alive);
+            mpi_report::integer("mpipark5_axi_world_size", num_ranks() as i64);
+            mpi_report::flush();
+            mpi_report::fence();
+            assert_eq!(
+                worst, 0.0,
+                "the annular mpi march diverged from the serial oracle ({worst:e})"
+            );
+            assert!(
+                composed <= 1.0e-12,
+                "the composition lost its normalisation ({composed:e})"
+            );
+            assert!(
+                moved > 1.0e-6,
+                "the march left the composition parked; the gate proved nothing ({moved:e})"
+            );
+            assert!(
+                src_alive > 1.0e-9,
+                "the annular source term vanished; the gate tested the planar path ({src_alive:e})"
+            );
+        }
+        _ => assert_ne!(drank, 0, "rank 0 must assemble the global state"),
+    }
+    mpi_shutdown();
+}
+
 // -------------------------------------------------------------------
 // mpi park2t gate: the fortran perfect-gas 2t lane (march_pg2t2d_mpi)
 // versus the serial rust oracle (advance2d_model_rk2 Perfect +

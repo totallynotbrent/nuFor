@@ -88,6 +88,8 @@ extern "C" {
         y: *const f64,
         dxs: *const f64,
         dys: *const f64,
+        faces_y: *const f64,
+        geom: c_int,
         cfl: f64,
         bc_w: c_int,
         bc_e: c_int,
