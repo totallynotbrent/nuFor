@@ -164,6 +164,12 @@ jobs:
           # 1e-10 relative tolerance inside the test)
           check 1 mpi_pg2t_matches_rust_sod2d
           check 2 mpi_pg2t_matches_rust_sod2d
+          # the nine-species combustion march: known-divergent characterization
+          # gate, reported non-blockingly (the pinned residual is documented
+          # in docs/numerics/parallel/mpi.md; the strict assertion stays in
+          # the test and is not promoted to a blocking CI check)
+          comblog=$(mpirun --allow-run-as-root --oversubscribe -np 1 "$bin" --exact mpi_comb_np1_matches_rust_serial --nocapture --ignored 2>&1) || true
+          echo "$comblog" | grep -E "comb np1 vs rust serial worst rel diff" || true
           # the advective five-species march: the distributed park5 march
           # must reproduce the serial cartesian oracle bit for bit (the
           # test asserts the exact-zero agreement and the normalisation)
