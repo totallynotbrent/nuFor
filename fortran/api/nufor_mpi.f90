@@ -122,6 +122,54 @@ contains
     end if
   end subroutine
 
+  ! same two-layer x halo exchange as halo_exchange_x, for a single integer
+  ! plane (used for the immersed-body mask, which travels beside the state).
+  ! f is (nx_local+4, ny); ghost columns filled exactly as in the real twin.
+  subroutine halo_exchange_x_i(f, d)
+    integer, intent(inout) :: f(:,:)
+    type(decomp_t), intent(in) :: d
+    integer, parameter :: TAG_W = 101, TAG_E = 102
+    integer :: send_w(2*d%ny), send_e(2*d%ny), recv_w(2*d%ny), recv_e(2*d%ny)
+    integer :: reqs(4), j, ierr
+
+    if (d%nranks == 1) return   ! no neighbors: ghost columns unused at np=1
+
+    do j = 1, d%ny
+      send_w(2*j-1) = f(3, j)              ! first interior column
+      send_w(2*j)   = f(4, j)              ! second interior column
+      send_e(2*j-1) = f(d%nx_local+1, j)   ! second-to-last interior
+      send_e(2*j)   = f(d%nx_local+2, j)   ! last interior column
+    end do
+
+    reqs = MPI_REQUEST_NULL
+    if (d%west_rank /= MPI_PROC_NULL) &
+      call mpi_irecv(recv_w, 2*d%ny, MPI_INTEGER, d%west_rank, &
+                     TAG_E, MPI_COMM_WORLD, reqs(1), ierr)
+    if (d%east_rank /= MPI_PROC_NULL) &
+      call mpi_irecv(recv_e, 2*d%ny, MPI_INTEGER, d%east_rank, &
+                     TAG_W, MPI_COMM_WORLD, reqs(2), ierr)
+    if (d%west_rank /= MPI_PROC_NULL) &
+      call mpi_isend(send_w, 2*d%ny, MPI_INTEGER, d%west_rank, &
+                     TAG_W, MPI_COMM_WORLD, reqs(3), ierr)
+    if (d%east_rank /= MPI_PROC_NULL) &
+      call mpi_isend(send_e, 2*d%ny, MPI_INTEGER, d%east_rank, &
+                     TAG_E, MPI_COMM_WORLD, reqs(4), ierr)
+    call mpi_waitall(4, reqs, MPI_STATUSES_IGNORE, ierr)
+
+    if (d%west_rank /= MPI_PROC_NULL) then
+      do j = 1, d%ny
+        f(1, j) = recv_w(2*j-1)
+        f(2, j) = recv_w(2*j)
+      end do
+    end if
+    if (d%east_rank /= MPI_PROC_NULL) then
+      do j = 1, d%ny
+        f(d%nx_local+3, j) = recv_e(2*j-1)
+        f(d%nx_local+4, j) = recv_e(2*j)
+      end do
+    end if
+  end subroutine
+
   ! global max over all ranks (cfl smax, dt).
   subroutine global_max(local, global, d)
     real(DP), intent(in) :: local

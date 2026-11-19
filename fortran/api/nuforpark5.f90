@@ -354,15 +354,19 @@ contains
   ! the pass is conservative in the per-species mass, not just the
   ! fraction. the domain-edge faces take the adjacent interior cell on
   ! the missing side, so a uniform field stays exactly uniform.
-  subroutine transport_planar(nx, ny, rho, dt, dxs, dys, fx, fy, y, resid)
+  subroutine transport_planar(nx, ny, rho, dt, dxs, dys, fx, fy, y, resid, sol)
     integer, intent(in) :: nx, ny
     real(DP), intent(in) :: rho(nx*ny), dt, dxs(nx), dys(ny)
     real(DP), intent(in) :: fx(nx+1, ny), fy(ny+1, nx)
     real(DP), intent(inout) :: y(NS, nx*ny)
     real(DP), intent(out) :: resid
+    ! optional solid mask (1 = solid): a face touching a solid cell
+    ! carries zero mass flux, and solid cells are frozen.
+    integer, intent(in) :: sol(nx*ny)
     real(DP) :: yx(NS, nx+1, ny), yy(NS, ny+1, nx)
     real(DP) :: mf, left, right, flux_x, flux_y, rho_y, d, new_rho_y
     real(DP) :: dxi, dyi
+    logical :: touch
     integer :: s, j, i, f, k
 
     resid = 0.0_DP
@@ -376,6 +380,16 @@ contains
       do j = 0, ny - 1
         do f = 0, nx
           mf = fx(f+1, j+1)
+          if (f > 0) then
+            touch = (sol(j*nx + f) /= 0)
+          else
+            touch = .false.
+          end if
+          if (f < nx) touch = touch .or. (sol(j*nx + f + 1) /= 0)
+          if (touch) then
+            yx(s, f+1, j+1) = 0.0_DP
+            cycle
+          end if
           if (f > 0) then
             left = y(s, j*nx + f)
           else
@@ -396,6 +410,16 @@ contains
       do i = 0, nx - 1
         do f = 0, ny
           mf = fy(f+1, i+1)
+          if (f > 0) then
+            touch = (sol((f-1)*nx + i + 1) /= 0)
+          else
+            touch = .false.
+          end if
+          if (f < ny) touch = touch .or. (sol(f*nx + i + 1) /= 0)
+          if (touch) then
+            yy(s, f+1, i+1) = 0.0_DP
+            cycle
+          end if
           if (f > 0) then
             left = y(s, (f-1)*nx + i + 1)
           else
@@ -419,6 +443,7 @@ contains
       do j = 0, ny - 1
         do i = 0, nx - 1
           k = j*nx + i + 1
+          if (sol(k) /= 0) cycle   ! solid cells keep their frozen state
           dxi = dt / dxs(i+1)
           dyi = dt / dys(j+1)
           ! cell i sits between the faces i and i+1, so the divergence
@@ -541,16 +566,19 @@ contains
 
   ! grid-level chemistry: a convenience over chem_substep_cell for whole
   ! slabs held in 2d arrays (indexed (s, cell)). mirrors the c surface.
-  subroutine chem_substep_grid(n, rho, e_int, dt, y, worst_dy, worst_oversub)
+  subroutine chem_substep_grid(n, rho, e_int, dt, y, worst_dy, worst_oversub, sol)
     integer, intent(in) :: n
     real(DP), intent(in) :: rho(n), e_int(n), dt
     real(DP), intent(inout) :: y(NS, n)
     real(DP), intent(out) :: worst_dy, worst_oversub
+    ! optional solid mask: solid cells skip the chemistry advance.
+    integer, intent(in) :: sol(n)
     real(DP) :: yc(NS), wd, wo
     integer :: k, s
     worst_dy = 0.0_DP
     worst_oversub = 0.0_DP
     do k = 1, n
+      if (sol(k) /= 0) cycle
       do s = 1, NS
         yc(s) = y(s, k)
       end do

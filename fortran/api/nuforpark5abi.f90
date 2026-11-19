@@ -167,6 +167,7 @@ contains
     integer(c_int), intent(out) :: err
     real(DP), allocatable :: yc(:, :), fxx(:, :), fyy(:, :)
     real(DP), allocatable :: rhov(:), dxv(:), dyv(:)
+    integer, allocatable :: izero(:)
     real(DP) :: rv
     integer :: k, s, f, j, i
 
@@ -175,7 +176,8 @@ contains
       return
     end if
     allocate(yc(NS, nx*ny), fxx(nx+1, ny), fyy(ny+1, nx))
-    allocate(rhov(nx*ny), dxv(nx), dyv(ny))
+    allocate(rhov(nx*ny), dxv(nx), dyv(ny), izero(nx*ny))
+    izero = 0
     do k = 1, nx*ny
       rhov(k) = rho(k)
     end do
@@ -200,7 +202,7 @@ contains
         yc(s, k) = y((s-1)*nx*ny + k)
       end do
     end do
-    call transport_planar(nx, ny, rhov, dt, dxv, dyv, fxx, fyy, yc, rv)
+    call transport_planar(nx, ny, rhov, dt, dxv, dyv, fxx, fyy, yc, rv, izero)
     do s = 1, NS
       do k = 1, nx*ny
         y((s-1)*nx*ny + k) = yc(s, k)
@@ -208,7 +210,7 @@ contains
     end do
     resid = rv
     err = NFOR_OK
-    deallocate(yc, fxx, fyy, rhov, dxv, dyv)
+    deallocate(yc, fxx, fyy, rhov, dxv, dyv, izero)
   end subroutine nfor_park5_transport
 
   ! the per-species formation enthalpy per mass, J/kg. the rust side

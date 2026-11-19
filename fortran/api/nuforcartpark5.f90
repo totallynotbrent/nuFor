@@ -36,9 +36,11 @@ contains
   ! arrays are flat with k = (j-1)*nx + i (i 0-based externally).
   ! bcs: 0 transmissive, 1 supersonic inflow (bc_vals), 2 outflow,
   ! 3 slip wall, 4 no-slip wall. y_fill is the fill composition at
-  ! inflow edges.
+  ! inflow edges. solid marks immersed-body cells (nonzero = solid):
+  ! faces touching one carry zero flux, the cells themselves are frozen
+  ! by every phase, and tw is the body wall temperature (<= 0 = adiabatic).
   subroutine cart_park5_step(nx, ny, rho, mx, my, e, y, dxs, dys, faces_y, geom, visc, cfl, &
-                             bc_w, bc_e, bc_s, bc_n, bc_vals, y_fill, &
+                             bc_w, bc_e, bc_s, bc_n, bc_vals, y_fill, solid, tw, &
                              rho2, mx2, my2, e2, y2, dt_out)
     integer, intent(in) :: nx, ny
     real(DP), intent(in) :: rho(nx*ny), mx(nx*ny), my(nx*ny), e(nx*ny)
@@ -48,6 +50,8 @@ contains
     integer, intent(in) :: bc_w, bc_e, bc_s, bc_n
     real(DP), intent(in) :: bc_vals(5, 4)   ! (var, side), side 1=w 2=e 3=s 4=n
     real(DP), intent(in) :: y_fill(NP5)
+    integer, intent(in) :: solid(nx*ny)
+    real(DP), intent(in) :: tw
     real(DP), intent(out) :: rho2(nx*ny), mx2(nx*ny), my2(nx*ny), e2(nx*ny)
     real(DP), intent(inout) :: y2(NP5, nx*ny)
     real(DP), intent(out) :: dt_out
@@ -62,15 +66,18 @@ contains
     real(DP), allocatable :: sxr(:), sxu(:), sxv(:), sxe(:), sxy(:,:)
     real(DP) :: yl(NP5), yr(NP5), ycc(NP5), sum_y
     real(DP) :: czero(9, ny)
+    logical :: falsw(ny), touch
     real(DP) :: rl, rul, vul, el, al, pl, rr, rur, vur, er_, ar_, pr_
     real(DP) :: fm, fmx, fmy, fe, smax, dt, dum
     real(DP) :: rm, rp, rc
     real(DP) :: rhe(nx*ny), dee(nx*ny), yc(NP5, nx*ny)
     real(DP), allocatable :: ysf(:)
     integer :: i, j, f, s, k, c
-    logical :: annular
+    logical :: annular, has_body
 
     annular = (geom /= 0)
+    has_body = any(solid /= 0)
+    falsw = .false.
     if (annular .and. faces_y(1) <= 0.0_DP) then
       ! the annular factors invert rc; refuse a degenerate inner radius.
       dt_out = 0.0_DP
@@ -169,6 +176,13 @@ contains
         al = max(al, 1.0e-12_DP); ar_ = max(ar_, 1.0e-12_DP)
         call hllc_face_x_pub(rl, rul, vul, pl, el, al, rr, rur, vur, pr_, er_, ar_, &
                              1.4_DP, fm, fmx, fmy, fe)
+        ! a face bordering a solid cell is an immersed boundary: zero flux.
+        touch = .false.
+        if (f > 1) touch = (solid((j-1)*nx + f - 1) /= 0)
+        if (f <= nx) touch = touch .or. (solid((j-1)*nx + f) /= 0)
+        if (has_body .and. touch) then
+          fm = 0.0_DP; fmx = 0.0_DP; fmy = 0.0_DP; fe = 0.0_DP
+        end if
         fx4(1,f,j) = fm; fx4(2,f,j) = fmx; fx4(3,f,j) = fmy; fx4(4,f,j) = fe
         fxm(f,j) = fm
       end do
@@ -239,6 +253,13 @@ contains
         ! normal momentum into arg2, tangential into arg3, outputs likewise
         call hllc_face_x_pub(rl, rul, vul, pl, el, al, rr, rur, vur, pr_, er_, ar_, &
                              1.4_DP, fm, fmy, fmx, fe)
+        ! a face bordering a solid cell is an immersed boundary: zero flux.
+        touch = .false.
+        if (f > 1) touch = (solid((f-2)*nx + i) /= 0)
+        if (f <= ny) touch = touch .or. (solid((f-1)*nx + i) /= 0)
+        if (has_body .and. touch) then
+          fm = 0.0_DP; fmx = 0.0_DP; fmy = 0.0_DP; fe = 0.0_DP
+        end if
         fy4(1,f,i) = fm; fy4(2,f,i) = fmx; fy4(3,f,i) = fmy; fy4(4,f,i) = fe
         fym(f,i) = fm
       end do
@@ -252,7 +273,10 @@ contains
       end if
       do i = 1, nx
         k = (j-1)*nx + i
-        if (annular) then
+        if (has_body .and. solid(k) /= 0) then
+          ! immersed solid cells are frozen by the march.
+          rho2(k) = rho(k); mx2(k) = mx(k); my2(k) = my(k); e2(k) = e(k)
+        else if (annular) then
           rho2(k) = rho(k) - dt*((fx4(1,i+1,j)-fx4(1,i,j))/dxs(i) &
                                + (rp*fy4(1,j+1,i)-rm*fy4(1,j,i))/(rc*dys(j)))
           mx2(k) = mx(k) - dt*((fx4(2,i+1,j)-fx4(2,i,j))/dxs(i) &
@@ -279,11 +303,14 @@ contains
     if (annular) then
       call transport_axi(nx, ny, rho2, dt, dxs, dys, faces_y, fxm, fym, y2, dum)
     else
-      call transport_planar(nx, ny, rho2, dt, dxs, dys, fxm, fym, y2, dum)
+      call transport_planar(nx, ny, rho2, dt, dxs, dys, fxm, fym, y2, dum, solid)
     end if
     ! opt-in laminar pass, shared verbatim with the mpi lane. y2 is
     ! (NP5, n) column-major, so repack to the species-major flat layout
-    ! park5_viscous_update expects, then scatter back afterwards.
+    ! park5_viscous_update expects, then scatter back afterwards. the
+    ! optional body layer plugs its mask and wall temperature into the
+    ! kernel's trailing arguments; the legacy wrapper passes an empty
+    ! mask and adiabatic wall.
     if (visc /= 0) then
       czero = 0.0_DP
       allocate(ysf(NP5*nx*ny))
@@ -293,7 +320,8 @@ contains
         end do
       end do
       call park5_viscous_update(nx, ny, rho2, mx2, my2, e2, ysf, dxs, dys, dt, &
-                                .true., .true., 0.0_DP, 0.0_DP, czero, czero)
+                                .true., .true., 0.0_DP, 0.0_DP, czero, czero, &
+                                solid, tw, falsw, falsw)
       do k = 1, nx*ny
         do s = 1, NP5
           y2(s, k) = ysf((s-1)*nx*ny + k)
@@ -302,6 +330,7 @@ contains
       deallocate(ysf)
     end if
     do k = 1, nx*ny
+      if (has_body .and. solid(k) /= 0) cycle   ! solid fill is frozen
       sum_y = 0.0_DP
       do s = 1, NP5
         sum_y = sum_y + y2(s,k)
@@ -317,8 +346,9 @@ contains
         yc(s,k) = y2(s,k)
       end do
     end do
-    call chem_substep_grid(nx*ny, rhe, dee, dt, yc, dum, dum)
+    call chem_substep_grid(nx*ny, rhe, dee, dt, yc, dum, dum, solid)
     do k = 1, nx*ny
+      if (has_body .and. solid(k) /= 0) cycle   ! solid fill is frozen
       do s = 1, NP5
         y2(s,k) = max(yc(s,k), 0.0_DP)
       end do
@@ -330,7 +360,7 @@ contains
   ! c surface: the marshalling for the rust caller. the buffers cross
   ! the boundary in the flat layout the rust side lays out.
   subroutine nfor_cart_park5_step(nx, ny, rho, mx, my, e, y, dxs, dys, faces_y, geom, visc, cfl, &
-                                  bc_w, bc_e, bc_s, bc_n, bc_vals, y_fill, &
+                                  bc_w, bc_e, bc_s, bc_n, bc_vals, y_fill, solid, tw, &
                                   rho2, mx2, my2, e2, y2, dt_out, err) &
       bind(c, name="nfor_cart_park5_step")
     use iso_c_binding, only: c_int, c_double
@@ -343,6 +373,8 @@ contains
     integer(c_int), value, intent(in) :: bc_w, bc_e, bc_s, bc_n
     real(c_double), intent(in) :: bc_vals(*)
     real(c_double), intent(in) :: y_fill(*)
+    integer(c_int), intent(in) :: solid(*)
+    real(c_double), value, intent(in) :: tw
     real(c_double), intent(out) :: rho2(*), mx2(*), my2(*), e2(*), y2(*)
     real(c_double), intent(out) :: dt_out
     integer(c_int), intent(out) :: err
@@ -351,6 +383,7 @@ contains
     ! copied into locals with a definite shape first.
     real(c_double), allocatable :: rh(:), mh(:), nh(:), eh(:), ro(:), mo(:), no(:), qo(:)
     real(c_double), allocatable :: dxn(:), dyn(:), fya(:), ya(:,:), y2a(:,:)
+    integer, allocatable :: sol(:)
     integer :: s, v, sd, nn, ni, nj
 
     if (nx <= 0 .or. ny <= 0) then
@@ -358,8 +391,15 @@ contains
       return
     end if
     ! the shared viscous kernel is planar-metric only; the annular oracle
-    ! variant refuses the combination outright.
+    ! variant refuses the combination outright. the body layer is planar
+    ! only as well: the annular flame-front geometry carries no immersed
+    ! body, so refuse the combination with the same code.
     if (geom /= 0 .and. visc /= 0) then
+      err = 3
+      dt_out = 0.0_c_double
+      return
+    end if
+    if (geom /= 0 .and. any(solid(1:int(nx)*int(ny)) /= 0)) then
       err = 3
       dt_out = 0.0_c_double
       return
@@ -372,8 +412,9 @@ contains
     end if
     ni = int(nx); nj = int(ny); nn = ni*nj
     allocate(rh(nn), mh(nn), nh(nn), eh(nn), ro(nn), mo(nn), no(nn), qo(nn))
-    allocate(dxn(ni), dyn(nj), fya(nj+1), ya(5,nn), y2a(5,nn))
+    allocate(dxn(ni), dyn(nj), fya(nj+1), ya(5,nn), y2a(5,nn), sol(nn))
     rh = rho(1:nn); mh = mx(1:nn); nh = my(1:nn); eh = e(1:nn)
+    sol = solid(1:nn)
     dxn = dxs(1:ni); dyn = dys(1:nj); fya = faces_y(1:nj+1)
     do sd = 1, 4
       do v = 1, 5
@@ -388,12 +429,12 @@ contains
     end do
     call cart_park5_step(ni, nj, rh, mh, nh, eh, ya, &
                          dxn, dyn, fya, int(geom), int(visc), cfl, int(bc_w), int(bc_e), int(bc_s), int(bc_n), &
-                         bcv, yf, ro, mo, no, qo, y2a, dt_out)
+                         bcv, yf, sol, tw, ro, mo, no, qo, y2a, dt_out)
     rho2(1:nn) = ro; mx2(1:nn) = mo; my2(1:nn) = no; e2(1:nn) = qo
     do s = 1, 5
       y2((s-1)*nn + 1:s*nn) = y2a(s,1:nn)
     end do
-    deallocate(rh, mh, nh, eh, ro, mo, no, qo, dxn, dyn, fya, ya, y2a)
+    deallocate(rh, mh, nh, eh, ro, mo, no, qo, dxn, dyn, fya, ya, y2a, sol)
     err = 0
   end subroutine nfor_cart_park5_step
 
@@ -415,9 +456,16 @@ contains
     real(c_double), intent(out) :: rho2(*), mx2(*), my2(*), e2(*), y2(*)
     real(c_double), intent(out) :: dt_out
     integer(c_int), intent(out) :: err
+    ! the axi variant is the annular oracle: the body layer is planar
+    ! only, so pass an empty mask and an adiabatic wall here; any body
+    ! request is refused inside the callee as err = 3.
+    integer(c_int), allocatable :: zm(:)
+    allocate(zm(int(nx)*int(ny)))
+    zm = 0
     call nfor_cart_park5_step(nx, ny, rho, mx, my, e, y, dxs, dys, faces_y, geom, visc, cfl, &
-                              bc_w, bc_e, bc_s, bc_n, bc_vals, y_fill, &
+                              bc_w, bc_e, bc_s, bc_n, bc_vals, y_fill, zm, 0.0_c_double, &
                               rho2, mx2, my2, e2, y2, dt_out, err)
+    deallocate(zm)
   end subroutine nfor_cart_park5_step_axi
 
 end module nuforcartpark5

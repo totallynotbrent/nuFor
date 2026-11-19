@@ -11,7 +11,7 @@ use nufor_config::{
     Mesh, OutputFormat, Reconstruction,
 };
 use nufor_core::ffi_mpi::{
-    march_comb_2d_mpi, march_euler2d_mpi, march_park5_2d_mpi_geom, march_rans2d_mpi,
+    march_comb_2d_mpi, march_euler2d_mpi, march_park5_2d_mpi_body, march_rans2d_mpi,
     march_viscous2d_mpi, mpi_bcast_state, mpi_launched, mpi_rank, mpi_shutdown,
 };
 use nufor_core::{
@@ -2552,8 +2552,9 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     // conserved four and the composition planes on an x-slab decomposition
     // and gathers the final full-domain state to rank 0 for output. an
     // annular channel (positive innermost face radius) takes the r-weighted
-    // update with the p/rc source; inviscid and body-free only: the
-    // body-band projection and viscosity stay on the serial rust lane.
+    // update with the p/rc source; viscous and masked-body cases ride the
+    // body-aware kernel on planar grids, while annular+viscous and
+    // annular+body stay refused on the serial rust lane.
     // the mpi combustion lane serves the li2004 9-species mechanism only;
     // gri30 stays on the serial rust lane and must refuse loudly here.
     if mpi_launched() && matches!(model, ThermoModel::Combustion { .. }) {
@@ -2671,9 +2672,26 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
     }
     let park5_visc = cfg.physics.mu.is_some_and(|m| m > 0.0);
     let park5_annular = g.faces_y.first().is_some_and(|r| *r > 0.0);
+    // the park5 body mask (global, row-major, nonzero = solid) and the body
+    // wall temperature; an empty body yields an all-zero mask, which the
+    // kernel reads as the plain body-free path.
+    let park5_solid: Vec<i32> = match &body {
+        Some((dist, _)) => {
+            let band = 1.5 * g.dx.min(g.dy);
+            body_cache(&g, dist.as_ref(), band)
+                .mask
+                .iter()
+                .map(|&b| i32::from(b))
+                .collect()
+        }
+        None => vec![],
+    };
+    let park5_tw = cfg.physics.wall_temperature.unwrap_or(0.0);
     if mpi_launched()
         && matches!(model, ThermoModel::Park5 { .. })
-        && body.is_none()
+        // the body layer is planar only: an annular channel with a masked
+        // body stays on the serial rust lane (kernel refuses it, err=3).
+        && !(park5_annular && park5_solid.iter().any(|&s| s != 0))
         // the shared viscous kernel is planar-metric only, so the annular
         // + mu > 0 combination stays on the serial rust lane.
         && !(park5_visc && park5_annular)
@@ -2691,11 +2709,23 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
         let aim = (t_end - restart_time).max(0.0);
         // an annulus (strictly positive innermost face radius) selects the
         // r-weighted lane; a flat channel keeps geom=0 and the planar path.
-        // mu > 0 opts into the laminar viscous pass on top of either.
+        // mu > 0 opts into the laminar viscous pass on top of either; the
+        // body mask + wall temperature ride alongside when a body is set.
         let geom = i32::from(park5_annular);
         let visc = i32::from(park5_visc);
-        match march_park5_2d_mpi_geom(
-            &st, &sp.y, &g, &bc, cfl, aim, max_steps, &y_fill, geom, visc,
+        match march_park5_2d_mpi_body(
+            &st,
+            &sp.y,
+            &g,
+            &bc,
+            cfl,
+            aim,
+            max_steps,
+            &y_fill,
+            geom,
+            visc,
+            &park5_solid,
+            park5_tw,
         ) {
             Ok(r) => {
                 if let (Some(gst), Some(gp)) = (r.state, r.planes) {

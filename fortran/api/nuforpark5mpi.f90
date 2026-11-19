@@ -57,6 +57,7 @@ contains
   subroutine nfor_mpipark5_march(nx, ny, rho, mx, my, e_tot, ys, &
                                  dxs, dys, faces_y, geom, visc, cfl, &
                                  bc_w, bc_e, bc_s, bc_n, bc_vals, y_fill, &
+                                 solid, tw, x0off, &
                                  rho_o, mx_o, my_o, e_o, ys_o, dt_out, err) &
       bind(c, name="nfor_mpipark5_march")
     use iso_c_binding, only: c_int, c_double
@@ -68,6 +69,14 @@ contains
     real(c_double), value, intent(in) :: cfl
     integer(c_int), value, intent(in) :: bc_w, bc_e, bc_s, bc_n
     real(c_double), intent(in) :: bc_vals(*), y_fill(*)
+    ! immersed-body mask over the GLOBAL grid (nonzero = solid) plus the
+    ! body wall temperature (<= 0 = adiabatic); planar grids only.
+    integer(c_int), intent(in) :: solid(*)
+    real(c_double), value, intent(in) :: tw
+    ! global x-coordinate of the local slab's west face, a left-to-right
+    ! f64 prefix sum of the full row's widths, so seam wall stencils round
+    ! bit-identical to the serial oracle's global coordinates.
+    real(c_double), value, intent(in) :: x0off
     real(c_double), intent(out) :: rho_o(*), mx_o(*), my_o(*), e_o(*), ys_o(*)
     real(c_double), intent(out) :: dt_out
     integer(c_int), intent(out) :: err
@@ -79,6 +88,8 @@ contains
     real(RP), allocatable :: thr(:), tu(:), tv(:), te(:), ty(:,:)
     real(RP), allocatable :: yx(:,:,:), yy(:,:,:)
     real(RP), allocatable :: rhe(:), dee(:), ycw(:,:), pf(:)
+    integer, allocatable :: sol(:), sm(:,:)   ! slab mask and padded mask
+    logical, allocatable :: sw(:), se(:)       ! ghost-column solid flags
     real(RP) :: rl, rul, vul, el, pl, al
     real(RP) :: rr, rur, vur, er_, pr_, ar_
     real(RP) :: fm, fqx, fqy, fe, dummy, smax, smax_g, dt
@@ -86,9 +97,10 @@ contains
     real(RP) :: rm, rpv, rc, pk
     real(RP) :: yleft(NP5), yright(NP5), ysum, rho_y, worst_dy, worst_ov
     real(RP) :: flux_x, flux_y, dxi, dyi, dflux, new_rho_y
-    real(RP) :: dwx, dex, pri
-    real(RP), allocatable :: cwl(:,:), cel(:,:)
-    logical :: annular
+    real(RP) :: dwx, dex, pri, twv, x0off_r
+    real(RP), allocatable :: cwl(:,:), cel(:,:), seamf(:,:,:), wat(:,:)
+    real(RP), allocatable :: sf_send(:), sf_recv(:)
+    logical :: annular, has_body, touch
     type(decomp_t) :: dec
     integer :: world, rank, eerr, ierr, i, j, f, s, k, c, nl, nj, nn, ng, nb, nf, nbmax
     integer :: gi, sd, vv
@@ -103,7 +115,13 @@ contains
     end if
     ! the shared viscous kernel is planar-metric only; refusing annular +
     ! viscous here keeps the r-weighted lane from taking a wrong-metric pass.
+    ! the immersed-body layer is planar only as well: refuse the same way.
     if (geom /= 0 .and. visc /= 0) then
+      err = 3
+      dt_out = 0.0_c_double
+      return
+    end if
+    if (geom /= 0 .and. any(solid(1:int(nx)*int(ny)) /= 0)) then
       err = 3
       dt_out = 0.0_c_double
       return
@@ -121,6 +139,29 @@ contains
     nf = nl + 1
     ! the slope scratch serves both sweeps, so it takes the larger extent.
     nbmax = max(nl, nj) + 4
+
+    allocate(sol(nn), sm(nb,nj), sw(nj), se(nj))
+    twv = tw
+    x0off_r = x0off
+    do j = 1, nj
+      do i = 1, nl
+        k = (j-1)*nl + i
+        gi = dec%i0 + i - 1
+        sol(k) = solid((j-1)*ng + gi)
+        sm(i+2,j) = sol(k)
+      end do
+      sm(1,j) = sm(3,j); sm(2,j) = sm(3,j)
+      sm(nb-1,j) = sm(nb-2,j); sm(nb,j) = sm(nb-2,j)
+    end do
+    has_body = any(sol /= 0)
+    call halo_exchange_x_i(sm, dec)
+    do j = 1, nj
+      ! ghost col 2 is the global cell just west of the slab (the left
+      ! side of seam face f=1), ghost col nl+3 the one just east of it
+      ! (right side of face f=nl+1); domain edges never consult them.
+      sw(j) = (sm(2,j) /= 0)
+      se(j) = (sm(nl+3,j) /= 0)
+    end do
 
     do sd = 1, 4
       do vv = 1, 5
@@ -235,6 +276,14 @@ contains
         al = max(al, 1.0e-12_RP); ar_ = max(ar_, 1.0e-12_RP)
         call hllc_face_x_pub(rl, rul, vul, pl, el, al, rr, rur, vur, pr_, er_, ar_, &
                              1.4_RP, fm, fqx, fqy, fe)
+        ! a face touching a solid cell is an immersed boundary face for
+        ! the inviscid pass: no convective flux crosses it, exactly like
+        ! the serial oracle. sm is padded, so domain-edge ghosts simply
+        ! replicate the interior column and never trip this by accident.
+        touch = has_body .and. ((sm(f+1,j) /= 0) .or. (sm(f+2,j) /= 0))
+        if (touch) then
+          fm = 0.0_RP; fqx = 0.0_RP; fqy = 0.0_RP; fe = 0.0_RP
+        end if
         fx4(1,f,j) = fm; fx4(2,f,j) = fqx; fx4(3,f,j) = fqy; fx4(4,f,j) = fe
         fxm(f,j) = fm
       end do
@@ -309,6 +358,17 @@ contains
         al = max(al, 1.0e-12_RP); ar_ = max(ar_, 1.0e-12_RP)
         call hllc_face_x_pub(rl, rul, vul, pl, el, al, rr, rur, vur, pr_, er_, ar_, &
                              1.4_RP, fm, fqy, fqx, fe)
+        ! y-direction twin of the solid-touch zeroing: face f joins rows
+        ! f-1 and f of the same local column i; domain-edge faces only
+        ! see the one in-grid neighbour, as in the serial oracle.
+        touch = .false.
+        if (has_body) then
+          if (f > 1) touch = (sol((f-2)*nl + i) /= 0)
+          if (f <= nj) touch = touch .or. (sol((f-1)*nl + i) /= 0)
+        end if
+        if (touch) then
+          fm = 0.0_RP; fqx = 0.0_RP; fqy = 0.0_RP; fe = 0.0_RP
+        end if
         fy4(1,f,i) = fm; fy4(2,f,i) = fqx; fy4(3,f,i) = fqy; fy4(4,f,i) = fe
         fym(f,i) = fm
       end do
@@ -323,7 +383,10 @@ contains
       do i = 1, nl
         k = (j-1)*nl + i
         gi = dec%i0 + i - 1
-        if (annular) then
+        if (has_body .and. sol(k) /= 0) then
+          ! immersed solid cells are frozen by the march.
+          rho_o(k) = rho(k); mx_o(k) = mx(k); my_o(k) = my(k); e_o(k) = e_tot(k)
+        else if (annular) then
           ! annular: r-weighted radial divergence plus the p/rc source on
           ! radial momentum, grouped exactly like the serial axi oracle.
           rho_o(k) = rho(k) - dt*((fx4(1,i+1,j)-fx4(1,i,j))/dxs(i) &
@@ -428,7 +491,9 @@ contains
           rho_y = rho_o(k) * car(4+s,i+2,j)
           dflux = -(dxi*flux_x + dyi*flux_y)
           new_rho_y = rho_y + dflux
-          if (new_rho_y > 0.0_RP) then
+          if (has_body .and. sol(k) /= 0) then
+            ys_o((s-1)*nn + k) = ys((s-1)*nn + k)   ! frozen solid fill
+          else if (new_rho_y > 0.0_RP) then
             ys_o((s-1)*nn + k) = new_rho_y / rho_o(k)
           else
             ys_o((s-1)*nn + k) = 0.0_RP
@@ -470,14 +535,48 @@ contains
       call mpi_sendrecv(dxs(1), 1, MPI_DOUBLE_PRECISION, dec%west_rank, 104, &
                         dex, 1, MPI_DOUBLE_PRECISION, dec%east_rank, 104, &
                         MPI_COMM_WORLD, MPI_STATUS_IGNORE, ierr)
+      ! wall face at a slab seam whose fluid pair lives on the neighbour
+      ! slab: relay the bit-identical one-sided stencil flux across the
+      ! seam. pass 1 recomputes only the face sweeps (no state mutation)
+      ! and exports the wall-classified seam faces; after the exchange,
+      ! pass 2 adopts them at non-local wall faces and applies the update.
+      allocate(seamf(3,nj,2), sf_send(3*nj), sf_recv(3*nj))
       call park5_viscous_update(nl, nj, rho_o, mx_o, my_o, e_o, ys_o, dxs, dys, dt, &
                                 dec%west_domain_edge, dec%east_domain_edge, &
-                                dwx, dex, cwl, cel)
+                                dwx, dex, cwl, cel, sol, twv, sw, se, .true., seamf, x0off_r)
+      ! pack both seam faces before the exchanges overwrite the slots:
+      ! slot 2 (east seam) ships east, slot 1 (west seam) ships west.
+      allocate(wat(3,nj))
+      wat = seamf(:,:,1)
+      do j = 1, nj
+        sf_send(3*j-2) = seamf(1,j,2); sf_send(3*j-1) = seamf(2,j,2); sf_send(3*j) = seamf(3,j,2)
+      end do
+      call mpi_sendrecv(sf_send, 3*nj, MPI_DOUBLE_PRECISION, dec%east_rank, 105, &
+                        sf_recv, 3*nj, MPI_DOUBLE_PRECISION, dec%west_rank, 105, &
+                        MPI_COMM_WORLD, MPI_STATUS_IGNORE, ierr)
+      do j = 1, nj
+        seamf(1,j,1) = sf_recv(3*j-2); seamf(2,j,1) = sf_recv(3*j-1); seamf(3,j,1) = sf_recv(3*j)
+      end do
+      do j = 1, nj
+        sf_send(3*j-2) = wat(1,j); sf_send(3*j-1) = wat(2,j); sf_send(3*j) = wat(3,j)
+      end do
+      call mpi_sendrecv(sf_send, 3*nj, MPI_DOUBLE_PRECISION, dec%west_rank, 106, &
+                        sf_recv, 3*nj, MPI_DOUBLE_PRECISION, dec%east_rank, 106, &
+                        MPI_COMM_WORLD, MPI_STATUS_IGNORE, ierr)
+      do j = 1, nj
+        seamf(1,j,2) = sf_recv(3*j-2); seamf(2,j,2) = sf_recv(3*j-1); seamf(3,j,2) = sf_recv(3*j)
+      end do
+      deallocate(wat)
+      call park5_viscous_update(nl, nj, rho_o, mx_o, my_o, e_o, ys_o, dxs, dys, dt, &
+                                dec%west_domain_edge, dec%east_domain_edge, &
+                                dwx, dex, cwl, cel, sol, twv, sw, se, .false., seamf, x0off_r)
+      deallocate(seamf, sf_send, sf_recv)
       deallocate(cwl, cel)
     end if
 
     ! ===================== normalisation and chemistry =====================
     do k = 1, nn
+      if (has_body .and. sol(k) /= 0) cycle   ! solid fill is frozen
       ysum = 0.0_RP
       do s = 1, NP5
         ysum = ysum + ys_o((s-1)*nn + k)
@@ -494,8 +593,9 @@ contains
         ycw(s,k) = ys_o((s-1)*nn + k)
       end do
     end do
-    call chem_substep_grid(nn, rhe, dee, dt, ycw, worst_dy, worst_ov)
+    call chem_substep_grid(nn, rhe, dee, dt, ycw, worst_dy, worst_ov, sol)
     do k = 1, nn
+      if (has_body .and. sol(k) /= 0) cycle   ! solid fill is frozen
       do s = 1, NP5
         ys_o((s-1)*nn + k) = max(ycw(s,k), 0.0_RP)
       end do
@@ -505,6 +605,7 @@ contains
     deallocate(sxr, sxu, sxv, sxe, sxy)
     deallocate(thr, tu, tv, te, ty)
     deallocate(yx, yy, rhe, dee, ycw, pf)
+    deallocate(sol, sm, sw, se)
     err = 0
   end subroutine nfor_mpipark5_march
 

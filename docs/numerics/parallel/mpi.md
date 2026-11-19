@@ -242,10 +242,16 @@ laminar viscous, SA RANS marches (body-free), and the perfect-gas
 two-temperature march through the MPI core when launched under `mpirun`
 (or with `NFOR_MPI=1` set); np=1 runs the same path.
 Masked-body Euler cases march in single-step chunks so rank 0 can re-project
-the wall band between steps (the body gate above); viscous masked-body cases
-stay on the serial Rust march because the Fortran viscous kernel wall-treats
-domain faces only, so a body under mpirun would silently skip the no-slip
-band.
+the wall band between steps (the body gate above). Viscous masked-body Park-5
+now marches under mpirun too: the shared viscous kernel takes the solid mask
+and wall temperature as trailing arguments, treats solid-touching faces as
+walls, freezes solid cells through every stage, and reads the one-deep seam
+ghost columns for wall stencils that reach past the slab (seeded by the
+slab's global coordinate offset, so the rounding matches the serial oracle
+bit for bit). A two-pass relay inside the march ships wall-face fluxes whose
+fluid pair lives on the neighbour slab across a seam that coincides with a
+wall. Annular-plus-viscous and annular-plus-body refuse with `err = 3` and
+stay on the serial lane; SA-RANS viscous masked-body remains serial-only.
 
 ## Distributed restart
 

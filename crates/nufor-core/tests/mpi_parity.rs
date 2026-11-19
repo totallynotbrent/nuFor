@@ -1748,6 +1748,268 @@ fn mpi_mpipark5_visc_matches_serial() {
     mpi_shutdown();
 }
 
+/// the masked-body twin of the park5 march gate: a circular body punched
+/// into the planar channel (straddling slab seams at higher np), advanced
+/// one step through both the mpi march and the serial oracle with the SAME
+/// global mask and wall temperature, compared bit for bit. the sharp edge
+/// is visc = 1: the shared kernel's body-aware wall stencil (one-sided
+/// quadratic no-slip, isothermal at tw > 0, non-catalytic species flux)
+/// must fire under mpirun exactly as in serial. solid cells are frozen
+/// wholesale by both paths, so they must reproduce the input exactly.
+#[test]
+#[ignore] // run under mpirun -np N, see the ci parity-smoke step
+fn mpi_mpipark5_body_matches_serial() {
+    use nufor_core::ffi_mpi::{
+        march_park5_2d_mpi_body, mpi_shutdown, park5_boundary_codes, MpiSession,
+    };
+    use nufor_core::park::NS;
+    use nufor_core::park5_fortran::{cart_step_geom_body, CartBc};
+
+    const AIR: [f64; NS] = [0.767, 0.233, 0.0, 0.0, 0.0];
+
+    let (nx, ny) = (24usize, 8usize);
+    let n = nx * ny;
+    let g = nufor_core::grid2d::grid2d(nx, ny, 0.0, 1.0, 0.0, 1.0).unwrap();
+
+    let rho0 = 1.225f64;
+    let u0 = 400.0f64;
+    let v0 = 12.0f64;
+    let e_int = nufor_core::species_closure::internal_energy_at(300.0, &AIR);
+    let st = ConservedState2d {
+        rho: vec![rho0; n],
+        mx: vec![rho0 * u0; n],
+        my: vec![rho0 * v0; n],
+        e: vec![rho0 * (e_int + 0.5 * (u0 * u0 + v0 * v0)); n],
+    };
+    // graded composition, same recipe as the visc gate so the viscous /
+    // diffusion lanes are awake next to the body band
+    let planes: Vec<Vec<f64>> = (0..NS)
+        .map(|s| {
+            (0..n)
+                .map(|k| {
+                    let i = k % nx;
+                    let j = k / nx;
+                    let dx = 0.05 * (std::f64::consts::TAU * i as f64 / nx as f64).cos();
+                    let dy = 0.02 * (std::f64::consts::TAU * j as f64 / ny as f64).sin();
+                    let d = dx + dy;
+                    match s {
+                        0 => AIR[0] + d,
+                        1 => AIR[1] - d,
+                        _ => AIR[s],
+                    }
+                })
+                .collect()
+        })
+        .collect();
+
+    let bc = nufor_core::Boundaries2d {
+        west: nufor_core::Bc2d::SupersonicInflow {
+            rho: rho0,
+            u: u0,
+            v: v0,
+            p: rho0 * 287.05 * 300.0,
+            t: Some(300.0),
+        },
+        east: nufor_core::Bc2d::Transmissive,
+        south: nufor_core::Bc2d::Transmissive,
+        north: nufor_core::Bc2d::Transmissive,
+    };
+
+    // circular body centered mid-channel, radius covering several columns
+    // and rows so the wall band crosses slab seams at np >= 2
+    let (cx, cy, rr) = (0.5f64, 0.5f64, 0.2f64);
+    let dist = move |x: f64, y: f64| ((x - cx) * (x - cx) + (y - cy) * (y - cy)).sqrt() - rr;
+    let band = 1.5 * g.dx.min(g.dy);
+    let solid: Vec<i32> = nufor_core::body_cache(&g, &dist, band)
+        .mask
+        .iter()
+        .map(|&b| i32::from(b))
+        .collect();
+    let nsolid = solid.iter().filter(|&&s| s != 0).count();
+    assert!(
+        nsolid > 0 && nsolid < n,
+        "the fixture body must punch into the channel (nsolid = {nsolid})"
+    );
+    let tw = 450.0f64;
+
+    MpiSession::new().unwrap();
+    let (drank, _di0, _dnl) = MpiSession::case_init(nx, ny).unwrap();
+    let r = march_park5_2d_mpi_body(
+        &st, &planes, &g, &bc, 0.45, 1.0e30, 1, &AIR, 0, 1, &solid, tw,
+    )
+    .unwrap();
+
+    let (_, sides) = park5_boundary_codes(&bc, &AIR);
+    let ser = cart_step_geom_body(
+        nx,
+        ny,
+        &g.dxs,
+        &g.dys,
+        &g.faces_y,
+        0,
+        1,
+        0.45,
+        CartBc::Inflow,
+        CartBc::Transmissive,
+        CartBc::Transmissive,
+        CartBc::Transmissive,
+        &sides,
+        &st.rho,
+        &st.mx,
+        &st.my,
+        &st.e,
+        &planes,
+        &AIR,
+        &solid,
+        tw,
+    )
+    .unwrap();
+    // body-free twin to prove the mask actually moved the solution
+    let dry = cart_step_geom_body(
+        nx,
+        ny,
+        &g.dxs,
+        &g.dys,
+        &g.faces_y,
+        0,
+        1,
+        0.45,
+        CartBc::Inflow,
+        CartBc::Transmissive,
+        CartBc::Transmissive,
+        CartBc::Transmissive,
+        &sides,
+        &st.rho,
+        &st.mx,
+        &st.my,
+        &st.e,
+        &planes,
+        &AIR,
+        &[],
+        0.0,
+    )
+    .unwrap();
+    // bodied but inviscid twin to prove the laminar pass stayed alive
+    // next to the wall band
+    let wet_free = cart_step_geom_body(
+        nx,
+        ny,
+        &g.dxs,
+        &g.dys,
+        &g.faces_y,
+        0,
+        0,
+        0.45,
+        CartBc::Inflow,
+        CartBc::Transmissive,
+        CartBc::Transmissive,
+        CartBc::Transmissive,
+        &sides,
+        &st.rho,
+        &st.mx,
+        &st.my,
+        &st.e,
+        &planes,
+        &AIR,
+        &solid,
+        tw,
+    )
+    .unwrap();
+
+    match (&r.state, &r.planes) {
+        (Some(got), Some(got_y)) => {
+            let mut worst = 0.0f64;
+            let mut worst_frozen = 0.0f64;
+            let mut body_shift = 0.0f64;
+            let mut visc_shift = 0.0f64;
+            let mut composed = 0.0f64;
+            let mut col_profile = vec![0.0f64; nx];
+            for k in 0..n {
+                if solid[k] != 0 {
+                    // both paths freeze solid cells wholesale: the output
+                    // must equal the input bit for bit
+                    worst_frozen = worst_frozen.max((got.rho[k] - st.rho[k]).abs());
+                    worst_frozen = worst_frozen.max((got.mx[k] - st.mx[k]).abs());
+                    worst_frozen = worst_frozen.max((got.my[k] - st.my[k]).abs());
+                    worst_frozen = worst_frozen.max((got.e[k] - st.e[k]).abs());
+                    for s in 0..NS {
+                        worst_frozen = worst_frozen.max((got_y[s][k] - planes[s][k]).abs());
+                    }
+                    continue;
+                }
+                worst = worst.max((got.rho[k] - ser.rho[k]).abs());
+                worst = worst.max((got.mx[k] - ser.mx[k]).abs());
+                worst = worst.max((got.my[k] - ser.my[k]).abs());
+                worst = worst.max((got.e[k] - ser.e[k]).abs());
+                body_shift = body_shift.max((ser.rho[k] - dry.rho[k]).abs());
+                body_shift = body_shift.max((ser.mx[k] - dry.mx[k]).abs());
+                body_shift = body_shift.max((ser.my[k] - dry.my[k]).abs());
+                body_shift = body_shift.max((ser.e[k] - dry.e[k]).abs());
+                visc_shift = visc_shift.max((ser.rho[k] - wet_free.rho[k]).abs());
+                visc_shift = visc_shift.max((ser.mx[k] - wet_free.mx[k]).abs());
+                visc_shift = visc_shift.max((ser.my[k] - wet_free.my[k]).abs());
+                visc_shift = visc_shift.max((ser.e[k] - wet_free.e[k]).abs());
+                let ck = k % nx;
+                let dk = (got.rho[k] - ser.rho[k])
+                    .abs()
+                    .max((got.mx[k] - ser.mx[k]).abs())
+                    .max((got.my[k] - ser.my[k]).abs())
+                    .max((got.e[k] - ser.e[k]).abs());
+                col_profile[ck] = col_profile[ck].max(dk);
+                let mut sum = 0.0f64;
+                for (((gs, ss), ds), ws) in got_y
+                    .iter()
+                    .zip(&ser.planes)
+                    .zip(&dry.planes)
+                    .zip(&wet_free.planes)
+                {
+                    worst = worst.max((gs[k] - ss[k]).abs());
+                    body_shift = body_shift.max((ss[k] - ds[k]).abs());
+                    visc_shift = visc_shift.max((ss[k] - ws[k]).abs());
+                    sum += gs[k];
+                }
+                composed = composed.max((sum - 1.0).abs());
+            }
+            mpi_report::number("mpipark5_body_worst_abs_vs_serial_one_step", worst);
+            mpi_report::number("mpipark5_body_solid_frozen_residual", worst_frozen);
+            mpi_report::number("mpipark5_body_mask_effect_vs_bodyfree", body_shift);
+            mpi_report::number("mpipark5_body_viscous_effect_vs_inviscid", visc_shift);
+            mpi_report::number("mpipark5_body_worst_composition_sum_error", composed);
+            mpi_report::integer("mpipark5_body_solid_cells", nsolid as i64);
+            mpi_report::integer("mpipark5_body_world_size", num_ranks() as i64);
+            for (ci, cw) in col_profile.iter().enumerate() {
+                if *cw > 0.0 {
+                    println!("col {ci}: worst {cw:.6e}");
+                }
+            }
+            mpi_report::flush();
+            mpi_report::fence();
+            assert_eq!(
+                worst_frozen, 0.0,
+                "a solid cell moved under the march ({worst_frozen:e})"
+            );
+            assert!(
+                body_shift > 1.0e-12,
+                "the body mask changed nothing vs the body-free step ({body_shift:e})"
+            );
+            assert!(
+                visc_shift > 1.0e-12,
+                "visc = 1 reproduced visc = 0 exactly beside the body ({visc_shift:e})"
+            );
+            assert!(
+                composed <= 1.0e-12,
+                "the composition lost its normalisation ({composed:e})"
+            );
+            assert_eq!(
+                worst, 0.0,
+                "the bodied mpi march diverged from the serial oracle ({worst:e})"
+            );
+        }
+        _ => assert_ne!(drank, 0, "rank 0 must assemble the global state"),
+    }
+    mpi_shutdown();
+}
+
 // -------------------------------------------------------------------
 // mpi park2t gate: the fortran perfect-gas 2t lane (march_pg2t2d_mpi)
 // versus the serial rust oracle (advance2d_model_rk2 Perfect +

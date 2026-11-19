@@ -401,14 +401,20 @@ contains
   ! the laminar viscous pass shared by the serial and the mpi park5 lanes:
   ! wilke coefficients per cell, interior-face stress / conduction /
   ! species-diffusion fluxes, and the divergence update with the face-local
-  ! diffusion stability cap. mirrors species_viscous.rs (body-free): domain
-  ! faces carry zero viscous flux, and the central stencils never read a
-  ! ghost column, so the mpi lane needs no halo for this pass.
-  ! the composition arrives flat, species-major (ys((s-1)*n+k)), and is
-  ! mutated in place together with the momenta and the energy; the density
-  ! is only read.
+  ! diffusion stability cap. mirrors species_viscous.rs: domain faces carry
+  ! zero viscous flux, and the central stencils never read a ghost column,
+  ! so the mpi lane needs no halo for this pass.
+  ! body awareness: sol(k) /= 0 marks a frozen solid cell; a face with
+  ! exactly one solid side is a no-slip wall face evaluated with the
+  ! one-sided quadratic stencil through (wall value, first fluid cell,
+  ! second fluid cell), isothermal when tw > 0, non-catalytic (species
+  ! flux zero). sw/se flag a solid ghost column at the x seams, so a seam
+  ! face classifies exactly like an interior one. the composition arrives
+  ! flat, species-major (ys((s-1)*n+k)), and is mutated in place together
+  ! with the momenta and the energy; the density is only read.
   subroutine park5_viscous_update(nl, nj, rho, mx, my, e_tot, ys, dxs, dys, dt, &
-                                   west_edge, east_edge, dwx, dex, cw, ce)
+                               west_edge, east_edge, dwx, dex, cw, ce, &
+                               sol, tw, sw, se, flux_only, seamf, x0off)
     integer, intent(in) :: nl, nj
     logical, intent(in) :: west_edge, east_edge
     real(DP), intent(in) :: rho(nl*nj), dxs(nl), dys(nj), dt
@@ -419,18 +425,45 @@ contains
     ! (rho, u, v, e_int, Y_1..5); only read when the face is not a
     ! global domain edge.
     real(DP), intent(in) :: cw(9,nj), ce(9,nj)
+    ! solid mask over the nl*nj slab (1 = solid) plus the body wall
+    ! temperature and the ghost-column solid flags at the x seams.
+    integer, intent(in) :: sol(nl*nj)
+    real(DP), intent(in) :: tw
+    logical, intent(in) :: sw(nj), se(nj)
+    ! mpi-only seam relay (serial callers omit both and take the plain
+    ! single-call path): flux_only = .true. stops after the face sweeps
+    ! and exports the wall-classified seam-face fluxes into seamf(:,j,1:2)
+    ! (face f=1 west seam / f=nl+1 east seam) so the neighboring slab can
+    ! adopt them; flux_only = .false. adopts seamf back over its own seam
+    ! wall faces before the divergence update. a wall face whose fluid
+    ! pair is owned by the opposite slab cannot be formed locally, so the
+    ! owner's values must arrive bit-identical through this relay.
+    logical, optional, intent(in) :: flux_only
+    real(DP), optional, intent(inout) :: seamf(:,:,:)
+    ! optional global x-coordinate of the local slab's west face, computed
+    ! by the caller as a left-to-right f64 prefix sum of the full row's
+    ! widths (ieee-identical to this routine's own accumulation order over
+    ! the whole row). serial callers omit it and keep the local-from-zero
+    ! chain; mpi callers pass it so a seam wall stencil rounds bit-identical
+    ! to the serial oracle's global coordinates.
+    real(DP), optional, intent(in) :: x0off
     real(DP), intent(inout) :: mx(nl*nj), my(nl*nj), e_tot(nl*nj), ys(*)
     real(DP), allocatable :: car(:,:,:), tt(:), mu(:), ka(:), df(:)
     real(DP), allocatable :: gt(:), gm(:), gk(:), gd(:), ht(:), hm(:), hk(:), hd(:)
     real(DP), allocatable :: gce(:)
     real(DP), allocatable :: xtx(:,:), xty(:,:), xen(:,:), xjs(:,:,:)
     real(DP), allocatable :: ytx(:,:), yty(:,:), yen(:,:), yjs(:,:,:)
+    real(DP), allocatable :: cenx(:), facx(:), ceny(:), facy(:)
     real(DP) :: yc(NS), yg(NS), pc, pg, ph, mum, kam, dfm, dx, dy
     real(DP) :: dudx, dvdx, duDy, dvdy, dtdx, dtdy
     real(DP) :: div, txx, txy, tyy, qx, qy, rf, js, qe, rhom, dtx, dty, ssum
     real(DP) :: rl, ul, vl, el, mul, kal, dfl, tgl
     real(DP) :: rr, ur, vr, er_, mur, kar, dfr, tgr
-    integer :: i, j, f, s, k, kl, kr, nn
+    real(DP) :: acc, d0, d1, qt, uq, vq
+    logical :: sld_l, sld_r, wallf, loc_ok, gw, ge, wok
+    real(DP) :: ua_, va_, ta_, mua_, kaa_, xa_
+    real(DP) :: ub_, vb_, tb_, mub_, kab_, xb_, ys_g(NS)
+    integer :: i, j, f, s, k, kl, kr, nn, ia, ib, ka_k, kb_k
 
     nn = nl*nj
     allocate(car(9, nl+4, nj), tt(nn), mu(nn), ka(nn), df(nn))
@@ -438,8 +471,26 @@ contains
     allocate(gce(nj))
     allocate(xtx(nl+1,nj), xty(nl+1,nj), xen(nl+1,nj), xjs(NS,nl+1,nj))
     allocate(ytx(nj+1,nl), yty(nj+1,nl), yen(nj+1,nl), yjs(NS,nj+1,nl))
+    allocate(cenx(nl), facx(nl+1), ceny(nj), facy(nj+1))
+    if (present(seamf)) seamf = 0.0_DP
     xtx = 0.0_DP; xty = 0.0_DP; xen = 0.0_DP; xjs = 0.0_DP
     ytx = 0.0_DP; yty = 0.0_DP; yen = 0.0_DP; yjs = 0.0_DP
+    ! face/cell-centre coordinates accumulated from the widths, so the mpi
+    ! and serial lanes derive identical stencil distances from the same dxs.
+    acc = 0.0_DP
+    if (present(x0off)) acc = x0off
+    facx(1) = acc
+    do i = 1, nl
+      cenx(i) = acc + 0.5_DP*dxs(i)
+      acc = acc + dxs(i)
+      facx(i+1) = acc
+    end do
+    acc = 0.0_DP; facy(1) = 0.0_DP
+    do j = 1, nj
+      ceny(j) = acc + 0.5_DP*dys(j)
+      acc = acc + dys(j)
+      facy(j+1) = acc
+    end do
 
     ! padded primitive carrier, centres only.
     do j = 1, nj
@@ -504,10 +555,120 @@ contains
     ! x faces f = 1..nl+1. f = 1 pairs the west neighbour column with
     ! local cell 1 and f = nl+1 local cell nl with the east neighbour;
     ! a global domain edge skips the face (arrays preset to zero flux).
+    ! a face with a solid side is classified first: both sides solid means
+    ! a buried face (zero flux); exactly one solid side is a body wall
+    ! face carrying the one-sided no-slip stencil of species_viscous.rs.
     do j = 1, nj
       do f = 1, nl+1
         if (f == 1 .and. west_edge) cycle
         if (f == nl+1 .and. east_edge) cycle
+        if (f == 1) then
+          sld_l = sw(j)
+        else
+          sld_l = (sol((j-1)*nl + f - 1) /= 0)
+        end if
+        if (f == nl+1) then
+          sld_r = se(j)
+        else
+          sld_r = (sol((j-1)*nl + f) /= 0)
+        end if
+        if (sld_l .and. sld_r) cycle
+        wallf = (sld_l .neqv. sld_r)
+        if (wallf) then
+          ! fluid side is right when the left is solid; the stencil needs
+          ! the two nearest fluid cells. pad columns 2 and nl+3 are the
+          ! seam ghosts (halo-refreshed after the transport pass), so a
+          ! stencil may reach one ghost deep on an interior rank; the
+          ! serial oracle evaluates the same global cells there. depth-two
+          ! pairs and domain-edge ghosts fall back to the relay/zero path,
+          ! which reproduces the serial guard exactly.
+          loc_ok = .false.; gw = .false.; ge = .false.
+          if (sld_l) then
+            ia = f; ib = f + 1
+            if (ib <= nl) then
+              loc_ok = .true.
+            else if (ib == nl + 1 .and. ia <= nl .and. .not. east_edge) then
+              ge = .true.; loc_ok = .true.
+            end if
+          else
+            ia = f - 1; ib = f - 2
+            if (ib >= 1) then
+              loc_ok = .true.
+            else if (ib == 0 .and. .not. west_edge) then
+              gw = .true.; loc_ok = .true.
+            end if
+          end if
+          if (loc_ok) then
+            ! stencil point 1 is always the ia cell, point 2 the ib cell,
+            ! exactly as the serial oracle pairs them; the flux multipliers
+            ! (viscosity/conductivity) come from point 1's closure, matching
+            ! the serial mu(ia) to the last bit. in the gw case ib sits in
+            ! the west seam ghost, so its values/coords come from cw.
+            if (.not. gw .and. .not. ge) then
+              ka_k = (j-1)*nl + ia; kb_k = (j-1)*nl + ib
+              ua_ = car(2,ia+2,j); va_ = car(3,ia+2,j)
+              ta_ = tt(ka_k); mua_ = mu(ka_k); kaa_ = ka(ka_k)
+              xa_ = cenx(ia)
+              ub_ = car(2,ib+2,j); vb_ = car(3,ib+2,j)
+              tb_ = tt(kb_k); mub_ = mu(kb_k); kab_ = ka(kb_k)
+              xb_ = cenx(ib)
+            else if (gw) then
+              ka_k = (j-1)*nl + ia
+              ua_ = car(2,ia+2,j); va_ = car(3,ia+2,j)
+              ta_ = tt(ka_k); mua_ = mu(ka_k); kaa_ = ka(ka_k)
+              xa_ = cenx(ia)
+              do s = 1, NS
+                ys_g(s) = cw(4+s,j)
+              end do
+              tb_ = temperature_at(cw(4,j), ys_g)
+              mub_ = mixture_viscosity(ys_g, tb_)
+              kab_ = mixture_conductivity(ys_g, tb_)
+              ub_ = cw(2,j); vb_ = cw(3,j)
+              xb_ = facx(1) - 0.5_DP*dwx
+            else
+              ka_k = (j-1)*nl + ia
+              ua_ = car(2,ia+2,j); va_ = car(3,ia+2,j)
+              ta_ = tt(ka_k); mua_ = mu(ka_k); kaa_ = ka(ka_k)
+              xa_ = cenx(ia)
+              do s = 1, NS
+                ys_g(s) = ce(4+s,j)
+              end do
+              tb_ = temperature_at(ce(4,j), ys_g)
+              mub_ = mixture_viscosity(ys_g, tb_)
+              kab_ = mixture_conductivity(ys_g, tb_)
+              ub_ = ce(2,j); vb_ = ce(3,j)
+              xb_ = facx(nl+1) + 0.5_DP*dex
+            end if
+            uq = quad_wall(0.0_DP, ua_, ub_, facx(f), xa_, xb_)
+            vq = quad_wall(0.0_DP, va_, vb_, facx(f), xa_, xb_)
+            xtx(f,j) = mua_*uq
+            xty(f,j) = mua_*vq
+            xen(f,j) = 0.0_DP
+            if (tw > 0.0_DP) then
+              qt = quad_wall(tw, ta_, tb_, facx(f), xa_, xb_)
+              xen(f,j) = kaa_*qt
+            end if
+          else if (present(seamf)) then
+            ! the fluid pair lives two ghosts deep on the neighbour slab:
+            ! adopt the bit-identical flux it relayed for this seam face.
+            if (f == 1) then
+              xtx(1,j) = seamf(1,j,1); xty(1,j) = seamf(2,j,1); xen(1,j) = seamf(3,j,1)
+            else
+              xtx(nl+1,j) = seamf(1,j,2); xty(nl+1,j) = seamf(2,j,2); xen(nl+1,j) = seamf(3,j,2)
+            end if
+          end if
+          if (present(seamf)) then
+            ! export this seam face's wall flux for the neighbour slab
+            ! (its own computation if the fluid pair is local, else the
+            ! adopted relay; zeros when neither side classifies a wall).
+            if (f == 1) then
+              seamf(1,j,1) = xtx(1,j); seamf(2,j,1) = xty(1,j); seamf(3,j,1) = xen(1,j)
+            else if (f == nl+1) then
+              seamf(1,j,2) = xtx(nl+1,j); seamf(2,j,2) = xty(nl+1,j); seamf(3,j,2) = xen(nl+1,j)
+            end if
+          end if
+          cycle
+        end if
         ! left side of the face
         if (f == 1) then
           kl = 0
@@ -567,8 +728,32 @@ contains
     end do
 
     ! y faces f = 2..nj (f = 1 and f = nj+1 are domain faces: zero flux).
+    ! solid-adjacent faces classify exactly as in the x sweep.
     do i = 1, nl
       do f = 2, nj
+        sld_l = (sol((f-2)*nl + i) /= 0)
+        sld_r = (sol((f-1)*nl + i) /= 0)
+        if (sld_l .and. sld_r) cycle
+        wallf = (sld_l .neqv. sld_r)
+        if (wallf) then
+          if (sld_l) then
+            ia = f; ib = f + 1; wok = (f + 1 <= nj)
+          else
+            ia = f - 1; ib = f - 2; wok = (f - 2 >= 1)
+          end if
+          if (.not. wok) cycle
+          ka_k = (ia-1)*nl + i; kb_k = (ib-1)*nl + i
+          uq = quad_wall(0.0_DP, car(2,i+2,ia), car(2,i+2,ib), facy(f), ceny(ia), ceny(ib))
+          vq = quad_wall(0.0_DP, car(3,i+2,ia), car(3,i+2,ib), facy(f), ceny(ia), ceny(ib))
+          ytx(f,i) = mu(ka_k)*uq
+          yty(f,i) = mu(ka_k)*vq
+          yen(f,i) = 0.0_DP
+          if (tw > 0.0_DP) then
+            qt = quad_wall(tw, tt(ka_k), tt(kb_k), facy(f), ceny(ia), ceny(ib))
+            yen(f,i) = ka(ka_k)*qt
+          end if
+          cycle
+        end if
         kl = (f-2)*nl + i
         kr = (f-1)*nl + i
         dy = 0.5_DP*(dys(f-1) + dys(f))
@@ -598,9 +783,17 @@ contains
 
     ! divergence update, each face scaled by the stricter of the two
     ! adjoining cells' diffusion caps.
+    if (present(flux_only)) then
+      if (flux_only) then   ! seam-flux export pass: no state mutation
+        deallocate(car, tt, mu, ka, df, gt, gm, gk, gd, ht, hm, hk, hd, gce, &
+                   xtx, xty, xen, xjs, ytx, yty, yen, yjs, cenx, facx, ceny, facy)
+        return
+      end if
+    end if
     do j = 1, nj
       do i = 1, nl
         k = (j-1)*nl + i
+        if (sol(k) /= 0) cycle   ! solid cells are frozen by the march
         rhom = max(rho(k), 1.0e-9_DP)
         dtx = cell_cap(k, dxs(i), dys(j), dt)
         if (i < nl) then
@@ -623,8 +816,10 @@ contains
       end do
     end do
 
-    ! positivity clip + renormalize, one cell at a time.
+    ! positivity clip + renormalize, one cell at a time; solid cells keep
+    ! their frozen composition untouched.
     do k = 1, nn
+      if (sol(k) /= 0) cycle
       ssum = 0.0_DP
       do s = 1, NS
         if (ys((s-1)*nn+k) < 0.0_DP) ys((s-1)*nn+k) = 0.0_DP
@@ -639,7 +834,7 @@ contains
     end do
 
     deallocate(car, tt, mu, ka, df, gt, gm, gk, gd, ht, hm, hk, hd, gce, &
-               xtx, xty, xen, xjs, ytx, yty, yen, yjs)
+               xtx, xty, xen, xjs, ytx, yty, yen, yjs, cenx, facx, ceny, facy)
 
   contains
 
@@ -652,6 +847,18 @@ contains
       c = min(dx*dx / (4.0_DP*max(df(k), 1.0e-12_DP) / rh), &
               dy*dy / (4.0_DP*max(df(k), 1.0e-12_DP) / rh), dtc)
     end function cell_cap
+
+    ! the one-sided quadratic derivative at a body wall through the wall
+    ! value and the first two fluid-cell centres: literal port of
+    ! species_viscous.rs quad_deriv_at_wall, exact for quadratics.
+    function quad_wall(vw, va, vb, xw, ca, cb) result(d)
+      real(DP), intent(in) :: vw, va, vb, xw, ca, cb
+      real(DP) :: d, w0, w1, w2
+      w0 = (2.0_DP*xw - ca - cb) / ((xw - ca)*(xw - cb))
+      w1 = (xw - cb) / ((ca - xw)*(ca - cb))
+      w2 = (xw - ca) / ((cb - xw)*(cb - ca))
+      d = vw*w0 + va*w1 + vb*w2
+    end function quad_wall
 
   end subroutine park5_viscous_update
 

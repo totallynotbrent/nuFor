@@ -458,6 +458,19 @@ flowchart LR
     the [[numerics/parallel/mpi|MPI page]]); annular-plus-viscous combinations
     refuse with `err = 3` and stay on the serial lane.
 
+    Masked-body Park-5 (planar, inviscid and viscous) is now MPI-native as
+    well: the march takes the global row-major solid mask and wall
+    temperature, freezes solid cells through every stage, zeroes the
+    inviscid flux at solid-touching faces, and runs the shared viscous
+    kernel body-aware. Wall faces whose fluid stencil reaches into the
+    one-deep seam ghost column are computed from the halo carrier with
+    bit-identical coordinates (`x0off` seeds the prefix sum), and a
+    two-pass seam relay covers wall faces that sit exactly on a slab seam.
+    The `mpi_mpipark5_body_matches_serial` gate in
+    `crates/nufor-core/tests/mpi_parity.rs` (circle straddling the np=4 slab
+    seams, warm wall) holds bit parity at np=1..4. Annular-plus-body still
+    refuses with `err = 3`.
+
 ## What we deliberately do not borrow
 
 - MHD (Lorentz/Joule source terms, conductivity models, Hall effect):

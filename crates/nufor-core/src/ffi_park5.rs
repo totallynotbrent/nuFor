@@ -98,6 +98,8 @@ extern "C" {
         bc_n: c_int,
         bc_vals: *const f64,
         y_fill: *const f64,
+        solid: *const c_int,
+        tw: f64,
         rho2: *mut f64,
         mx2: *mut f64,
         my2: *mut f64,

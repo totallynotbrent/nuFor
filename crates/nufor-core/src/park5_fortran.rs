@@ -329,9 +329,28 @@ pub fn cart_step(
     // the planar path: the faces and the geometry selector are inert, so
     // a zeroed stand-in buffer satisfies the abi without being read.
     let zeros = vec![0.0f64; ny + 1];
-    cart_step_geom(
-        nx, ny, dxs, dys, &zeros, 0, 0, cfl, bc_w, bc_e, bc_s, bc_n, bc_vals, rho, mx, my, e,
-        planes, y_fill,
+    cart_step_geom_body(
+        nx,
+        ny,
+        dxs,
+        dys,
+        &zeros,
+        0,
+        0,
+        cfl,
+        bc_w,
+        bc_e,
+        bc_s,
+        bc_n,
+        bc_vals,
+        rho,
+        mx,
+        my,
+        e,
+        planes,
+        y_fill,
+        &[],
+        0.0,
     )
 }
 
@@ -362,6 +381,62 @@ pub fn cart_step_geom(
     planes: &[Vec<f64>],
     y_fill: &[f64],
 ) -> Result<CartStepResult, Error> {
+    // legacy callers carry no body: an empty mask reproduces the pre-body
+    // behaviour exactly.
+    cart_step_geom_body(
+        nx,
+        ny,
+        dxs,
+        dys,
+        faces_y,
+        geom,
+        visc,
+        cfl,
+        bc_w,
+        bc_e,
+        bc_s,
+        bc_n,
+        bc_vals,
+        rho,
+        mx,
+        my,
+        e,
+        planes,
+        y_fill,
+        &[],
+        0.0,
+    )
+}
+
+/// the body-aware twin of [`cart_step_geom`]: `solid` is the immersed-body
+/// mask over the nx*ny grid, row-major (nonzero = solid), `tw` the body
+/// wall temperature (<= 0 = adiabatic, non-catalytic). an empty slice
+/// selects the body-free path. planar grids only: an annular request with
+/// any solid cell is refused on the fortran side with the viscous err code.
+#[allow(clippy::too_many_arguments)]
+pub fn cart_step_geom_body(
+    nx: usize,
+    ny: usize,
+    dxs: &[f64],
+    dys: &[f64],
+    faces_y: &[f64],
+    geom: c_int,
+    visc: c_int,
+    cfl: f64,
+    bc_w: CartBc,
+    bc_e: CartBc,
+    bc_s: CartBc,
+    bc_n: CartBc,
+    bc_vals: &[[f64; 5]; 4],
+    rho: &[f64],
+    mx: &[f64],
+    my: &[f64],
+    e: &[f64],
+    planes: &[Vec<f64>],
+    y_fill: &[f64],
+    solid: &[c_int],
+    tw: f64,
+) -> Result<CartStepResult, Error> {
     let n = nx.checked_mul(ny).ok_or(Error::InvalidArgs)?;
     if n == 0
         || dxs.len() != nx
@@ -373,6 +448,7 @@ pub fn cart_step_geom(
         || e.len() != n
         || planes.len() < NS
         || y_fill.len() < NS
+        || (!solid.is_empty() && solid.len() != n)
     {
         return Err(Error::InvalidArgs);
     }
@@ -393,6 +469,15 @@ pub fn cart_step_geom(
     let mut y2 = flat.clone();
     let mut dt = 0.0f64;
     let mut err: c_int = 0;
+    // an empty body mask is expanded to a real zero plane: the c surface
+    // always dereferences the pointer.
+    let empty_mask;
+    let solid_g: &[c_int] = if solid.is_empty() {
+        empty_mask = vec![0 as c_int; n];
+        &empty_mask
+    } else {
+        solid
+    };
     unsafe {
         nfor_cart_park5_step(
             nx as c_int,
@@ -414,6 +499,8 @@ pub fn cart_step_geom(
             bc_n.code(),
             bc_flat.as_ptr(),
             y_fill.as_ptr(),
+            solid_g.as_ptr(),
+            tw,
             rho2.as_mut_ptr(),
             mx2.as_mut_ptr(),
             my2.as_mut_ptr(),

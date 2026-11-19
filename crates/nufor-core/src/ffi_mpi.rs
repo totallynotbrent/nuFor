@@ -238,6 +238,9 @@ extern "C" {
         bc_n: i32,
         bc_vals: *const f64,
         y_fill: *const f64,
+        solid: *const i32,
+        tw: f64,
+        x0off: f64,
         rho_o: *mut f64,
         mx_o: *mut f64,
         my_o: *mut f64,
@@ -1638,13 +1641,56 @@ pub fn march_park5_2d_mpi_geom(
     geom: i32,
     visc: i32,
 ) -> Result<MpiPark5Result, Error> {
+    // legacy callers carry no body: an empty mask and an adiabatic wall
+    // reproduce the pre-body bit stream exactly.
+    march_park5_2d_mpi_body(
+        state0,
+        planes0,
+        g,
+        bc,
+        cfl,
+        final_time,
+        max_steps,
+        y_fill,
+        geom,
+        visc,
+        &[],
+        0.0,
+    )
+}
+
+/// the body-aware twin: `solid` is the immersed-body mask over the GLOBAL
+/// grid, row-major (nonzero = solid), and `tw` the body wall temperature
+/// (<= 0 = adiabatic). an empty slice selects the body-free path, which is
+/// bit-identical to [`march_park5_2d_mpi_geom`]. planar grids only: an
+/// annular request with any solid cell is refused, mirroring err = 3.
+#[allow(clippy::too_many_arguments)]
+pub fn march_park5_2d_mpi_body(
+    state0: &ConservedState2d,
+    planes0: &[Vec<f64>],
+    g: &Grid2d,
+    bc: &Boundaries2d,
+    cfl: f64,
+    final_time: f64,
+    max_steps: usize,
+    y_fill: &[f64],
+    geom: i32,
+    visc: i32,
+    solid: &[i32],
+    tw: f64,
+) -> Result<MpiPark5Result, Error> {
     let ns = crate::park::NS;
     let n = g.nx * g.ny;
     if planes0.len() < ns
         || planes0.iter().any(|pl| pl.len() != n)
         || y_fill.len() < ns
         || state0.rho.len() != n
+        || (!solid.is_empty() && solid.len() < n)
     {
+        return Err(Error::InvalidArgs);
+    }
+    if geom != 0 && solid.iter().any(|&s| s != 0) {
+        // annular + immersed body stays refused, same code as the kernel.
         return Err(Error::InvalidArgs);
     }
     MpiSession::new()?;
@@ -1658,6 +1704,14 @@ pub fn march_park5_2d_mpi_geom(
     let mut my_l = vec![0.0f64; nl];
     let mut e_l = vec![0.0f64; nl];
     let mut ys_l = vec![0.0f64; ns * nl];
+    // the slab's slice of the global body mask; empty means body-free.
+    let empty_mask;
+    let solid_g: &[i32] = if solid.is_empty() {
+        empty_mask = vec![0i32; n];
+        &empty_mask
+    } else {
+        solid
+    };
     for j in 0..g.ny {
         for i in 0..nx_local {
             let src = j * g.nx + i0 as usize + i;
@@ -1673,6 +1727,10 @@ pub fn march_park5_2d_mpi_geom(
     }
     // the slab's own cell widths, taken from the global axis.
     let dxs_l: Vec<f64> = g.dxs[i0 as usize..i0 as usize + nx_local].to_vec();
+    // global x-coordinate of the slab's west face, accumulated strictly
+    // left-to-right over the full row so it rounds bit-identical to the
+    // serial oracle's own coordinate chain.
+    let x0off: f64 = g.dxs[..i0 as usize].iter().fold(0.0f64, |a, &b| a + b);
 
     let (codes, sides) = park5_boundary_codes(bc, y_fill);
     let (bw, be, bs, bn) = (codes[0], codes[1], codes[2], codes[3]);
@@ -1713,6 +1771,9 @@ pub fn march_park5_2d_mpi_geom(
                 bn,
                 bc_vals.as_ptr(),
                 y_fill_arr.as_ptr(),
+                solid_g.as_ptr(),
+                tw,
+                x0off,
                 rho2.as_mut_ptr(),
                 mx2.as_mut_ptr(),
                 my2.as_mut_ptr(),
