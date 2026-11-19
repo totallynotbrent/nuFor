@@ -90,6 +90,7 @@ extern "C" {
         dys: *const f64,
         faces_y: *const f64,
         geom: c_int,
+        visc: c_int,
         cfl: f64,
         bc_w: c_int,
         bc_e: c_int,

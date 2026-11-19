@@ -16,6 +16,7 @@ module nuforcartpark5
   use nuforpark5common, only: park5_vlim
   use iso_fortran_env, only: real64
   use nuforpark5, only: closure_triple, transport_planar, transport_axi, chem_substep_grid
+  use nuforprops, only: park5_viscous_update
   use nuforriemann, only: hllc_face_x_pub => hllc_face_x
   implicit none
 
@@ -36,14 +37,14 @@ contains
   ! bcs: 0 transmissive, 1 supersonic inflow (bc_vals), 2 outflow,
   ! 3 slip wall, 4 no-slip wall. y_fill is the fill composition at
   ! inflow edges.
-  subroutine cart_park5_step(nx, ny, rho, mx, my, e, y, dxs, dys, faces_y, geom, cfl, &
+  subroutine cart_park5_step(nx, ny, rho, mx, my, e, y, dxs, dys, faces_y, geom, visc, cfl, &
                              bc_w, bc_e, bc_s, bc_n, bc_vals, y_fill, &
                              rho2, mx2, my2, e2, y2, dt_out)
     integer, intent(in) :: nx, ny
     real(DP), intent(in) :: rho(nx*ny), mx(nx*ny), my(nx*ny), e(nx*ny)
     real(DP), intent(in) :: y(NP5, nx*ny)
     real(DP), intent(in) :: dxs(nx), dys(ny), faces_y(ny+1), cfl
-    integer, intent(in) :: geom
+    integer, intent(in) :: geom, visc
     integer, intent(in) :: bc_w, bc_e, bc_s, bc_n
     real(DP), intent(in) :: bc_vals(5, 4)   ! (var, side), side 1=w 2=e 3=s 4=n
     real(DP), intent(in) :: y_fill(NP5)
@@ -60,10 +61,12 @@ contains
     real(DP), allocatable :: thr(:), tu(:), tv(:), te(:), ty(:,:)
     real(DP), allocatable :: sxr(:), sxu(:), sxv(:), sxe(:), sxy(:,:)
     real(DP) :: yl(NP5), yr(NP5), ycc(NP5), sum_y
+    real(DP) :: czero(9, ny)
     real(DP) :: rl, rul, vul, el, al, pl, rr, rur, vur, er_, ar_, pr_
     real(DP) :: fm, fmx, fmy, fe, smax, dt, dum
     real(DP) :: rm, rp, rc
     real(DP) :: rhe(nx*ny), dee(nx*ny), yc(NP5, nx*ny)
+    real(DP), allocatable :: ysf(:)
     integer :: i, j, f, s, k, c
     logical :: annular
 
@@ -278,6 +281,26 @@ contains
     else
       call transport_planar(nx, ny, rho2, dt, dxs, dys, fxm, fym, y2, dum)
     end if
+    ! opt-in laminar pass, shared verbatim with the mpi lane. y2 is
+    ! (NP5, n) column-major, so repack to the species-major flat layout
+    ! park5_viscous_update expects, then scatter back afterwards.
+    if (visc /= 0) then
+      czero = 0.0_DP
+      allocate(ysf(NP5*nx*ny))
+      do k = 1, nx*ny
+        do s = 1, NP5
+          ysf((s-1)*nx*ny + k) = y2(s, k)
+        end do
+      end do
+      call park5_viscous_update(nx, ny, rho2, mx2, my2, e2, ysf, dxs, dys, dt, &
+                                .true., .true., 0.0_DP, 0.0_DP, czero, czero)
+      do k = 1, nx*ny
+        do s = 1, NP5
+          y2(s, k) = ysf((s-1)*nx*ny + k)
+        end do
+      end do
+      deallocate(ysf)
+    end if
     do k = 1, nx*ny
       sum_y = 0.0_DP
       do s = 1, NP5
@@ -306,7 +329,7 @@ contains
   ! ------------------------------------------------------------------
   ! c surface: the marshalling for the rust caller. the buffers cross
   ! the boundary in the flat layout the rust side lays out.
-  subroutine nfor_cart_park5_step(nx, ny, rho, mx, my, e, y, dxs, dys, faces_y, geom, cfl, &
+  subroutine nfor_cart_park5_step(nx, ny, rho, mx, my, e, y, dxs, dys, faces_y, geom, visc, cfl, &
                                   bc_w, bc_e, bc_s, bc_n, bc_vals, y_fill, &
                                   rho2, mx2, my2, e2, y2, dt_out, err) &
       bind(c, name="nfor_cart_park5_step")
@@ -314,7 +337,7 @@ contains
     integer(c_int), value, intent(in) :: nx, ny
     real(c_double), intent(in) :: rho(*), mx(*), my(*), e(*), y(*)
     real(c_double), intent(in) :: dxs(*), dys(*), faces_y(*)
-    integer(c_int), value, intent(in) :: geom
+    integer(c_int), value, intent(in) :: geom, visc
     ! the cfl scalar crosses by value, so it must be declared that way.
     real(c_double), value, intent(in) :: cfl
     integer(c_int), value, intent(in) :: bc_w, bc_e, bc_s, bc_n
@@ -332,6 +355,13 @@ contains
 
     if (nx <= 0 .or. ny <= 0) then
       err = 1
+      return
+    end if
+    ! the shared viscous kernel is planar-metric only; the annular oracle
+    ! variant refuses the combination outright.
+    if (geom /= 0 .and. visc /= 0) then
+      err = 3
+      dt_out = 0.0_c_double
       return
     end if
     ! the scratch pads are fixed size, so an oversized grid is refused
@@ -357,7 +387,7 @@ contains
       ya(s,1:nn) = y((s-1)*nn + 1:s*nn)
     end do
     call cart_park5_step(ni, nj, rh, mh, nh, eh, ya, &
-                         dxn, dyn, fya, int(geom), cfl, int(bc_w), int(bc_e), int(bc_s), int(bc_n), &
+                         dxn, dyn, fya, int(geom), int(visc), cfl, int(bc_w), int(bc_e), int(bc_s), int(bc_n), &
                          bcv, yf, ro, mo, no, qo, y2a, dt_out)
     rho2(1:nn) = ro; mx2(1:nn) = mo; my2(1:nn) = no; e2(1:nn) = qo
     do s = 1, 5
@@ -369,7 +399,7 @@ contains
 
   ! annular flavour of the same marshalling: geom /= 0 selects the
   ! r-weighted divergence and the p/rc source in the core step.
-  subroutine nfor_cart_park5_step_axi(nx, ny, rho, mx, my, e, y, dxs, dys, faces_y, geom, cfl, &
+  subroutine nfor_cart_park5_step_axi(nx, ny, rho, mx, my, e, y, dxs, dys, faces_y, geom, visc, cfl, &
                                       bc_w, bc_e, bc_s, bc_n, bc_vals, y_fill, &
                                       rho2, mx2, my2, e2, y2, dt_out, err) &
       bind(c, name="nfor_cart_park5_step_axi")
@@ -377,7 +407,7 @@ contains
     integer(c_int), value, intent(in) :: nx, ny
     real(c_double), intent(in) :: rho(*), mx(*), my(*), e(*), y(*)
     real(c_double), intent(in) :: dxs(*), dys(*), faces_y(*)
-    integer(c_int), value, intent(in) :: geom
+    integer(c_int), value, intent(in) :: geom, visc
     real(c_double), value, intent(in) :: cfl
     integer(c_int), value, intent(in) :: bc_w, bc_e, bc_s, bc_n
     real(c_double), intent(in) :: bc_vals(*)
@@ -385,7 +415,7 @@ contains
     real(c_double), intent(out) :: rho2(*), mx2(*), my2(*), e2(*), y2(*)
     real(c_double), intent(out) :: dt_out
     integer(c_int), intent(out) :: err
-    call nfor_cart_park5_step(nx, ny, rho, mx, my, e, y, dxs, dys, faces_y, geom, cfl, &
+    call nfor_cart_park5_step(nx, ny, rho, mx, my, e, y, dxs, dys, faces_y, geom, visc, cfl, &
                               bc_w, bc_e, bc_s, bc_n, bc_vals, y_fill, &
                               rho2, mx2, my2, e2, y2, dt_out, err)
   end subroutine nfor_cart_park5_step_axi

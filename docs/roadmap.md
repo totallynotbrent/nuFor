@@ -451,7 +451,12 @@ flowchart LR
     discontinuity itself and is documented on the [[numerics/parallel/mpi|MPI
     page]] rather than fitted away. Beyond the planar inviscid lanes, the
     axisymmetric species and combustion terms ride the same radial faces in
-    that module, so the F3 species lane is MPI-native end to end.
+    that module, so the F3 species lane is MPI-native end to end. The laminar
+    viscous Park-5 pass joined the same decomposition too: one shared kernel
+    between the MPI march and the serial oracle, with the seam halo refreshed
+    from the post-transport state, holding bit parity at np=1..4 (details on
+    the [[numerics/parallel/mpi|MPI page]]); annular-plus-viscous combinations
+    refuse with `err = 3` and stay on the serial lane.
 
 ## What we deliberately do not borrow
 

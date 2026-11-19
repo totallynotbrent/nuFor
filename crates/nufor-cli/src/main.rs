@@ -2669,10 +2669,14 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
             }
         }
     }
+    let park5_visc = cfg.physics.mu.is_some_and(|m| m > 0.0);
+    let park5_annular = g.faces_y.first().is_some_and(|r| *r > 0.0);
     if mpi_launched()
         && matches!(model, ThermoModel::Park5 { .. })
-        && cfg.physics.mu.map_or(true, |m| m == 0.0)
         && body.is_none()
+        // the shared viscous kernel is planar-metric only, so the annular
+        // + mu > 0 combination stays on the serial rust lane.
+        && !(park5_visc && park5_annular)
     {
         let sp = match park5_species.as_ref() {
             Some(sp) => sp,
@@ -2687,8 +2691,12 @@ fn run_case_2d(cfg: &CaseConfig, path: &str) -> i32 {
         let aim = (t_end - restart_time).max(0.0);
         // an annulus (strictly positive innermost face radius) selects the
         // r-weighted lane; a flat channel keeps geom=0 and the planar path.
-        let geom = i32::from(g.faces_y.first().is_some_and(|r| *r > 0.0));
-        match march_park5_2d_mpi_geom(&st, &sp.y, &g, &bc, cfl, aim, max_steps, &y_fill, geom) {
+        // mu > 0 opts into the laminar viscous pass on top of either.
+        let geom = i32::from(park5_annular);
+        let visc = i32::from(park5_visc);
+        match march_park5_2d_mpi_geom(
+            &st, &sp.y, &g, &bc, cfl, aim, max_steps, &y_fill, geom, visc,
+        ) {
             Ok(r) => {
                 if let (Some(gst), Some(gp)) = (r.state, r.planes) {
                     st = gst;

@@ -185,6 +185,14 @@ jobs:
           check 2 mpi_mpipark5_axi_matches_serial
           check 3 mpi_mpipark5_axi_matches_serial
           check 4 mpi_mpipark5_axi_matches_serial
+          # the viscous park5 march: the opt-in mu>0 lane against the
+          # serial oracle with the same visc flag, bit for bit at np=1..4
+          # (the test asserts exact-zero agreement, normalisation, that
+          # the composition moved, and that visc=1 differs from visc=0)
+          check 1 mpi_mpipark5_visc_matches_serial
+          check 2 mpi_mpipark5_visc_matches_serial
+          check 3 mpi_mpipark5_visc_matches_serial
+          check 4 mpi_mpipark5_visc_matches_serial
           # the capsule body gate asserts its own 1e-6 tolerance inside
           # the test (roundoff at the wall faces is not exact zero)
           capok=0

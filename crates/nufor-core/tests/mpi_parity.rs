@@ -1497,7 +1497,7 @@ fn mpi_mpipark5_axi_matches_serial() {
 
     MpiSession::new().unwrap();
     let (drank, _di0, _dnl) = MpiSession::case_init(nx, ny).unwrap();
-    let r = march_park5_2d_mpi_geom(&st, &planes, &g, &bc, 0.45, 1.0e30, 1, &AIR, 1).unwrap();
+    let r = march_park5_2d_mpi_geom(&st, &planes, &g, &bc, 0.45, 1.0e30, 1, &AIR, 1, 0).unwrap();
 
     let (_, sides) = park5_boundary_codes(&bc, &AIR);
     let ser = cart_step_geom(
@@ -1507,6 +1507,7 @@ fn mpi_mpipark5_axi_matches_serial() {
         &g.dys,
         &g.faces_y,
         1,
+        0,
         0.45,
         CartBc::Inflow,
         CartBc::Transmissive,
@@ -1568,6 +1569,178 @@ fn mpi_mpipark5_axi_matches_serial() {
             assert!(
                 src_alive > 1.0e-9,
                 "the annular source term vanished; the gate tested the planar path ({src_alive:e})"
+            );
+        }
+        _ => assert_ne!(drank, 0, "rank 0 must assemble the global state"),
+    }
+    mpi_shutdown();
+}
+
+/// the viscous twin of the park5 march gate: the same planar case driven
+/// through the opt-in `visc = 1` lane (laminar wilke viscosity, heat
+/// conduction, species diffusion) on both the mpi march and the serial
+/// oracle, compared bit for bit. the gate also proves the viscous pass
+/// was alive: the visc = 1 oracle must differ from the visc = 0 oracle.
+#[test]
+#[ignore] // run under mpirun -np N, see the ci parity-smoke step
+fn mpi_mpipark5_visc_matches_serial() {
+    use nufor_core::ffi_mpi::{
+        march_park5_2d_mpi_geom, mpi_shutdown, park5_boundary_codes, MpiSession,
+    };
+    use nufor_core::park::NS;
+    use nufor_core::park5_fortran::{cart_step_geom, CartBc};
+
+    const AIR: [f64; NS] = [0.767, 0.233, 0.0, 0.0, 0.0];
+
+    let (nx, ny) = (24usize, 8usize);
+    let n = nx * ny;
+    let g = nufor_core::grid2d::grid2d(nx, ny, 0.0, 1.0, 0.0, 1.0).unwrap();
+
+    let rho0 = 1.225f64;
+    let u0 = 400.0f64;
+    let v0 = 12.0f64;
+    let e_int = nufor_core::species_closure::internal_energy_at(300.0, &AIR);
+    let st = ConservedState2d {
+        rho: vec![rho0; n],
+        mx: vec![rho0 * u0; n],
+        my: vec![rho0 * v0; n],
+        e: vec![rho0 * (e_int + 0.5 * (u0 * u0 + v0 * v0)); n],
+    };
+    // graded composition: the diffusion operator needs a real gradient,
+    // and the varying mixture gas constant makes the pressure grade too,
+    // so the viscous stress and heat conduction lanes are all awake.
+    let planes: Vec<Vec<f64>> = (0..NS)
+        .map(|s| {
+            (0..n)
+                .map(|k| {
+                    let i = k % nx;
+                    let j = k / nx;
+                    let dx = 0.05 * (std::f64::consts::TAU * i as f64 / nx as f64).cos();
+                    let dy = 0.02 * (std::f64::consts::TAU * j as f64 / ny as f64).sin();
+                    let d = dx + dy;
+                    match s {
+                        0 => AIR[0] + d,
+                        1 => AIR[1] - d,
+                        _ => AIR[s],
+                    }
+                })
+                .collect()
+        })
+        .collect();
+
+    let bc = nufor_core::Boundaries2d {
+        west: nufor_core::Bc2d::SupersonicInflow {
+            rho: rho0,
+            u: u0,
+            v: v0,
+            p: rho0 * 287.05 * 300.0,
+            t: Some(300.0),
+        },
+        east: nufor_core::Bc2d::Transmissive,
+        south: nufor_core::Bc2d::Transmissive,
+        north: nufor_core::Bc2d::Transmissive,
+    };
+
+    MpiSession::new().unwrap();
+    let (drank, _di0, _dnl) = MpiSession::case_init(nx, ny).unwrap();
+    let r = march_park5_2d_mpi_geom(&st, &planes, &g, &bc, 0.45, 1.0e30, 1, &AIR, 0, 1).unwrap();
+
+    let (_, sides) = park5_boundary_codes(&bc, &AIR);
+    let ser = cart_step_geom(
+        nx,
+        ny,
+        &g.dxs,
+        &g.dys,
+        &g.faces_y,
+        0,
+        1,
+        0.45,
+        CartBc::Inflow,
+        CartBc::Transmissive,
+        CartBc::Transmissive,
+        CartBc::Transmissive,
+        &sides,
+        &st.rho,
+        &st.mx,
+        &st.my,
+        &st.e,
+        &planes,
+        &AIR,
+    )
+    .unwrap();
+    let dry = cart_step_geom(
+        nx,
+        ny,
+        &g.dxs,
+        &g.dys,
+        &g.faces_y,
+        0,
+        0,
+        0.45,
+        CartBc::Inflow,
+        CartBc::Transmissive,
+        CartBc::Transmissive,
+        CartBc::Transmissive,
+        &sides,
+        &st.rho,
+        &st.mx,
+        &st.my,
+        &st.e,
+        &planes,
+        &AIR,
+    )
+    .unwrap();
+
+    match (&r.state, &r.planes) {
+        (Some(got), Some(got_y)) => {
+            let mut worst = 0.0f64;
+            let mut composed = 0.0f64;
+            let mut moved = 0.0f64;
+            let mut wet_shift = 0.0f64;
+            for k in 0..n {
+                worst = worst.max((got.rho[k] - ser.rho[k]).abs());
+                worst = worst.max((got.mx[k] - ser.mx[k]).abs());
+                worst = worst.max((got.my[k] - ser.my[k]).abs());
+                worst = worst.max((got.e[k] - ser.e[k]).abs());
+                wet_shift = wet_shift.max((ser.rho[k] - dry.rho[k]).abs());
+                wet_shift = wet_shift.max((ser.mx[k] - dry.mx[k]).abs());
+                wet_shift = wet_shift.max((ser.my[k] - dry.my[k]).abs());
+                wet_shift = wet_shift.max((ser.e[k] - dry.e[k]).abs());
+                let mut sum = 0.0f64;
+                for s in 0..NS {
+                    worst = worst.max((got_y[s][k] - ser.planes[s][k]).abs());
+                    wet_shift = wet_shift.max((ser.planes[s][k] - dry.planes[s][k]).abs());
+                    sum += got_y[s][k];
+                    moved = moved.max((got_y[s][k] - planes[s][k]).abs());
+                }
+                composed = composed.max((sum - 1.0).abs());
+            }
+            mpi_report::number("mpipark5_visc_worst_abs_vs_serial_one_step", worst);
+            mpi_report::number("mpipark5_visc_worst_composition_sum_error", composed);
+            mpi_report::number("mpipark5_visc_worst_composition_change", moved);
+            mpi_report::number("mpipark5_visc_laminar_pass_shift", wet_shift);
+            mpi_report::integer("mpipark5_visc_world_size", num_ranks() as i64);
+            mpi_report::flush();
+            mpi_report::fence();
+            assert!(
+                moved > 1.0e-6,
+                "the march left the composition parked; the gate proved nothing ({moved:e})"
+            );
+            assert!(
+                wet_shift > 1.0e-12,
+                "visc = 1 reproduced visc = 0 exactly; the laminar pass was dormant ({wet_shift:e})"
+            );
+            assert!(
+                wet_shift < 1.0,
+                "the serial laminar pass exploded (|visc-dry| = {wet_shift:e}); kernel unstable"
+            );
+            assert!(
+                composed <= 1.0e-12,
+                "the composition lost its normalisation ({composed:e})"
+            );
+            assert_eq!(
+                worst, 0.0,
+                "the viscous mpi march diverged from the serial oracle ({worst:e})"
             );
         }
         _ => assert_ne!(drank, 0, "rank 0 must assemble the global state"),

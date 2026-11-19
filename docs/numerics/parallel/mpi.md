@@ -330,6 +330,30 @@ pass as planar. Degenerate geometries (`faces_y(1) <= 0`, the cylinder
 touching the axis) refuse with `err = 2` in the MPI path and pass through
 with `dt_out = 0` in the serial oracle.
 
+## Laminar viscous Park-5 march
+
+A laminar viscous pass opts in through the viscous flag:
+`march_park5_2d_mpi_geom(…, geom = 0, visc = 1)`. Between the species
+transport and the normalisation, both the MPI march and the serial oracle
+call the same kernel, `park5_viscous_update` in `fortran/api/nuforprops.f90`,
+which mirrors the interior stencils of the serial Rust lane
+(`species_viscous.rs`): per-cell Wilke viscosity, conductivity, and
+diffusivity with the pressure floored at 1 Pa, directional stresses, Fourier
+conduction, and species diffusion folded with the formation-enthalpy flux,
+applied with the face-local diffusion-gated timestep. Because the stencil
+reaches one column past each slab, the MPI lane refreshes its two-deep halo
+from the post-transport state and sends the neighbour's edge cell width
+alongside, so a seam face sees the same global neighbour column the serial
+lane reads; global domain edges carry zero viscous flux. Combining the
+annular geometry with the viscous pass is refused with `err = 3` (the
+kernel is planar-metric only), and the CLI keeps that combination on the
+serial Rust lane. The serial oracle repacks its `(NP5, n)` column-major
+mass fractions into the kernel's species-major flat layout around the call.
+On the planar graded-air case, the new gate `mpi_mpipark5_visc_matches_serial`
+reports a largest absolute difference of 0.0 over the conserved fields and
+all five species planes at np=1, np=2, np=3, and np=4, with the laminar pass
+measurably alive against the `visc = 0` run.
+
 ## Nine-species combustion march
 
 The combustion lane marches the four conserved planes plus the nine Li2004

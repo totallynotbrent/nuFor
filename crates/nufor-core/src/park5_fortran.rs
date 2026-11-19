@@ -330,15 +330,16 @@ pub fn cart_step(
     // a zeroed stand-in buffer satisfies the abi without being read.
     let zeros = vec![0.0f64; ny + 1];
     cart_step_geom(
-        nx, ny, dxs, dys, &zeros, 0, cfl, bc_w, bc_e, bc_s, bc_n, bc_vals, rho, mx, my, e, planes,
-        y_fill,
+        nx, ny, dxs, dys, &zeros, 0, 0, cfl, bc_w, bc_e, bc_s, bc_n, bc_vals, rho, mx, my, e,
+        planes, y_fill,
     )
 }
 
 /// one park5 step with an explicit geometry: `faces_y` are the ny+1
 /// horizontal face radii and `geom != 0` selects the annular update
 /// (r-weighted radial divergence, p/rc source, r-weighted species
-/// divergence).
+/// divergence). `visc != 0` layers the laminar viscous pass on top;
+/// planar only (the annular combination is refused on the fortran side).
 #[allow(clippy::too_many_arguments)]
 pub fn cart_step_geom(
     nx: usize,
@@ -347,6 +348,7 @@ pub fn cart_step_geom(
     dys: &[f64],
     faces_y: &[f64],
     geom: c_int,
+    visc: c_int,
     cfl: f64,
     bc_w: CartBc,
     bc_e: CartBc,
@@ -404,6 +406,7 @@ pub fn cart_step_geom(
             dys.as_ptr(),
             faces_y.as_ptr(),
             geom,
+            visc,
             cfl,
             bc_w.code(),
             bc_e.code(),

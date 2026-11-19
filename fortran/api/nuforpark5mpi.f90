@@ -33,6 +33,7 @@ module nuforpark5mpi
   use mpi
   use nufor_mpi
   use nuforpark5, only: closure_triple, chem_substep_grid
+  use nuforprops, only: park5_viscous_update
   use nuforriemann, only: hllc_face_x_pub => hllc_face_x
   use nuforpark5common, only: park5_vlim, park5_domain_edges
   implicit none
@@ -54,7 +55,7 @@ contains
   ! total energy) and the five composition fractions, flat with
   ! k = (j-1)*nx_local + i. the outputs are the same state after the step.
   subroutine nfor_mpipark5_march(nx, ny, rho, mx, my, e_tot, ys, &
-                                 dxs, dys, faces_y, geom, cfl, &
+                                 dxs, dys, faces_y, geom, visc, cfl, &
                                  bc_w, bc_e, bc_s, bc_n, bc_vals, y_fill, &
                                  rho_o, mx_o, my_o, e_o, ys_o, dt_out, err) &
       bind(c, name="nfor_mpipark5_march")
@@ -62,7 +63,7 @@ contains
     integer(c_int), value, intent(in) :: nx, ny
     real(c_double), intent(in) :: rho(*), mx(*), my(*), e_tot(*), ys(*)
     real(c_double), intent(in) :: dxs(*), dys(*), faces_y(*)
-    integer(c_int), value, intent(in) :: geom
+    integer(c_int), value, intent(in) :: geom, visc
     ! the cfl scalar crosses by value, so it must be declared that way.
     real(c_double), value, intent(in) :: cfl
     integer(c_int), value, intent(in) :: bc_w, bc_e, bc_s, bc_n
@@ -85,9 +86,11 @@ contains
     real(RP) :: rm, rpv, rc, pk
     real(RP) :: yleft(NP5), yright(NP5), ysum, rho_y, worst_dy, worst_ov
     real(RP) :: flux_x, flux_y, dxi, dyi, dflux, new_rho_y
+    real(RP) :: dwx, dex, pri
+    real(RP), allocatable :: cwl(:,:), cel(:,:)
     logical :: annular
     type(decomp_t) :: dec
-    integer :: world, rank, eerr, i, j, f, s, k, c, nl, nj, nn, ng, nb, nf, nbmax
+    integer :: world, rank, eerr, ierr, i, j, f, s, k, c, nl, nj, nn, ng, nb, nf, nbmax
     integer :: gi, sd, vv
 
     err = 0
@@ -96,6 +99,13 @@ contains
     ng = int(nx); nj = int(ny)
     if (ng <= 0 .or. nj <= 0) then
       err = 1
+      return
+    end if
+    ! the shared viscous kernel is planar-metric only; refusing annular +
+    ! viscous here keeps the r-weighted lane from taking a wrong-metric pass.
+    if (geom /= 0 .and. visc /= 0) then
+      err = 3
+      dt_out = 0.0_c_double
       return
     end if
     dec = make_decomp(ng, nj, world, rank)
@@ -426,6 +436,45 @@ contains
         end do
       end do
     end do
+
+    ! opt-in laminar pass, the same shared kernel the serial oracle calls.
+    ! the kernel's x-face stencil reaches one cell past the slab, so the
+    ! post-transport primitives are repacked into the padded carrier, the
+    ! seam halo is refreshed, and the neighbour edge widths ride along in
+    ! a scalar exchange; global domain edges pass zero flux as before.
+    if (visc /= 0) then
+      do j = 1, nj
+        do i = 1, nl
+          k = (j-1)*nl + i
+          pri = max(rho_o(k), 1.0e-12_RP)
+          car(1,i+2,j) = pri
+          car(2,i+2,j) = mx_o(k) / pri
+          car(3,i+2,j) = my_o(k) / pri
+          car(4,i+2,j) = e_o(k) / pri - 0.5_RP*(car(2,i+2,j)**2 + car(3,i+2,j)**2)
+          do s = 1, NP5
+            car(4+s,i+2,j) = ys_o((s-1)*nn + k)
+          end do
+        end do
+      end do
+      call halo_exchange_x(car, NCAR, dec)
+      allocate(cwl(NCAR,nj), cel(NCAR,nj))
+      do j = 1, nj
+        cwl(:,j) = car(:,2,j)
+        cel(:,j) = car(:,nl+3,j)
+      end do
+      ! west neighbour's last cell width and east neighbour's first.
+      dwx = 0.0_RP; dex = 0.0_RP
+      call mpi_sendrecv(dxs(nl), 1, MPI_DOUBLE_PRECISION, dec%east_rank, 103, &
+                        dwx, 1, MPI_DOUBLE_PRECISION, dec%west_rank, 103, &
+                        MPI_COMM_WORLD, MPI_STATUS_IGNORE, ierr)
+      call mpi_sendrecv(dxs(1), 1, MPI_DOUBLE_PRECISION, dec%west_rank, 104, &
+                        dex, 1, MPI_DOUBLE_PRECISION, dec%east_rank, 104, &
+                        MPI_COMM_WORLD, MPI_STATUS_IGNORE, ierr)
+      call park5_viscous_update(nl, nj, rho_o, mx_o, my_o, e_o, ys_o, dxs, dys, dt, &
+                                dec%west_domain_edge, dec%east_domain_edge, &
+                                dwx, dex, cwl, cel)
+      deallocate(cwl, cel)
+    end if
 
     ! ===================== normalisation and chemistry =====================
     do k = 1, nn

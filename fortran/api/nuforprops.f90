@@ -33,7 +33,7 @@
 module nuforprops
   use iso_c_binding, only: c_double
   use iso_fortran_env, only: real64
-  use nuforpark5, only: NS, M_SPEC
+  use nuforpark5, only: NS, M_SPEC, HF_SPEC, pressure_at, temperature_at
   implicit none
 
   integer, parameter :: DP = real64
@@ -82,6 +82,7 @@ module nuforprops
 
   public :: species_viscosity, species_conductivity, binary_diffusivity
   public :: effective_diffusivity, mixture_viscosity, mixture_conductivity
+  public :: park5_viscous_update
 
   interface
     function c_exp(x) bind(c, name="exp") result(y)
@@ -396,5 +397,262 @@ contains
     end if
     kappa = num / den
   end function mixture_conductivity
+
+  ! the laminar viscous pass shared by the serial and the mpi park5 lanes:
+  ! wilke coefficients per cell, interior-face stress / conduction /
+  ! species-diffusion fluxes, and the divergence update with the face-local
+  ! diffusion stability cap. mirrors species_viscous.rs (body-free): domain
+  ! faces carry zero viscous flux, and the central stencils never read a
+  ! ghost column, so the mpi lane needs no halo for this pass.
+  ! the composition arrives flat, species-major (ys((s-1)*n+k)), and is
+  ! mutated in place together with the momenta and the energy; the density
+  ! is only read.
+  subroutine park5_viscous_update(nl, nj, rho, mx, my, e_tot, ys, dxs, dys, dt, &
+                                   west_edge, east_edge, dwx, dex, cw, ce)
+    integer, intent(in) :: nl, nj
+    logical, intent(in) :: west_edge, east_edge
+    real(DP), intent(in) :: rho(nl*nj), dxs(nl), dys(nj), dt
+    ! seam spacings: dwx/dex are the west/east neighbour slabs' edge cell
+    ! widths (unused at a global domain edge).
+    real(DP), intent(in) :: dwx, dex
+    ! west/east neighbour-column primitives in the car layout
+    ! (rho, u, v, e_int, Y_1..5); only read when the face is not a
+    ! global domain edge.
+    real(DP), intent(in) :: cw(9,nj), ce(9,nj)
+    real(DP), intent(inout) :: mx(nl*nj), my(nl*nj), e_tot(nl*nj), ys(*)
+    real(DP), allocatable :: car(:,:,:), tt(:), mu(:), ka(:), df(:)
+    real(DP), allocatable :: gt(:), gm(:), gk(:), gd(:), ht(:), hm(:), hk(:), hd(:)
+    real(DP), allocatable :: gce(:)
+    real(DP), allocatable :: xtx(:,:), xty(:,:), xen(:,:), xjs(:,:,:)
+    real(DP), allocatable :: ytx(:,:), yty(:,:), yen(:,:), yjs(:,:,:)
+    real(DP) :: yc(NS), yg(NS), pc, pg, ph, mum, kam, dfm, dx, dy
+    real(DP) :: dudx, dvdx, duDy, dvdy, dtdx, dtdy
+    real(DP) :: div, txx, txy, tyy, qx, qy, rf, js, qe, rhom, dtx, dty, ssum
+    real(DP) :: rl, ul, vl, el, mul, kal, dfl, tgl
+    real(DP) :: rr, ur, vr, er_, mur, kar, dfr, tgr
+    integer :: i, j, f, s, k, kl, kr, nn
+
+    nn = nl*nj
+    allocate(car(9, nl+4, nj), tt(nn), mu(nn), ka(nn), df(nn))
+    allocate(gt(nj), gm(nj), gk(nj), gd(nj), ht(nj), hm(nj), hk(nj), hd(nj))
+    allocate(gce(nj))
+    allocate(xtx(nl+1,nj), xty(nl+1,nj), xen(nl+1,nj), xjs(NS,nl+1,nj))
+    allocate(ytx(nj+1,nl), yty(nj+1,nl), yen(nj+1,nl), yjs(NS,nj+1,nl))
+    xtx = 0.0_DP; xty = 0.0_DP; xen = 0.0_DP; xjs = 0.0_DP
+    ytx = 0.0_DP; yty = 0.0_DP; yen = 0.0_DP; yjs = 0.0_DP
+
+    ! padded primitive carrier, centres only.
+    do j = 1, nj
+      do i = 1, nl
+        k = (j-1)*nl + i
+        car(1,i+2,j) = rho(k)
+        car(2,i+2,j) = mx(k) / max(rho(k), 1.0e-12_DP)
+        car(3,i+2,j) = my(k) / max(rho(k), 1.0e-12_DP)
+        car(4,i+2,j) = e_tot(k) / max(rho(k), 1.0e-12_DP) &
+                       - 0.5_DP*(car(2,i+2,j)**2 + car(3,i+2,j)**2)
+        do s = 1, NS
+          car(4+s,i+2,j) = ys((s-1)*nn + k)
+        end do
+      end do
+    end do
+
+    ! per-cell closure temperature + wilke coefficients; p floored at 1 Pa
+    ! (the rust lane's clamp so the diffusivity stays finite).
+    do j = 1, nj
+      do i = 1, nl
+        k = (j-1)*nl + i
+        do s = 1, NS
+          yc(s) = car(4+s,i+2,j)
+        end do
+        pc = max(pressure_at(car(1,i+2,j), car(4,i+2,j), yc), 1.0_DP)
+        tt(k) = temperature_at(car(4,i+2,j), yc)
+        mu(k) = mixture_viscosity(yc, tt(k))
+        ka(k) = mixture_conductivity(yc, tt(k))
+        df(k) = effective_diffusivity(yc, tt(k), pc)
+      end do
+    end do
+
+    ! off-rank neighbour columns get their own closure, same flooring.
+    do j = 1, nj
+      if (.not. west_edge) then
+        do s = 1, NS
+          yg(s) = cw(4+s,j)
+        end do
+        pg = max(pressure_at(cw(1,j), cw(4,j), yg), 1.0_DP)
+        gt(j) = temperature_at(cw(4,j), yg)
+        gm(j) = mixture_viscosity(yg, gt(j))
+        gk(j) = mixture_conductivity(yg, gt(j))
+        gd(j) = effective_diffusivity(yg, gt(j), pg)
+      end if
+      if (.not. east_edge) then
+        do s = 1, NS
+          yg(s) = ce(4+s,j)
+        end do
+        ph = max(pressure_at(ce(1,j), ce(4,j), yg), 1.0_DP)
+        ht(j) = temperature_at(ce(4,j), yg)
+        hm(j) = mixture_viscosity(yg, ht(j))
+        hk(j) = mixture_conductivity(yg, ht(j))
+        hd(j) = effective_diffusivity(yg, ht(j), ph)
+        ! the serial lane folds each cell's right neighbour's diffusion
+        ! cap into its own face scaling, so the seam cell needs the east
+        ! neighbour column's cap as well.
+        gce(j) = min(dex*dex / (4.0_DP*max(hd(j), 1.0e-12_DP)/max(ce(1,j), 1.0e-9_DP)), &
+                     dys(j)*dys(j) / (4.0_DP*max(hd(j), 1.0e-12_DP)/max(ce(1,j), 1.0e-9_DP)), dt)
+      end if
+    end do
+
+    ! x faces f = 1..nl+1. f = 1 pairs the west neighbour column with
+    ! local cell 1 and f = nl+1 local cell nl with the east neighbour;
+    ! a global domain edge skips the face (arrays preset to zero flux).
+    do j = 1, nj
+      do f = 1, nl+1
+        if (f == 1 .and. west_edge) cycle
+        if (f == nl+1 .and. east_edge) cycle
+        ! left side of the face
+        if (f == 1) then
+          kl = 0
+          rl = cw(1,j); ul = cw(2,j); vl = cw(3,j); el = cw(4,j)
+          mul = gm(j); kal = gk(j); dfl = gd(j); tgl = gt(j)
+          do s = 1, NS
+            yc(s) = cw(4+s,j)
+          end do
+          dx = 0.5_DP*(dwx + dxs(1))
+        else
+          kl = (j-1)*nl + f - 1
+          rl = car(1,f+1,j); ul = car(2,f+1,j); vl = car(3,f+1,j); el = car(4,f+1,j)
+          mul = mu(kl); kal = ka(kl); dfl = df(kl); tgl = tt(kl)
+          do s = 1, NS
+            yc(s) = car(4+s,f+1,j)
+          end do
+          dx = 0.5_DP*(dxs(f-1) + dxs(f))
+        end if
+        ! right side of the face
+        if (f == nl+1) then
+          kr = 0
+          rr = ce(1,j); ur = ce(2,j); vr = ce(3,j); er_ = ce(4,j)
+          mur = hm(j); kar = hk(j); dfr = hd(j); tgr = ht(j)
+          do s = 1, NS
+            yg(s) = ce(4+s,j)
+          end do
+          dx = 0.5_DP*(dxs(nl) + dex)
+        else
+          kr = (j-1)*nl + f
+          rr = car(1,f+2,j); ur = car(2,f+2,j); vr = car(3,f+2,j); er_ = car(4,f+2,j)
+          mur = mu(kr); kar = ka(kr); dfr = df(kr); tgr = tt(kr)
+          do s = 1, NS
+            yg(s) = car(4+s,f+2,j)
+          end do
+        end if
+        mum = 0.5_DP*(mul + mur)
+        kam = 0.5_DP*(kal + kar)
+        dfm = 0.5_DP*(dfl + dfr)
+        dudx = (ur - ul) / dx
+        dvdx = (vr - vl) / dx
+        dtdx = (tgr - tgl) / dx
+        div = dudx
+        txx = mum*(2.0_DP*dudx - (2.0_DP/3.0_DP)*div)
+        txy = mum*dvdx
+        qx = kam*dtdx
+        rf = 0.5_DP*(rl + rr)
+        qe = 0.0_DP
+        do s = 1, NS
+          js = -rf*dfm*(yg(s) - yc(s)) / dx
+          xjs(s,f,j) = js
+          qe = qe + HF_SPEC(s)*js
+        end do
+        xtx(f,j) = txx
+        xty(f,j) = txy
+        xen(f,j) = 0.5_DP*(ul + ur)*txx + 0.5_DP*(vl + vr)*txy + qx - qe
+      end do
+    end do
+
+    ! y faces f = 2..nj (f = 1 and f = nj+1 are domain faces: zero flux).
+    do i = 1, nl
+      do f = 2, nj
+        kl = (f-2)*nl + i
+        kr = (f-1)*nl + i
+        dy = 0.5_DP*(dys(f-1) + dys(f))
+        mum = 0.5_DP*(mu(kl) + mu(kr))
+        kam = 0.5_DP*(ka(kl) + ka(kr))
+        dfm = 0.5_DP*(df(kl) + df(kr))
+        duDy = (car(2,i+2,f) - car(2,i+2,f-1)) / dy
+        dvdy = (car(3,i+2,f) - car(3,i+2,f-1)) / dy
+        dtdy = (tt(kr) - tt(kl)) / dy
+        div = dvdy
+        tyy = mum*(2.0_DP*dvdy - (2.0_DP/3.0_DP)*div)
+        txy = mum*duDy
+        qy = kam*dtdy
+        rf = 0.5_DP*(car(1,i+2,f) + car(1,i+2,f-1))
+        qe = 0.0_DP
+        do s = 1, NS
+          js = -rf*dfm*(car(4+s,i+2,f) - car(4+s,i+2,f-1)) / dy
+          yjs(s,f,i) = js
+          qe = qe + HF_SPEC(s)*js
+        end do
+        ytx(f,i) = txy
+        yty(f,i) = tyy
+        yen(f,i) = 0.5_DP*(car(2,i+2,f) + car(2,i+2,f-1))*txy &
+                 + 0.5_DP*(car(3,i+2,f) + car(3,i+2,f-1))*tyy + qy - qe
+      end do
+    end do
+
+    ! divergence update, each face scaled by the stricter of the two
+    ! adjoining cells' diffusion caps.
+    do j = 1, nj
+      do i = 1, nl
+        k = (j-1)*nl + i
+        rhom = max(rho(k), 1.0e-9_DP)
+        dtx = cell_cap(k, dxs(i), dys(j), dt)
+        if (i < nl) then
+          dtx = min(dtx, cell_cap(k+1, dxs(i+1), dys(j), dt))
+        else if (.not. east_edge) then
+          dtx = min(dtx, gce(j))
+        end if
+        dty = cell_cap(k, dxs(i), dys(j), dt)
+        if (j < nj) dty = min(dty, cell_cap(k+nl, dxs(i), dys(j+1), dt))
+        mx(k) = mx(k) + dtx*(xtx(i+1,j) - xtx(i,j)) / dxs(i)
+        my(k) = my(k) + dtx*(xty(i+1,j) - xty(i,j)) / dxs(i)
+        e_tot(k) = e_tot(k) + dtx*(xen(i+1,j) - xen(i,j)) / dxs(i)
+        my(k) = my(k) + dty*(yty(j+1,i) - yty(j,i)) / dys(j)
+        mx(k) = mx(k) + dty*(ytx(j+1,i) - ytx(j,i)) / dys(j)
+        e_tot(k) = e_tot(k) + dty*(yen(j+1,i) - yen(j,i)) / dys(j)
+        do s = 1, NS
+          ys((s-1)*nn+k) = ys((s-1)*nn+k) - dtx*(xjs(s,i+1,j) - xjs(s,i,j)) / dxs(i) / rhom
+          ys((s-1)*nn+k) = ys((s-1)*nn+k) - dty*(yjs(s,j+1,i) - yjs(s,j,i)) / dys(j) / rhom
+        end do
+      end do
+    end do
+
+    ! positivity clip + renormalize, one cell at a time.
+    do k = 1, nn
+      ssum = 0.0_DP
+      do s = 1, NS
+        if (ys((s-1)*nn+k) < 0.0_DP) ys((s-1)*nn+k) = 0.0_DP
+        if (ys((s-1)*nn+k) > 1.0_DP) ys((s-1)*nn+k) = 1.0_DP
+        ssum = ssum + ys((s-1)*nn+k)
+      end do
+      if (ssum > 0.0_DP) then
+        do s = 1, NS
+          ys((s-1)*nn+k) = ys((s-1)*nn+k) / ssum
+        end do
+      end if
+    end do
+
+    deallocate(car, tt, mu, ka, df, gt, gm, gk, gd, ht, hm, hk, hd, gce, &
+               xtx, xty, xen, xjs, ytx, yty, yen, yjs)
+
+  contains
+
+    ! the per-cell explicit diffusion cap folded with the march dt.
+    function cell_cap(k, dx, dy, dtc) result(c)
+      integer, intent(in) :: k
+      real(DP), intent(in) :: dx, dy, dtc
+      real(DP) :: c, rh
+      rh = max(rho(k), 1.0e-9_DP)
+      c = min(dx*dx / (4.0_DP*max(df(k), 1.0e-12_DP) / rh), &
+              dy*dy / (4.0_DP*max(df(k), 1.0e-12_DP) / rh), dtc)
+    end function cell_cap
+
+  end subroutine park5_viscous_update
 
 end module nuforprops

@@ -230,6 +230,7 @@ extern "C" {
         dys: *const f64,
         faces_y: *const f64,
         geom: i32,
+        visc: i32,
         cfl: f64,
         bc_w: i32,
         bc_e: i32,
@@ -1616,13 +1617,14 @@ pub fn march_park5_2d_mpi(
     y_fill: &[f64],
 ) -> Result<MpiPark5Result, Error> {
     march_park5_2d_mpi_geom(
-        state0, planes0, g, bc, cfl, final_time, max_steps, y_fill, 0,
+        state0, planes0, g, bc, cfl, final_time, max_steps, y_fill, 0, 0,
     )
 }
 
 /// the geometry-selecting twin: `geom != 0` runs the annular update
 /// (r-weighted radial divergence and the p/rc source), `geom == 0`
-/// keeps the planar path byte-identical to the original lane.
+/// keeps the planar path byte-identical to the original lane. `visc != 0`
+/// layers the laminar viscous pass on top; planar only.
 #[allow(clippy::too_many_arguments)]
 pub fn march_park5_2d_mpi_geom(
     state0: &ConservedState2d,
@@ -1634,6 +1636,7 @@ pub fn march_park5_2d_mpi_geom(
     max_steps: usize,
     y_fill: &[f64],
     geom: i32,
+    visc: i32,
 ) -> Result<MpiPark5Result, Error> {
     let ns = crate::park::NS;
     let n = g.nx * g.ny;
@@ -1702,6 +1705,7 @@ pub fn march_park5_2d_mpi_geom(
                 g.dys.as_ptr(),
                 g.faces_y.as_ptr(),
                 geom,
+                visc,
                 cfl,
                 bw,
                 be,
